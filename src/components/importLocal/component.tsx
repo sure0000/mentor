@@ -30,11 +30,10 @@ import {
 import DatabaseService from "../../utils/storage/databaseService";
 import { BookHelper } from "../../assets/lib/kookit.min";
 import { analyzeBookTitle } from "../../utils/request/reader";
+import { isAiAvailable } from "../../utils/aiReading/aiGateway";
 import { convertCajToPdf, isCajFormat } from "../../utils/file/cajUtil";
-import {
-  buildImportRecords,
-  importNoteRecords,
-} from "../../utils/file/import";
+import { buildImportRecords, importNoteRecords } from "../../utils/file/import";
+import { moveBooksToCategory } from "../../utils/reader/shelfUtil";
 import { useAppStore } from "../../store/useAppStore";
 
 export interface ImportLocalProps {
@@ -95,14 +94,11 @@ const getComicImageExt = (name: string) => {
 const ImportLocal = (props: ImportLocalProps) => {
   const books = useAppStore((s) => s.manager.books);
   const cloudSyncFunc = useAppStore((s) => s.book.cloudSyncFunc);
-  const isCollapsed = useAppStore((s) => s.sidebar.isCollapsed);
   const deletedBooks = useAppStore((s) => s.manager.deletedBooks);
   const mode = useAppStore((s) => s.sidebar.mode);
   const shelfTitle = useAppStore((s) => s.sidebar.shelfTitle);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleReadingBook = useAppStore((s) => s.handleReadingBook);
-  const handleImportDialog = useAppStore((s) => s.handleImportDialog);
   const handleOPDSDialog = useAppStore((s) => s.handleOPDSDialog);
   const handleAutoImportDialog = useAppStore((s) => s.handleAutoImportDialog);
   const handleImportBookFunc = useAppStore((s) => s.handleImportBookFunc);
@@ -277,10 +273,7 @@ const ImportLocal = (props: ImportLocalProps) => {
       if (stateRef.current.isOpenFile) {
         if (isPreventAdd) {
           //ignore
-        } else if (
-          isAuthed &&
-          ConfigService.getItem("defaultSyncOption")
-        ) {
+        } else if (ConfigService.getItem("defaultSyncOption")) {
           await BookUtil.addBook(
             book.key,
             book.format.toLowerCase(),
@@ -307,10 +300,7 @@ const ImportLocal = (props: ImportLocalProps) => {
           return resolve();
         }
       } else {
-        if (
-          !isImportPath ||
-          (isAuthed && ConfigService.getItem("defaultSyncOption"))
-        ) {
+        if (!isImportPath || ConfigService.getItem("defaultSyncOption")) {
           await BookUtil.addBook(
             book.key,
             book.format.toLowerCase(),
@@ -327,17 +317,12 @@ const ImportLocal = (props: ImportLocalProps) => {
       DatabaseService.saveRecord(book, "books")
         .then(() => {
           handleFetchBooks();
-          if (mode === "shelf") {
-            ConfigService.setMapConfig(
-              shelfTitle,
-              book.key,
-              "shelfList"
-            );
+          // 在某个分类内导入时，新书直接归入该分类
+          if (shelfTitle) {
+            moveBooksToCategory([book.key], shelfTitle);
           }
           toast.success(
-            t("Addition successful") +
-              ": " +
-              book.name.substring(0, 50),
+            t("Addition successful") + ": " + book.name.substring(0, 50),
             {
               id: "add-book",
             }
@@ -373,7 +358,7 @@ const ImportLocal = (props: ImportLocalProps) => {
   const analyzeBookMetadata = async (book: BookModel, bookName: string) => {
     if (
       ConfigService.getReaderConfig("isAIAnalyzeTitle") !== "yes" ||
-      !isAuthed ||
+      !isAiAvailable() ||
       book.name !== bookName
     ) {
       return;
@@ -1083,14 +1068,6 @@ const ImportLocal = (props: ImportLocalProps) => {
     }));
   };
 
-  // Add method to handle cloud import
-  const handleCloudImport = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent triggering the Dropzone
-    setState({ isMoreOptionsVisible: false });
-
-    handleImportDialog(true);
-  };
-
   // Handle OPDS import
   const handleOPDSImport = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent triggering the Dropzone
@@ -1227,120 +1204,158 @@ const ImportLocal = (props: ImportLocalProps) => {
         multiple={true}
       >
         {({ getRootProps, getInputProps }) => (
-          <div
-            className="import-from-local"
-            {...getRootProps()}
-            style={
-              isCollapsed && document.body.clientWidth < 950
-                ? { width: "42px" }
-                : {}
-            }
-          >
-            {isCollapsed && stateRef.current.width < 950 ? null : (
-              <div
-                className="more-import-option"
-                onClick={(e) => {
-                  e.stopPropagation(); // Prevent triggering the Dropzone
-                  toggleMoreOptions();
-                }}
-              >
-                <span className="dropdown-triangle"></span>
-                {stateRef.current.isMoreOptionsVisible && (
+          <div className="import-from-local" {...getRootProps()}>
+            <div
+              className="more-import-option"
+              onClick={(e) => {
+                e.stopPropagation(); // Prevent triggering the Dropzone
+                toggleMoreOptions();
+              }}
+            >
+              <span className="dropdown-triangle"></span>
+              {stateRef.current.isMoreOptionsVisible && (
+                <div
+                  className="more-options-dropdown"
+                  onMouseLeave={toggleMoreOptions}
+                  style={
+                    stateRef.current.width < 950
+                      ? {
+                          bottom: "calc(100% + 5px)",
+                          top: "unset",
+                          right: "unset",
+                          left: "-110px",
+                        }
+                      : {}
+                  }
+                >
                   <div
-                    className="more-options-dropdown"
-                    onMouseLeave={toggleMoreOptions}
-                    style={
-                      stateRef.current.width < 950
-                        ? {
-                            bottom: "calc(100% + 5px)",
-                            top: "unset",
-                            right: "unset",
-                            left: "-110px",
-                          }
-                        : {}
-                    }
-                  >
-                    <div
-                      className="more-option-item"
-                      onClick={async (event) => {
-                        event.stopPropagation(); // Prevent triggering the Dropzone
-                        //select folder from local
-                        if (isElectron) {
-                          const ipcRenderer = window.electronAPI;
-                          const newPath =
-                            await ipcRenderer.invoke("select-path");
-                          if (!newPath) {
-                            return;
-                          }
-                          //get all files in the folder
-                          const fs = window.electronAPI.fs;
-                          const path = window.electronAPI.path;
-                          const getAllFiles = (dirPath: string): string[] => {
-                            let files: string[] = [];
+                    className="more-option-item"
+                    onClick={async (event) => {
+                      event.stopPropagation(); // Prevent triggering the Dropzone
+                      //select folder from local
+                      if (isElectron) {
+                        const ipcRenderer = window.electronAPI;
+                        const newPath =
+                          await ipcRenderer.invoke("select-path");
+                        if (!newPath) {
+                          return;
+                        }
+                        //get all files in the folder
+                        const fs = window.electronAPI.fs;
+                        const path = window.electronAPI.path;
+                        const getAllFiles = (dirPath: string): string[] => {
+                          let files: string[] = [];
 
-                            try {
-                              const items = fs.readdirSync(dirPath);
+                          try {
+                            const items = fs.readdirSync(dirPath);
 
-                              for (const item of items) {
-                                const fullPath = path.join(dirPath, item);
-                                const stat = fs.statSync(fullPath);
+                            for (const item of items) {
+                              const fullPath = path.join(dirPath, item);
+                              const stat = fs.statSync(fullPath);
 
-                                if (stat.isDirectory) {
-                                  // Recursively get files from subdirectories
-                                  files = files.concat(getAllFiles(fullPath));
-                                } else if (stat.isFile) {
-                                  // Check if file has supported format
-                                  const ext = path
-                                    .extname(item)
-                                    .toLowerCase()
-                                    .substring(1);
-                                  if (supportedFormats.includes(`.${ext}`)) {
-                                    files.push(fullPath);
-                                  }
+                              if (stat.isDirectory) {
+                                // Recursively get files from subdirectories
+                                files = files.concat(getAllFiles(fullPath));
+                              } else if (stat.isFile) {
+                                // Check if file has supported format
+                                const ext = path
+                                  .extname(item)
+                                  .toLowerCase()
+                                  .substring(1);
+                                if (supportedFormats.includes(`.${ext}`)) {
+                                  files.push(fullPath);
                                 }
                               }
-                            } catch (error) {
-                              const errorMessage =
-                                error instanceof Error
-                                  ? error.message
-                                  : String(error);
-                              toast.error(errorMessage);
-                              console.error(
-                                `Error reading directory ${dirPath}:`,
-                                error
-                              );
                             }
-
-                            return files;
-                          };
-
-                          // Get all supported book files
-                          const allFiles = getAllFiles(newPath);
-                          // Process each file
-                          for (const filePath of allFiles) {
-                            try {
-                              const path = window.electronAPI.path;
-                              const fileName = path.basename(filePath);
-
-                              let file = new File([], fileName);
-                              file.path = filePath;
-
-                              await getMd5WithBrowser(file);
-                            } catch (error) {
-                              const errorMessage =
-                                error instanceof Error
-                                  ? error.message
-                                  : String(error);
-                              toast.error(errorMessage);
-                              console.error(
-                                `Error processing file ${filePath}:`,
-                                error
-                              );
-                            }
+                          } catch (error) {
+                            const errorMessage =
+                              error instanceof Error
+                                ? error.message
+                                : String(error);
+                            toast.error(errorMessage);
+                            console.error(
+                              `Error reading directory ${dirPath}:`,
+                              error
+                            );
                           }
-                          setState({
-                            isMoreOptionsVisible: false,
-                          });
+
+                          return files;
+                        };
+
+                        // Get all supported book files
+                        const allFiles = getAllFiles(newPath);
+                        // Process each file
+                        for (const filePath of allFiles) {
+                          try {
+                            const path = window.electronAPI.path;
+                            const fileName = path.basename(filePath);
+
+                            let file = new File([], fileName);
+                            file.path = filePath;
+
+                            await getMd5WithBrowser(file);
+                          } catch (error) {
+                            const errorMessage =
+                              error instanceof Error
+                                ? error.message
+                                : String(error);
+                            toast.error(errorMessage);
+                            console.error(
+                              `Error processing file ${filePath}:`,
+                              error
+                            );
+                          }
+                        }
+                        setState({
+                          isMoreOptionsVisible: false,
+                        });
+                        if (
+                          ConfigService.getReaderConfig(
+                            "isDisableAutoSync"
+                          ) !== "yes" &&
+                          ConfigService.getItem("defaultSyncOption")
+                        ) {
+                          await cloudSyncFunc();
+                        }
+                      }
+                    }}
+                  >
+                    <span className="more-option-text">
+                      <Trans>Import folder</Trans>
+                    </span>
+                    {!isElectron && (
+                      <input
+                        type="file"
+                        {...({
+                          webkitdirectory: "",
+                          mozdirectory: "",
+                          directory: "",
+                        } as React.InputHTMLAttributes<HTMLInputElement>)}
+                        multiple
+                        style={{
+                          position: "absolute",
+                          width: "100%",
+                          height: "45px",
+                          opacity: 0,
+                          marginLeft: "-20px",
+                          cursor: "pointer",
+                        }}
+                        onChange={async (e) => {
+                          const files = e.target.files;
+                          if (!files || files.length === 0) {
+                            return;
+                          }
+                          for (let item of files) {
+                            if (
+                              !supportedFormats.find((format) =>
+                                item.name.toLowerCase().endsWith(format)
+                              )
+                            ) {
+                              continue;
+                            }
+                            await getMd5WithBrowser(item);
+                          }
+                          toggleMoreOptions();
                           if (
                             ConfigService.getReaderConfig(
                               "isDisableAutoSync"
@@ -1349,106 +1364,43 @@ const ImportLocal = (props: ImportLocalProps) => {
                           ) {
                             await cloudSyncFunc();
                           }
-                        }
-                      }}
-                    >
-                      <span className="more-option-text">
-                        <Trans>Import folder</Trans>
-                      </span>
-                      {!isElectron && (
-                        <input
-                          type="file"
-                          {...({
-                            webkitdirectory: "",
-                            mozdirectory: "",
-                            directory: "",
-                          } as React.InputHTMLAttributes<HTMLInputElement>)}
-                          multiple
-                          style={{
-                            position: "absolute",
-                            width: "100%",
-                            height: "45px",
-                            opacity: 0,
-                            marginLeft: "-20px",
-                            cursor: "pointer",
-                          }}
-                          onChange={async (e) => {
-                            const files = e.target.files;
-                            if (!files || files.length === 0) {
-                              return;
-                            }
-                            for (let item of files) {
-                              if (
-                                !supportedFormats.find((format) =>
-                                  item.name.toLowerCase().endsWith(format)
-                                )
-                              ) {
-                                continue;
-                              }
-                              await getMd5WithBrowser(item);
-                            }
-                            toggleMoreOptions();
-                            if (
-                              ConfigService.getReaderConfig(
-                                "isDisableAutoSync"
-                              ) !== "yes" &&
-                              ConfigService.getItem("defaultSyncOption")
-                            ) {
-                              await cloudSyncFunc();
-                            }
-                          }}
-                        ></input>
-                      )}
-                    </div>
-                    <div
-                      className="more-option-item"
-                      onClick={handleCloudImport}
-                    >
-                      <span className="more-option-text">
-                        <Trans>From cloud storage</Trans>
-                      </span>
-                    </div>
-                    <div
-                      className="more-option-item"
-                      onClick={handleOPDSImport}
-                    >
-                      <span className="more-option-text">
-                        <Trans>From OPDS</Trans>
-                      </span>
-                    </div>
-                    <div
-                      className="more-option-item"
-                      onClick={handleURLImport}
-                    >
-                      <span className="more-option-text">
-                        <Trans>From URL</Trans>
-                      </span>
-                    </div>
-                    {isElectron && (
-                      <div
-                        className="more-option-item"
-                        onClick={handleAutoImport}
-                      >
-                        <span className="more-option-text">
-                          <Trans>Auto import folder</Trans>
-                        </span>
-                      </div>
+                        }}
+                      ></input>
                     )}
                   </div>
-                )}
-              </div>
-            )}
+                  <div
+                    className="more-option-item"
+                    onClick={handleOPDSImport}
+                  >
+                    <span className="more-option-text">
+                      <Trans>From OPDS</Trans>
+                    </span>
+                  </div>
+                  <div
+                    className="more-option-item"
+                    onClick={handleURLImport}
+                  >
+                    <span className="more-option-text">
+                      <Trans>From URL</Trans>
+                    </span>
+                  </div>
+                  {isElectron && (
+                    <div
+                      className="more-option-item"
+                      onClick={handleAutoImport}
+                    >
+                      <span className="more-option-text">
+                        <Trans>Auto import folder</Trans>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="animation-mask-local"></div>
-            {isCollapsed && stateRef.current.width < 950 ? (
-              <span
-                className="icon-folder"
-                style={{ fontSize: "15px", fontWeight: 500 }}
-              ></span>
-            ) : (
-              <span>
-                <Trans>Import</Trans>
-              </span>
-            )}
+            <span>
+              <Trans>Import</Trans>
+            </span>
 
             {!isElectron ? (
               <input

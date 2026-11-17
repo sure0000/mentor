@@ -1,0 +1,48 @@
+.ai-qa-extra {
+  border-left: 3px solid #8aa4c8;
+  background: rgba(138, 164, 200, 0.12);
+  padding: 4px 10px;
+  margin: 8px 0;
+  border-radius: 4px;
+}
+.ai-qa-extra-label {
+  font-size: 11px;
+  font-weight: bold;
+  color: #5b7aa6;
+}
+.ai-qa-sources {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(128, 128, 128, 0.4);
+}
+.ai-qa-sources-label {
+  font-size: 12px;
+  font-weight: bold;
+  opacity: 0.7;
+  margin: 6px 0 4px;
+}
+.ai-qa-sources-warn {
+  color: #d48806;
+  opacity: 1;
+}
+.ai-qa-source {
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.ai-qa-source:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+.ai-qa-source-missing {
+  color: #d48806;
+  cursor: default;
+}
+.ai-qa-source-chapter {
+  font-weight: bold;
+  margin-right: 6px;
+}
+.ai-qa-source-quote {
+  opacity: 0.8;
+}

@@ -1,0 +1,65 @@
+.ai-overview-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ai-overview-job {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.1);
+  font-size: 13px;
+}
+.ai-overview-chapter {
+  margin-bottom: 10px;
+}
+.ai-overview-chapter-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-overview-chapter-title {
+  font-weight: bold;
+  cursor: pointer;
+}
+.ai-overview-chapter-title:hover {
+  text-decoration: underline;
+}
+.ai-overview-chapter-summary {
+  opacity: 0.85;
+}
+.ai-overview-badge {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid currentColor;
+}
+.ai-overview-badge-core {
+  color: var(--brand);
+}
+.ai-overview-badge-skim {
+  color: #888;
+}
+.ai-overview-concepts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ai-overview-concepts td {
+  padding: 4px 6px;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+.ai-overview-concepts td:first-child {
+  white-space: nowrap;
+}
+.ai-overview-concepts td:last-child {
+  white-space: nowrap;
+  text-align: right;
+}

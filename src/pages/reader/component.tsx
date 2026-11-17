@@ -4,7 +4,6 @@ import React, { useEffect, useRef, useState } from "react";
 import SettingPanel from "../../containers/panels/settingPanel";
 import NavigationPanel from "../../containers/panels/navigationPanel";
 import { Toaster } from "react-hot-toast";
-import ReaderBottomToolbar from "../../components/readerBottomToolbar";
 import {
   ConfigService,
   ReadingTimeUtil,
@@ -29,14 +28,24 @@ import {
   updateDiscordPresence,
   clearDiscordPresence,
 } from "../../utils/reader/discordRPC";
-import SupportDialog from "../../components/dialogs/supportDialog";
 import ReaderTopToolbar from "../../components/readerTopToolbar";
+import ChapterEndPrompt from "../../components/aiReading/chapterEndPrompt";
+import ReadingMarksLayer from "../../components/aiReading/readingMarksLayer";
+import CompanionPanel from "../../components/aiReading/companionPanel";
 import { READING_PANEL_TOGGLE_EVENT } from "../../utils/reader/mouseEvent";
-import { isPaginatedBook, POPUP_BOX_MODES, throttle } from "../../utils/common";
+import {
+  getRightPanelInset,
+  isPaginatedBook,
+  POPUP_BOX_MODES,
+  scrollContents,
+  throttle,
+} from "../../utils/common";
 import { getOuterDoc } from "../../utils/reader/docUtil";
 import { useAppStore } from "../../store/useAppStore";
 
 const QUICK_BUTTON_EDGE_DISTANCE = 40;
+// 侧边工具栏宽约 52px、距右侧 20px，指针进入该区域即可唤出，无需先移到顶部
+const SIDE_RAIL_EDGE_DISTANCE = 80;
 
 export interface ReaderState {
   isOpenRightPanel: boolean;
@@ -45,6 +54,8 @@ export interface ReaderState {
   isPreventTrigger: boolean;
   hoverPanel: string;
   isNearEdge: boolean;
+  // 仅右侧按钮栏可见（指针靠近右边缘时），不带出顶部工具栏
+  isNearRightEdge: boolean;
   totalDuration: number;
   currentDuration: number;
 }
@@ -77,6 +88,7 @@ const PANEL_OPEN_STATE: Record<
 const Reader = () => {
   const currentBook = useAppStore((s) => s.book.currentBook);
   const htmlBook = useAppStore((s) => s.reader.htmlBook);
+  const readerBackgroundColor = useAppStore((s) => s.reader.backgroundColor);
   const readerMode = useAppStore((s) => s.reader.readerMode);
   const isNavLocked = useAppStore((s) => s.reader.isNavLocked);
   const isConvertOpen = useAppStore((s) => s.reader.isConvertOpen);
@@ -106,11 +118,10 @@ const Reader = () => {
   const handlePdfCropDialog = useAppStore((s) => s.handlePdfCropDialog);
   const handleStudyLangDialog = useAppStore((s) => s.handleStudyLangDialog);
   const handleAssistReadDialog = useAppStore((s) => s.handleAssistReadDialog);
-  const handleFetchAuthed = useAppStore((s) => s.handleFetchAuthed);
   const handleSpeechDialog = useAppStore((s) => s.handleSpeechDialog);
   const handleAnnotationDialog = useAppStore((s) => s.handleAnnotationDialog);
-  const handleFetchUserInfo = useAppStore((s) => s.handleFetchUserInfo);
   const handleBackgroundColor = useAppStore((s) => s.handleBackgroundColor);
+  const handleCurrentChapter = useAppStore((s) => s.handleCurrentChapter);
   const { t } = useTranslation();
   const currentProps = {
     t,
@@ -141,10 +152,8 @@ const Reader = () => {
     handlePdfCropDialog,
     handleStudyLangDialog,
     handleAssistReadDialog,
-    handleFetchAuthed,
     handleSpeechDialog,
     handleAnnotationDialog,
-    handleFetchUserInfo,
     handleBackgroundColor,
   };
   const propsRef = useLatest(currentProps);
@@ -158,6 +167,7 @@ const Reader = () => {
     isPreventTrigger:
       ConfigService.getReaderConfig("isPreventTrigger") === "yes",
     isNearEdge: false,
+    isNearRightEdge: false,
   });
   const stateRef = useLatest(state);
   const updateState = (patch: Partial<ReaderState>) =>
@@ -166,6 +176,7 @@ const Reader = () => {
   const tickTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const autoShowTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hideQuickButtonsTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hideSideRailTimerRef = useRef<NodeJS.Timeout | null>(null);
   const dialogAnchorIconRef = useRef<HTMLElement | null>(null);
   const didMountRef = useRef(false);
   useEffect(() => {
@@ -226,6 +237,9 @@ const Reader = () => {
     enterTimers[position] = setTimeout(() => {
       enterTimers[position] = null;
       if (!isEdgeHovering[position] || isMouseMoving) return;
+      // 右侧按钮栏与右边缘热区重叠，按钮栏已显示时由它的「Aa」打开设置，
+      // 避免用户移向按钮栏时设置面板被意外弹出
+      if (position === "right" && stateRef.current.isNearRightEdge) return;
       handleEnterReader(position);
     }, delay);
   };
@@ -348,10 +362,10 @@ const Reader = () => {
     const iconCenter = iconRect.left + iconRect.width / 2;
     const viewportWidth =
       document.documentElement.clientWidth || window.innerWidth;
-    const reservedRight =
-      propsRef.current.isSettingLocked || propsRef.current.isDockedRight
-        ? 300
-        : 0;
+    const reservedRight = getRightPanelInset(
+      propsRef.current.isSettingLocked,
+      propsRef.current.isDockedRight
+    );
     const dialogWidth = dialog.offsetWidth;
     if (!dialogWidth) return;
     const minLeft = 8;
@@ -359,10 +373,22 @@ const Reader = () => {
       minLeft,
       viewportWidth - reservedRight - dialogWidth - 8
     );
-    const left = Math.min(
-      maxLeft,
-      Math.max(minLeft, iconCenter - dialogWidth / 2)
-    );
+    // 右侧竖排工具栏：浮层出现在按钮左侧并与按钮垂直对齐
+    const isRailIcon = !!icon.closest(".reader-side-rail");
+    const left = isRailIcon
+      ? Math.max(minLeft, iconRect.left - dialogWidth - 16)
+      : Math.min(maxLeft, Math.max(minLeft, iconCenter - dialogWidth / 2));
+    if (isRailIcon) {
+      const viewportHeight =
+        document.documentElement.clientHeight || window.innerHeight;
+      const top = Math.min(
+        Math.max(8, iconRect.top + iconRect.height / 2 - dialog.offsetHeight / 2),
+        Math.max(8, viewportHeight - dialog.offsetHeight - 8)
+      );
+      anchor.style.top = `${top}px`;
+    } else {
+      anchor.style.top = "";
+    }
     document.documentElement.style.setProperty(
       "--reader-dialog-anchor-x",
       `${iconCenter}px`
@@ -420,9 +446,59 @@ const Reader = () => {
       }
     }, 200);
   };
+  const showSideRail = () => {
+    if (hideSideRailTimerRef.current) {
+      clearTimeout(hideSideRailTimerRef.current);
+      hideSideRailTimerRef.current = null;
+    }
+    if (!stateRef.current.isNearRightEdge) {
+      updateState({ isNearRightEdge: true });
+    }
+  };
+  const hideSideRail = () => {
+    if (hideSideRailTimerRef.current) {
+      clearTimeout(hideSideRailTimerRef.current);
+    }
+    hideSideRailTimerRef.current = setTimeout(() => {
+      hideSideRailTimerRef.current = null;
+      if (stateRef.current.isNearRightEdge) {
+        updateState({ isNearRightEdge: false });
+      }
+    }, 200);
+  };
+  // 顶部区域唤出完整工具栏；右边缘区域只唤出右侧按钮栏
+  const updateEdgeVisibility = (
+    x: number,
+    y: number,
+    isPointerOverRail: boolean
+  ) => {
+    if (isWithinEdgeZone(y)) {
+      showQuickButtons();
+    } else if (isPointerOverRail && stateRef.current.isNearEdge) {
+      // 从顶部唤出后移到按钮栏上，保持整套工具栏可见
+      showQuickButtons();
+    } else {
+      hideQuickButtons();
+    }
+    if (isPointerOverRail || isWithinRightEdgeZone(x)) {
+      showSideRail();
+    } else {
+      hideSideRail();
+    }
+  };
+  // 底部工具栏已移除，仅靠近顶部时唤出工具栏
   const isWithinEdgeZone = (pageY: number) =>
-    pageY <= QUICK_BUTTON_EDGE_DISTANCE ||
-    window.innerHeight - pageY <= QUICK_BUTTON_EDGE_DISTANCE;
+    pageY <= QUICK_BUTTON_EDGE_DISTANCE;
+  // 侧边工具栏随右侧固定面板左移，热区也以面板左边缘为准
+  const isWithinRightEdgeZone = (pageX: number) => {
+    const railRight =
+      window.innerWidth -
+      getRightPanelInset(
+        propsRef.current.isSettingLocked,
+        propsRef.current.isDockedRight
+      );
+    return pageX <= railRight && pageX >= railRight - SIDE_RAIL_EDGE_DISTANCE;
+  };
 
   useEffect(() => {
     const run = async () => {
@@ -439,18 +515,6 @@ const Reader = () => {
         window.currentBookKey = "";
       }
       propsRef.current.handleFetchBooks();
-      propsRef.current.handleFetchAuthed();
-      if (
-        key &&
-        ConfigService.getAllListConfig("convertPDFBooks").includes(key) &&
-        ConfigService.getReaderConfig(
-          propsRef.current.currentBook?.description?.indexOf("scanned") > -1
-            ? "scannedOcrEngine"
-            : "textOcrEngine"
-        ) === "official-ai-ocr"
-      ) {
-        await propsRef.current.handleFetchUserInfo();
-      }
       DatabaseService.getRecord(key, "books").then((book: Book | null) => {
         book = book || JSON.parse(ConfigService.getItem("tempBook") || "{}");
         if (!book) return;
@@ -502,14 +566,14 @@ const Reader = () => {
         ConfigService.setReaderConfig("isFinishWebReading", "yes");
       }
     });
+    let latestPointerX: number | null = null;
     let latestPointerY: number | null = null;
+    // 侧边工具栏垂直居中，不在上下边缘区域内；指针停在工具栏或其「更多」菜单上时
+    // 不能因为离开边缘区域而收起，否则菜单子项来不及点击就消失了
+    let isPointerOverRail = false;
     const updateQuickButtons = () => {
-      if (latestPointerY === null) return;
-      if (isWithinEdgeZone(latestPointerY)) {
-        showQuickButtons();
-      } else {
-        hideQuickButtons();
-      }
+      if (latestPointerX === null || latestPointerY === null) return;
+      updateEdgeVisibility(latestPointerX, latestPointerY, isPointerOverRail);
     };
     const throttledMouseMove = throttle(updateQuickButtons, 100);
     const handleMouseMove = (e: MouseEvent) => {
@@ -517,12 +581,19 @@ const Reader = () => {
       setTimeout(() => {
         isMouseMoving = false;
       }, 100);
+      latestPointerX = e.clientX;
       latestPointerY = e.clientY;
+      isPointerOverRail = !!(e.target as Element | null)?.closest?.(
+        ".reader-quick-buttons"
+      );
       throttledMouseMove();
     };
     const handlePointerLeftWindow = () => {
+      latestPointerX = null;
       latestPointerY = null;
+      isPointerOverRail = false;
       hideQuickButtons();
+      hideSideRail();
     };
     const handleWindowMouseLeave = (e: MouseEvent) => {
       // Entering an Electron draggable region (e.g. the toolbar) also fires
@@ -574,6 +645,10 @@ const Reader = () => {
         clearTimeout(hideQuickButtonsTimerRef.current);
         hideQuickButtonsTimerRef.current = null;
       }
+      if (hideSideRailTimerRef.current) {
+        clearTimeout(hideSideRailTimerRef.current);
+        hideSideRailTimerRef.current = null;
+      }
       if (isElectron) {
         clearDiscordPresence();
       }
@@ -596,42 +671,79 @@ const Reader = () => {
 
   useEffect(() => {
     if (!isElectron) return;
-    window.electronAPI?.send?.("reader-mouse-watch", state.isNearEdge);
+    window.electronAPI?.send?.(
+      "reader-mouse-watch",
+      state.isNearEdge || state.isNearRightEdge
+    );
     return () => {
       window.electronAPI?.send?.("reader-mouse-watch", false);
     };
-  }, [state.isNearEdge]);
+  }, [state.isNearEdge, state.isNearRightEdge]);
+
+  // 翻页后记录阅读位置、同步当前章节与进度（原由底部工具栏承担）
+  useEffect(() => {
+    if (!htmlBook) return;
+    const rendition = htmlBook.rendition;
+    let scrollTimer: NodeJS.Timeout | undefined;
+    const onPageChanged = () => {
+      const book = propsRef.current.currentBook;
+      if (!book?.key) return;
+      const position = rendition.getPosition();
+      ConfigService.setObjectConfig(book.key, position, "recordLocation");
+      handleCurrentChapter(position.chapterTitle);
+      propsRef.current.handleFetchPercentage(book);
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        scrollContents(position.chapterTitle, position.chapterHref);
+      }, 1000);
+    };
+    rendition.on("page-changed", onPageChanged);
+    return () => {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      rendition.off?.("page-changed", onPageChanged);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [htmlBook]);
 
   useEffect(() => {
     if (!htmlBook) return;
     const attachedDocs = new WeakSet<Document>();
-    const getPageClientY = (doc: Document, clientY: number) => {
+    // 把 iframe 内的坐标换算成顶层窗口坐标
+    const getPageClientPoint = (
+      doc: Document,
+      clientX: number,
+      clientY: number
+    ) => {
+      let x = clientX;
       let y = clientY;
       let win: Window | null = doc.defaultView;
       while (win && win.frameElement) {
-        y += win.frameElement.getBoundingClientRect().top;
+        const rect = win.frameElement.getBoundingClientRect();
+        x += rect.left;
+        y += rect.top;
         win = win.parent;
       }
-      return y;
+      return { x, y };
     };
     const attachEdgeHandlers = (doc: Document) => {
-      let latestPointerY: number | null = null;
+      let latestPointer: { x: number; y: number } | null = null;
       const updateQuickButtons = throttle(() => {
-        if (latestPointerY === null) return;
-        if (isWithinEdgeZone(getPageClientY(doc, latestPointerY))) {
-          showQuickButtons();
-        } else {
-          hideQuickButtons();
-        }
+        if (latestPointer === null) return;
+        const { x, y } = getPageClientPoint(
+          doc,
+          latestPointer.x,
+          latestPointer.y
+        );
+        updateEdgeVisibility(x, y, false);
       }, 100);
       doc.addEventListener("mousemove", (e: MouseEvent) => {
-        latestPointerY = e.clientY;
+        latestPointer = { x: e.clientX, y: e.clientY };
         updateQuickButtons();
       });
       doc.documentElement.addEventListener("mouseleave", () => {
         // Leaving the iframe is not the same as leaving the window; the outer
         // document's mousemove handler updates the button visibility.
-        latestPointerY = null;
+        latestPointer = null;
       });
     };
     const attachToDoc = (doc: Document | null) => {
@@ -686,23 +798,27 @@ const Reader = () => {
         <div className="reader-window-drag-region" />
       )}
 
+      <div
+        className={
+          "reader-toolbar-backdrop reader-toolbar-backdrop-top" +
+          (state.isNearEdge && !isUndockedPopupBoxOpen ? " visible" : "")
+        }
+        style={{ backgroundColor: readerBackgroundColor }}
+      />
       <ReaderTopToolbar
         isNearEdge={state.isNearEdge && !isUndockedPopupBoxOpen}
         currentDuration={state.currentDuration}
         isMacOS={isMacOS}
         isMergeWord={isMergeWord}
         isSeparateElectronWindow={isSeparateElectronWindow}
+        isSideRailShown={state.isNearRightEdge && !isUndockedPopupBoxOpen}
         showQuickButtons={showQuickButtons}
         hideQuickButtons={hideQuickButtons}
+        showSideRail={showSideRail}
+        hideSideRail={hideSideRail}
         handleDialogButtonHover={handleDialogButtonHover}
         handleAnnotationClick={handleAnnotationClick}
         handleEnterReader={handleEnterReader}
-      />
-
-      <ReaderBottomToolbar
-        isNearEdge={state.isNearEdge && !isUndockedPopupBoxOpen}
-        showQuickButtons={showQuickButtons}
-        hideQuickButtons={hideQuickButtons}
       />
 
       {isSettingOpen && (
@@ -818,7 +934,9 @@ const Reader = () => {
         </KeepMounted>
       </div>
       {isAnnotationOpen && <AnnotationDialog />}
-      <SupportDialog />
+      <ChapterEndPrompt />
+      <ReadingMarksLayer />
+      {isElectron && <CompanionPanel />}
       {isOpenPopupOptionDialog && (
         <>
           <PopupOptionDialog />

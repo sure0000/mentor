@@ -65,15 +65,9 @@ const setDiscordActivity = async ({ bookTitle, author, percentage } = {}) => {
       details: bookTitle,
       state: `${progressBar} ${percentage}%  |  by ${author}`,
       largeImageKey: "koodo_reader_logo",
-      largeImageText: "Koodo Reader",
+      largeImageText: "Mentor",
       startTimestamp: Date.now(),
       instance: false,
-      buttons: [
-        {
-          label: "Get Koodo Reader",
-          url: "https://koodoreader.com",
-        },
-      ],
     });
   } catch (e) {
     console.warn("Failed to set Discord activity:", e.message);

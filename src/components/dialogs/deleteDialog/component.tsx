@@ -15,6 +15,7 @@ import {
 } from "../../../assets/lib/kookit-extra-browser.min";
 import { isElectron } from "react-device-detect";
 import { removeCollectionToTrash } from "../../../utils/common";
+import { clearBookAiCache } from "../../../utils/aiReading/bookIndex";
 
 const collectionUtil = new CollectionUtil(ConfigService);
 
@@ -31,13 +32,8 @@ export interface DeleteDialogProps {
 const DeleteDialog = (props: DeleteDialogProps) => {
   const isSearch = useAppStore((s) => s.manager.isSearch);
   const currentBook = useAppStore((s) => s.book.currentBook);
-  const mode = useAppStore((s) => s.sidebar.mode);
-  const shelfTitle = useAppStore((s) => s.sidebar.shelfTitle);
   const selectedBooks = useAppStore((s) => s.manager.selectedBooks);
   const isSelectBook = useAppStore((s) => s.manager.isSelectBook);
-  const isDeleteAllBooksInTrash = useAppStore(
-    (s) => s.book.isDeleteAllBooksInTrash
-  );
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleSelectBook = useAppStore((s) => s.handleSelectBook);
   const handleDeleteDialog = useAppStore((s) => s.handleDeleteDialog);
@@ -47,12 +43,6 @@ const DeleteDialog = (props: DeleteDialogProps) => {
   const handleSearch = useAppStore((s) => s.handleSearch);
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [isDeleteShelfBook, setIsDeleteShelfBook] = useState(
-    ConfigService.getReaderConfig("isDeleteShelfBook") === "yes"
-  );
-  const [isDisableTrashBin, setIsDisableTrashBin] = useState(
-    ConfigService.getReaderConfig("isDisableTrashBin") === "yes"
-  );
 
   const isGeneric = Boolean(props.handleClose && props.handleConfirm);
   if (isGeneric) {
@@ -93,39 +83,6 @@ const DeleteDialog = (props: DeleteDialogProps) => {
     handleDeleteDialog(false);
   };
 
-  const deleteKeyFromShelf = (key: string) => {
-    ConfigService.deleteFromMapConfig(shelfTitle, key, "shelfList");
-    if (collectionUtil.isCollection(key)) {
-      let collection = collectionUtil.getCollection(key);
-      if (collection) {
-        collection.books.forEach((bookKey) => {
-          ConfigService.deleteFromMapConfig(
-            shelfTitle,
-            bookKey,
-            "shelfList"
-          );
-        });
-      }
-    }
-  };
-
-  const deleteBookFromShelf = () => {
-    if (isSelectBook) {
-      selectedBooks.forEach((item) => {
-        deleteKeyFromShelf(item);
-      });
-      handleSelectedBooks([]);
-      handleFetchBooks();
-      handleSelectBook(!isSelectBook);
-      handleDeleteDialog(false);
-      toast.success(t("Deletion successful"), {
-        id: "delete-books",
-      });
-      return;
-    }
-    deleteKeyFromShelf(currentBook.key);
-  };
-
   const deleteBook = (key: string, format: string) => {
     return new Promise<void>(async (resolve, reject) => {
       if (collectionUtil.isCollection(key)) {
@@ -151,6 +108,7 @@ const DeleteDialog = (props: DeleteDialogProps) => {
           await BookUtil.deleteBook(key, format);
           await CoverUtil.deleteCover(key);
           await BookUtil.deleteBook("cache-" + key, "zip");
+          if (isElectron) clearBookAiCache(key);
           ConfigService.deleteListConfig(key, "favoriteBooks");
           ConfigService.deleteListConfig(key, "deletedBooks");
           ConfigService.deleteFromAllMapConfig(key, "shelfList");
@@ -173,6 +131,7 @@ const DeleteDialog = (props: DeleteDialogProps) => {
     });
   };
 
+  // 彻底删除所有已标记为删除的书（旧版回收站里遗留的书也会一并清理）
   const deleteAllBookInTrash = async () => {
     toast.loading(t("Deleting..."), {
       id: "delete-books",
@@ -186,21 +145,6 @@ const DeleteDialog = (props: DeleteDialogProps) => {
       let format = deletedBook?.format.toLowerCase();
       await deleteBook(keyArr[i], format || "epub");
     }
-    await handleFetchBooks();
-    if (useAppStore.getState().manager.books.length === 0) {
-      navigate("/manager/empty");
-    }
-    handleFetchBookmarks();
-    handleFetchNotes();
-  };
-
-  const deleteBookInTrash = async (key: string) => {
-    toast.loading(t("Deleting..."), {
-      id: "delete-books",
-    });
-    const deletedBook = await DatabaseService.getRecord(key, "books");
-    let format = deletedBook?.format.toLowerCase();
-    await deleteBook(key, format || "epub");
     await handleFetchBooks();
     if (useAppStore.getState().manager.books.length === 0) {
       navigate("/manager/empty");
@@ -249,24 +193,10 @@ const DeleteDialog = (props: DeleteDialogProps) => {
   };
 
   const handleComfirm = async () => {
-    if (
-      mode === "shelf" &&
-      !isDeleteShelfBook &&
-      !isDisableTrashBin
-    ) {
-      deleteBookFromShelf();
-    } else if (mode === "trash") {
-      if (isDeleteAllBooksInTrash) {
-        await deleteAllBookInTrash();
-      } else {
-        await deleteBookInTrash(currentBook.key);
-      }
-    } else if (isDisableTrashBin) {
-      deleteBooks();
-      await deleteAllBookInTrash();
-    } else {
-      deleteBooks();
-    }
+    // 没有回收站：先标记为待删除，再统一彻底删除（含笔记、书签、高亮）。
+    // 分类只是书架上的文件夹，移出分类请用「移动到分类」
+    deleteBooks();
+    await deleteAllBookInTrash();
     if (isSearch) {
       handleSearch(false);
     }
@@ -281,19 +211,7 @@ const DeleteDialog = (props: DeleteDialogProps) => {
   );
   return (
     <div className="delete-dialog-container">
-      {mode === "shelf" && !isDeleteShelfBook ? (
-        <div className="delete-dialog-title">
-          <Trans>Delete from shelf</Trans>
-        </div>
-      ) : mode === "trash" && isDeleteAllBooksInTrash ? (
-        <div className="delete-dialog-title">
-          <Trans>Delete all books</Trans>
-        </div>
-      ) : mode === "trash" ? (
-        <div className="delete-dialog-title">
-          <Trans>Delete this book</Trans>
-        </div>
-      ) : isCollection ? (
+      {isCollection ? (
         <div className="delete-dialog-title">
           <Trans>Delete collection</Trans>
         </div>
@@ -302,62 +220,27 @@ const DeleteDialog = (props: DeleteDialogProps) => {
           <Trans>Delete this book</Trans>
         </div>
       )}
-      {mode === "trash" && isDeleteAllBooksInTrash ? null : (
-        <div className="delete-dialog-book">
-          <div className="delete-dialog-book-title">
-            {isSelectBook ? (
-              <Trans i18nKey="Total books" count={selectedBooks.length}>
-                {"Total " + selectedBooks.length + " books"}
-              </Trans>
-            ) : (
-              currentBook.name
-            )}
-          </div>
-        </div>
-      )}
-
-      {mode === "shelf" && !isDeleteShelfBook ? (
-        <div className="delete-dialog-other-option" style={{ top: "100px" }}>
-          <Trans>This action won't delete the original book</Trans>
-        </div>
-      ) : mode === "trash" && isDeleteAllBooksInTrash ? (
-        <div className="delete-dialog-other-option" style={{ top: "80px" }}>
-          <Trans>
-            This action will remove all the books in recycle bin,together with
-            their notes, bookmarks and digests
-          </Trans>
-        </div>
-      ) : mode === "trash" ? (
-        <div className="delete-dialog-other-option" style={{ top: "100px" }}>
-          {t(
-            "This action will permanently delete this book, together with its notes, bookmarks and digests"
+      <div className="delete-dialog-book">
+        <div className="delete-dialog-book-title">
+          {isSelectBook ? (
+            <Trans i18nKey="Total books" count={selectedBooks.length}>
+              {"Total " + selectedBooks.length + " books"}
+            </Trans>
+          ) : (
+            currentBook.name
           )}
         </div>
-      ) : isCollection ? (
-        <div className="delete-dialog-other-option" style={{ top: "100px" }}>
-          {isDisableTrashBin
-            ? t(
-                "This action will remove this collection, and permanently delete the books inside, together with their notes, bookmarks and digests"
-              )
-            : t(
-                "This action will remove this collection, and the books inside will be moved to the recycle bin"
-              )}
-        </div>
-      ) : isDisableTrashBin ? (
-        <div className="delete-dialog-other-option" style={{ top: "100px" }}>
-          <Trans>
-            This action will permanently delete the selected books, together
-            with their notes, bookmarks and digests
-          </Trans>
-        </div>
-      ) : (
-        <div className="delete-dialog-other-option" style={{ top: "100px" }}>
-          <Trans>
-            This action will move this book and its the notes, bookmarks and
-            highlights of this book to the recycle bin
-          </Trans>
-        </div>
-      )}
+      </div>
+
+      <div className="delete-dialog-other-option" style={{ top: "100px" }}>
+        {isCollection
+          ? t(
+              "This action will remove this collection, and permanently delete the books inside, together with their notes, bookmarks and digests"
+            )
+          : t(
+              "This action will permanently delete the selected books, together with their notes, bookmarks and digests"
+            )}
+      </div>
       <div className="add-dialog-button-container">
         <div
           className="add-dialog-cancel"

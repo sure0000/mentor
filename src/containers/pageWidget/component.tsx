@@ -3,16 +3,17 @@ import { useEffect, useRef, useState } from "react";
 import "./pageWidget.css";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { Trans } from "react-i18next";
-import { getBatchTrans, getWordDefinitions } from "../../utils/request/reader";
+import { getBatchTrans } from "../../utils/request/reader";
+import { isAiAvailable } from "../../utils/aiReading/aiGateway";
 import {
-  detectLocalLanguage,
   getFullTranslationTarget,
   isFixedLayoutComic,
   isPaginatedBook,
   isRateLimitedResult,
   isReadingRawPDF,
+  getRightPanelInset,
+  isPaperLayout,
 } from "../../utils/common";
-import toast from "react-hot-toast";
 import { isElectron } from "react-device-detect";
 import DatabaseService from "../../utils/storage/databaseService";
 import Note from "../../models/Note";
@@ -107,13 +108,13 @@ const PageWidget = () => {
   const isSettingLocked = useAppStore((s) => s.reader.isSettingLocked);
   const isDockedRight = useAppStore((s) => s.reader.isDockedRight);
   const backgroundColor = useAppStore((s) => s.reader.backgroundColor);
+  const isFitPage = useAppStore((s) => s.reader.isFitPage);
   const isHideFooter = useAppStore((s) => s.reader.isHideFooter);
   const isHideHeader = useAppStore((s) => s.reader.isHideHeader);
   const isShowPageBorder = useAppStore((s) => s.reader.isShowPageBorder);
   const textOrientation = useAppStore((s) => s.reader.textOrientation);
   const htmlBook = useAppStore((s) => s.reader.htmlBook);
   const isShowBookmark = useAppStore((s) => s.viewArea.isShowBookmark);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const jumpPosition = useAppStore((s) => s.reader.jumpPosition);
   const handleJumpPosition = useAppStore((s) => s.handleJumpPosition);
   const handleFetchNotes = useAppStore((s) => s.handleFetchNotes);
@@ -211,7 +212,7 @@ const PageWidget = () => {
           currentBook.key
         ) ||
         ConfigService.getReaderConfig("fullTranslationMode") === "no" ||
-        !isAuthed
+        !isAiAvailable("translate")
       ) {
         return;
       }
@@ -244,16 +245,17 @@ const PageWidget = () => {
         });
         if (pendingTexts.length > 0) {
           let res = await getBatchTrans(pendingTexts, "Automatic", targetLang);
-          if (res && res.data && res.data.texts) {
+          const resTexts = res && res.data ? res.data.texts : null;
+          if (resTexts) {
             pendingIndexes.forEach((index, i) => {
-              translatedTexts[index] = res.data.texts[i];
-              if (isRateLimitedResult(res.data.texts[i])) {
+              translatedTexts[index] = resTexts[i];
+              if (isRateLimitedResult(resTexts[i])) {
                 return;
               }
               if (!cache[targetLang]) {
                 cache[targetLang] = {};
               }
-              cache[targetLang][batchTransTexts[index]] = res.data.texts[i];
+              cache[targetLang][batchTransTexts[index]] = resTexts[i];
             });
             saveTransCache(chapterDocIndex, cache);
           }
@@ -267,49 +269,8 @@ const PageWidget = () => {
     return next;
   };
 
-  const handleWordDefinition = async (rendition) => {
-    const prev = batchTranslationLock.current;
-    const next = prev.then(async () => {
-      if (
-        !ConfigService.getAllListConfig("wordDefinitionBooks").includes(
-          currentBook.key
-        ) ||
-        !isAuthed
-      ) {
-        return;
-      }
-
-      let wordTexts = await rendition.audioText();
-      if (wordTexts && wordTexts.length > 0) {
-        let lang = detectLocalLanguage(wordTexts.slice(0, 500).join(" "));
-        if (lang === "ko") {
-          toast.error(
-            t(
-              "Unsupported language for word definition, currently only Chinese, Japanese and English are supported"
-            )
-          );
-          return;
-        }
-        let currentLevel =
-          lang === "zh"
-            ? ConfigService.getReaderConfig("currentChineseLevel") || "HSK3"
-            : lang === "ja"
-              ? ConfigService.getReaderConfig("currentJapaneseLevel") || "N3"
-              : ConfigService.getReaderConfig("currentEnglishLevel") || "四级";
-        let res = await getWordDefinitions(wordTexts, currentLevel, lang);
-
-        if (res && res.data && res.data.results) {
-          rendition.handleWordDefinitionResult(
-            res.data.results,
-            lang,
-            ConfigService.getReaderConfig("lang")
-          );
-        }
-      }
-    });
-    batchTranslationLock.current = next.catch(() => {});
-    return next;
-  };
+  // 单词释义（Word Definition）原依赖官方服务，返回结构由闭源引擎渲染，二开版本暂不提供
+  const handleWordDefinition = async (_rendition) => {};
 
   const handlePageNum = async (rendition) => {
     let pageInfo = await rendition.getProgress();
@@ -552,15 +513,16 @@ const PageWidget = () => {
           color: ConfigService.getReaderConfig("textColor")
             ? ConfigService.getReaderConfig("textColor")
             : "",
-          width:
-            !isNavLocked && !isSettingLocked && !isDockedRight
-              ? "100%"
-              : isNavLocked && (isSettingLocked || isDockedRight)
-                ? "calc(100% - 600px)"
-                : "calc(100% - 300px)",
+          width: `calc(100% - ${
+            (isNavLocked ? 300 : 0) +
+            getRightPanelInset(isSettingLocked, isDockedRight)
+          }px)`,
           left: !isNavLocked ? "0" : "300px",
-          right: !isSettingLocked && !isDockedRight ? "0" : "300px",
-          backgroundColor: backgroundColor,
+          right: getRightPanelInset(isSettingLocked, isDockedRight) + "px",
+          // 纸张栏模式下由 viewer 的 reader-desk / reader-paper 负责底色
+          backgroundColor: isPaperLayout(readerMode, currentBook, isFitPage)
+            ? "transparent"
+            : backgroundColor,
           filter: `brightness(${
             ConfigService.getReaderConfig("brightness") || 1
           }) invert(${

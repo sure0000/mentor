@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import "./background.css";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
-import { getPageWidth, throttle } from "../../utils/common";
+import {
+  getPageWidth,
+  getRightPanelInset,
+  throttle,
+} from "../../utils/common";
 import BackgroundUtil from "../../utils/file/backgroundUtil";
 import { useAppStore } from "../../store/useAppStore";
 import { useLatest } from "../../utils/hooks/useLatest";
@@ -57,7 +61,7 @@ const Background = () => {
         current.scale,
         parseInt(current.margin),
         current.isNavLocked,
-        current.isSettingLocked || current.isDockedRight,
+        getRightPanelInset(current.isSettingLocked, current.isDockedRight),
         current.isFitPage
       )
     );
@@ -70,7 +74,7 @@ const Background = () => {
           latest.scale,
           parseInt(latest.margin),
           latest.isNavLocked,
-          latest.isSettingLocked || latest.isDockedRight,
+          getRightPanelInset(latest.isSettingLocked, latest.isDockedRight),
           latest.isFitPage
         )
       );
@@ -88,7 +92,7 @@ const Background = () => {
         scale,
         parseInt(margin),
         isNavLocked,
-        isSettingLocked || isDockedRight,
+        getRightPanelInset(isSettingLocked, isDockedRight),
         isFitPage
       )
     );
@@ -137,7 +141,7 @@ const Background = () => {
                   }
                 : {
                     left: isNavLocked ? 305 : 5,
-                    right: isSettingLocked || isDockedRight ? 305 : 5,
+                    right: getRightPanelInset(isSettingLocked, isDockedRight) + 5,
                   }
             }
           ></div>
@@ -153,7 +157,7 @@ const Background = () => {
                   }
                 : {
                     left: isNavLocked ? 307 : 7,
-                    right: isSettingLocked || isDockedRight ? 307 : 7,
+                    right: getRightPanelInset(isSettingLocked, isDockedRight) + 7,
                   }
             }
           >
@@ -207,7 +211,7 @@ const Background = () => {
                   }
                 : {
                     left: isNavLocked ? 309 : 9,
-                    right: isSettingLocked || isDockedRight ? 309 : 9,
+                    right: getRightPanelInset(isSettingLocked, isDockedRight) + 9,
                   }
             }
           ></div>

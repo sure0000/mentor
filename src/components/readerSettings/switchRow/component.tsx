@@ -22,15 +22,14 @@ const SwitchRow = ({
   const isDialog = variant === "dialog";
   const switchNode = (
     <span
-      className="single-control-switch"
+      className={"single-control-switch" + (isEnabled ? " is-on" : "")}
       onClick={isDialog ? undefined : onClick}
-      style={isEnabled ? {} : { opacity: 0.6 }}
     >
       <span
         className="single-control-button"
         style={{
           transform: isEnabled ? "translateX(20px)" : "translateX(0px)",
-          transition: "transform 0.5s ease",
+          transition: "transform 0.25s ease",
         }}
       ></span>
     </span>

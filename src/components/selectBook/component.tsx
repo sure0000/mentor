@@ -32,7 +32,6 @@ const collectionUtil = new CollectionUtil(ConfigService);
 const SelectBook = () => {
   const books = useAppStore((s) => s.manager.books);
   const selectedBooks = useAppStore((s) => s.manager.selectedBooks);
-  const isCollapsed = useAppStore((s) => s.sidebar.isCollapsed);
   const isSearch = useAppStore((s) => s.manager.isSearch);
   const searchResults = useAppStore((s) => s.manager.searchResults) as any[];
   const shelfTitle = useAppStore((s) => s.sidebar.shelfTitle);
@@ -66,15 +65,12 @@ const SelectBook = () => {
       });
       return shelfItems;
     } else {
-      if (ConfigService.getReaderConfig("isHideShelfBook") === "yes") {
-        return items.filter((item) => {
-          return (
-            ConfigService.getFromAllMapConfig(item.key, "shelfList").length ===
-            0
-          );
-        });
-      }
-      return items;
+      // 书架根目录只展示未分类的书
+      return items.filter((item) => {
+        return (
+          ConfigService.getFromAllMapConfig(item.key, "shelfList").length === 0
+        );
+      });
     }
   };
 
@@ -108,7 +104,6 @@ const SelectBook = () => {
   return (
     <div
       className="booklist-manage-container"
-      style={isCollapsed ? { left: "75px" } : {}}
     >
       {isSelectBook && (
         <>
@@ -127,35 +122,10 @@ const SelectBook = () => {
           <span
             className="book-manage-title"
             onClick={() => {
-              if (
-                books.filter(
-                  (item: BookModel) =>
-                    selectedBooks.indexOf(item.key) > -1
-                ).length > 0
-              ) {
-                selectedBooks.forEach((item) => {
-                  ConfigService.setListConfig(item, "favoriteBooks");
-                });
-
-                handleSelectBook(!isSelectBook);
-                if (isSelectBook) {
-                  handleSelectedBooks([]);
-                }
-                toast.success(t("Add successful"));
-              } else {
-                toast(t("Nothing to add"));
-              }
-            }}
-          >
-            <Trans>Add to favorite</Trans>
-          </span>
-          <span
-            className="book-manage-title"
-            onClick={() => {
               handleAddDialog(true);
             }}
           >
-            <Trans>Add to shelf</Trans>
+            <Trans>Move to category</Trans>
           </span>
           <span
             className="book-manage-title"

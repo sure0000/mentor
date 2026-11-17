@@ -318,8 +318,9 @@ const MoreAction = (
                 );
               } else if (isElectron) {
                 const fs = window.electronAPI.fs;
-                const ext = cover.split(".").pop() || "jpg";
-                const buffer = fs.readFileSync(cover);
+                const coverPath = CoverUtil.fromFileUrl(cover);
+                const ext = coverPath.split(".").pop() || "jpg";
+                const buffer = fs.readFileSync(coverPath);
                 saveAs(
                   new Blob([buffer], { type: `image/${ext}` }),
                   `${currentBook.name}.${ext}`
@@ -461,7 +462,7 @@ const MoreAction = (
             className="action-dialog-edit"
             style={{ paddingLeft: "0px" }}
             onClick={() => {
-              const link = `koodo-reader://open-book?bookKey=${currentBook.key}`;
+              const link = `mentor://open-book?bookKey=${currentBook.key}`;
               navigator.clipboard.writeText(link).then(() => {
                 toast.success(t("Copied"));
               });

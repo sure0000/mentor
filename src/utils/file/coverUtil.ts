@@ -11,7 +11,6 @@ import {
 } from "../../assets/lib/kookit-extra-browser.min";
 import { getCloudConfig } from "./common";
 import { LocalFileManager } from "./localFile";
-import TokenService from "../storage/tokenService";
 declare var window: any;
 class AsyncQueue {
   private queue: (() => Promise<void>)[] = [];
@@ -59,6 +58,12 @@ class CoverUtil {
       if (!fs.existsSync(imageFilePath)) {
         return book.cover;
       }
+      // 打包后页面从 file:// 加载，磁盘绝对路径可直接作为 <img src>；
+      // 开发模式页面来自 http://127.0.0.1:3000，裸路径会被当成 dev server
+      // 的相对地址（返回 index.html），需要显式转成 file:// URL。
+      if (window.location.protocol !== "file:") {
+        return CoverUtil.toFileUrl(imageFilePath);
+      }
       return imageFilePath;
     } else {
       if (ConfigService.getItem("isUseLocal") === "yes") {
@@ -82,6 +87,24 @@ class CoverUtil {
         return book.cover;
       }
     }
+  }
+  static toFileUrl(filePath: string): string {
+    let normalized = filePath.replace(/\\/g, "/");
+    if (!normalized.startsWith("/")) normalized = "/" + normalized;
+    return (
+      "file://" +
+      encodeURI(normalized).replace(/#/g, "%23").replace(/\?/g, "%3F")
+    );
+  }
+  // getCover 在开发模式下返回 file:// URL，需要读文件时转回磁盘路径
+  static fromFileUrl(cover: string): string {
+    if (!cover.startsWith("file://")) return cover;
+    let decoded = decodeURIComponent(
+      cover.slice("file://".length).split("?")[0]
+    );
+    // Windows: /C:/xxx -> C:/xxx
+    if (/^\/[A-Za-z]:\//.test(decoded)) decoded = decoded.slice(1);
+    return decoded;
   }
   static async blobToBase64(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -357,10 +380,6 @@ class CoverUtil {
     }
   }
   static async uploadCover(cover: string) {
-    let isAuthed = await TokenService.getToken("is_authed");
-    if (isAuthed !== "yes") {
-      return;
-    }
     if (isElectron) {
       const ipcRenderer = window.electronAPI;
       let service = ConfigService.getItem("defaultSyncOption");
@@ -460,10 +479,6 @@ class CoverUtil {
     }
   }
   static async deleteCloudCover(key: string) {
-    let isAuthed = await TokenService.getToken("is_authed");
-    if (isAuthed !== "yes") {
-      return;
-    }
     let coverList = await this.getCloudCoverList();
     for (let cover of coverList) {
       if (cover.startsWith(key)) {

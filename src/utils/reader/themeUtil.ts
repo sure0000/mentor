@@ -17,7 +17,6 @@ const BG_SOLID_SELECTORS = [
   ".update-dialog-container-button",
   ".import-from-local",
   ".single-control-switch",
-  ".side-menu-selector-container",
   ".setting-dialog-sidebar-item.active",
   ".previous-chapter-single-container",
   ".next-chapter-single-container",
@@ -33,7 +32,6 @@ const TEXT_080_SELECTORS = [
   ".header-search-box::placeholder",
   ".feedback-dialog-content-box::placeholder",
   ".header-search-text",
-  ".card-list-item-show-more",
 ];
 
 const TEXT_SOLID_SELECTORS = [".single-control-container", ".book-list-view"];
@@ -48,10 +46,8 @@ const BG_010_SELECTORS = [
 
 const BG_HOVER_SELECTORS = [
   ".backup-page-close-icon:hover",
-  ".sidebar-list-icon:hover",
   ".nav-close-icon:hover",
   ".setting-close-container:hover",
-  ".side-menu-hover-container",
   ".setting-dialog-location-title",
   ".header-search-text:hover",
   ".setting-icon-container:hover",

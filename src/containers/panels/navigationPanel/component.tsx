@@ -434,17 +434,21 @@ const NavigationPanel = (props: NavigationPanelProps) => {
 
             <div className="navigation-navigation">
               <span
-                className="book-bookmark-title"
                 onClick={() => {
                   handleChangeTab("contents");
                 }}
-                style={state.currentTab === "contents" ? {} : { opacity: 0.5 }}
+                className={
+                  "book-bookmark-title" +
+                  (state.currentTab === "contents" ? " active" : "")
+                }
               >
                 <Trans>Content</Trans>
               </span>
               <span
-                className="book-bookmark-title"
-                style={state.currentTab === "bookmarks" ? {} : { opacity: 0.5 }}
+                className={
+                  "book-bookmark-title" +
+                  (state.currentTab === "bookmarks" ? " active" : "")
+                }
                 onClick={() => {
                   handleChangeTab("bookmarks");
                 }}
@@ -452,8 +456,10 @@ const NavigationPanel = (props: NavigationPanelProps) => {
                 <Trans>Bookmark</Trans>
               </span>
               <span
-                className="book-bookmark-title"
-                style={state.currentTab === "notes" ? {} : { opacity: 0.5 }}
+                className={
+                  "book-bookmark-title" +
+                  (state.currentTab === "notes" ? " active" : "")
+                }
                 onClick={() => {
                   handleChangeTab("notes");
                 }}
@@ -461,8 +467,10 @@ const NavigationPanel = (props: NavigationPanelProps) => {
                 <Trans>Note</Trans>
               </span>
               <span
-                className="book-bookmark-title"
-                style={state.currentTab === "highlights" ? {} : { opacity: 0.5 }}
+                className={
+                  "book-bookmark-title" +
+                  (state.currentTab === "highlights" ? " active" : "")
+                }
                 onClick={() => {
                   handleChangeTab("highlights");
                 }}

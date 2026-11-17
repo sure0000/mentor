@@ -21,8 +21,37 @@ const isDev = require("electron-is-dev");
 const Store = require("electron-store");
 const log = require("electron-log/main");
 const os = require("os");
-const store = new Store();
 const fs = require("fs");
+
+// Mentor：产品名由 Koodo Reader 改为 Mentor，用户数据目录随之从 <appData>/koodo-reader
+// 变为 <appData>/Mentor。首次启动时把旧目录整体改名过来（书库、设置、AI 缓存都在其中）。
+// 必须在 electron-store 与 app.getPath("userData") 首次使用之前执行。
+const migrateLegacyUserData = () => {
+  try {
+    const appData = app.getPath("appData");
+    const target = path.join(appData, "Mentor");
+    const legacy = path.join(appData, "koodo-reader");
+    const hasLibrary = (dir) =>
+      fs.existsSync(path.join(dir, "uploads", "data", "book")) ||
+      fs.existsSync(path.join(dir, "uploads", "data", "config"));
+    if (fs.existsSync(legacy) && hasLibrary(legacy)) {
+      // 目标目录若只是改名后首次启动生成的空壳（没有书库），先挪开再迁移
+      if (
+        fs.existsSync(target) &&
+        !fs.existsSync(path.join(target, "uploads", "data", "book"))
+      ) {
+        fs.renameSync(target, target + "-empty-" + Date.now());
+      }
+      if (!fs.existsSync(target)) fs.renameSync(legacy, target);
+    }
+    app.setPath("userData", target);
+  } catch (error) {
+    console.error("Failed to migrate user data directory", error);
+  }
+};
+app.setName("Mentor");
+migrateLegacyUserData();
+const store = new Store();
 const fsExtra = require("fs-extra");
 const nodeCrypto = require("crypto");
 const yauzl = require("yauzl");
@@ -36,7 +65,6 @@ const {
 const { runPowerShellScript } = require("./src/utils/main/powershell-util");
 const {
   buildProxyUrl,
-  checkCloudUrl,
   testProxyConnection,
 } = require("./src/utils/main/network-util");
 const {
@@ -60,6 +88,7 @@ const {
   promptBiometricAuth,
 } = require("./src/utils/main/biometric-util");
 const { getVoicePlugin } = require("./src/utils/plugins/main/registry");
+const claudeCode = require("./src/utils/main/claude-code-util");
 const ttsCacheUtil = require("./src/utils/plugins/main/voice/ttsCache");
 let dictReaderModule = null;
 const getDictReader = () => {
@@ -153,11 +182,9 @@ let mainView;
 //multi tab
 // let mainViewList = []
 let readerWindowReadyToClose = false;
-let chatWindow;
 let dbConnection = {};
 let syncUtilCache = {};
 let pickerUtilCache = {};
-let downloadRequest = null;
 
 const RESIZE_THROTTLE_MS = 300;
 
@@ -291,6 +318,11 @@ const hardenAppContents = (contents) => {
   contents.on("will-redirect", blockExternalNavigation);
 };
 
+/** 本应用的深链接：mentor://，兼容旧的 koodo-reader:// 链接 */
+const isAppDeepLink = (url) =>
+  typeof url === "string" &&
+  (url.startsWith("mentor://") || url.startsWith("koodo-reader://"));
+
 const singleInstance = app.requestSingleInstanceLock();
 var filePath = null;
 var pendingDeepLink = null;
@@ -298,7 +330,7 @@ if (process.platform != "darwin" && process.argv.length >= 2) {
   filePath = process.argv[1];
   // Check argv for a deep link URL (cold start)
   for (const arg of process.argv) {
-    if (arg.startsWith("koodo-reader://")) {
+    if (isAppDeepLink(arg)) {
       pendingDeepLink = arg;
       break;
     }
@@ -390,7 +422,7 @@ if (!singleInstance) {
       mainWin.focus();
     }
     // Handle deep link passed via second-instance argv
-    const deepLink = argv.find((arg) => arg.startsWith("koodo-reader://"));
+    const deepLink = argv.find((arg) => isAppDeepLink(arg));
     if (deepLink) {
       if (deepLink === pendingDeepLink) {
         pendingDeepLink = null;
@@ -570,7 +602,7 @@ const createTray = () => {
   tray = new Tray(trayIcon);
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "Open Koodo Reader",
+      label: "Open Mentor",
       click: () => {
         if (mainWin) {
           mainWin.show();
@@ -586,7 +618,7 @@ const createTray = () => {
       },
     },
   ]);
-  tray.setToolTip("Koodo Reader");
+  tray.setToolTip("Mentor");
   tray.setContextMenu(contextMenu);
   tray.on("click", () => {
     if (mainWin) {
@@ -693,7 +725,6 @@ const createMainWin = () => {
       { 0: "info", 1: "info", 2: "warn", 3: "error" }[level] || "info";
     log[lvl](`[Renderer] ${message}`);
   });
-  //cancel-download-app
   const normalizeFileData = (value) => {
     if (value instanceof Uint8Array) return Buffer.from(value);
     if (value instanceof ArrayBuffer) return Buffer.from(value);
@@ -869,6 +900,63 @@ const createMainWin = () => {
       word,
     });
   });
+  // ===== AI 伴读：Claude Code 后端（见 docs/ai-reading/decisions.md） =====
+  ipcMain.handle("claude-code-check", async (event, args) => {
+    const override =
+      args && typeof args.binPath === "string" ? args.binPath.trim() : "";
+    const bin = await claudeCode.locate(override);
+    if (!bin) return { ok: false, code: "not-found" };
+    const version = await claudeCode.version(bin);
+    if (!version) return { ok: false, code: "not-found", bin };
+    return { ok: true, bin, version };
+  });
+  ipcMain.handle("claude-code-chat", async (event, args) => {
+    const requestId = args && args.requestId;
+    const prompt = args && args.prompt;
+    if (typeof requestId !== "string" || !/^[\w-]{1,64}$/.test(requestId)) {
+      throw new TypeError("Invalid requestId");
+    }
+    if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 2000000) {
+      throw new TypeError("Invalid prompt");
+    }
+    const system = typeof args.system === "string" ? args.system : "";
+    const model =
+      typeof args.model === "string" && /^[\w.\-[\]]{0,80}$/.test(args.model)
+        ? args.model
+        : "";
+    const budgetUsd =
+      typeof args.budgetUsd === "number" && args.budgetUsd > 0
+        ? args.budgetUsd
+        : 0;
+    const schema =
+      args.schema && typeof args.schema === "object" && !Array.isArray(args.schema)
+        ? args.schema
+        : null;
+    const override =
+      typeof args.binPath === "string" ? args.binPath.trim() : "";
+    const bin = await claudeCode.locate(override);
+    if (!bin) return { ok: false, code: "not-found", costUsd: 0, durationMs: 0 };
+    const sender = event.sender;
+    return await claudeCode.run({
+      bin,
+      requestId,
+      prompt,
+      system,
+      model,
+      budgetUsd,
+      schema,
+      log,
+      onText: (text) => {
+        if (!sender.isDestroyed()) {
+          sender.send("claude-code-delta", { requestId, text });
+        }
+      },
+    });
+  });
+  ipcMain.handle("claude-code-cancel", (event, requestId) => {
+    if (typeof requestId !== "string") return false;
+    return claudeCode.cancel(requestId);
+  });
   ipcMain.handle("dict-migrate", async (event, args) => {
     const storagePath = args && args.storagePath;
     if (typeof storagePath !== "string" || !storagePath.trim()) {
@@ -953,86 +1041,12 @@ const createMainWin = () => {
       stream.on("end", () => resolve(hash.digest("hex")));
     });
   });
-  ipcMain.handle("cancel-download-app", (event, arg) => {
-    // Implement cancellation logic here
-    // Note: In this example, we are not keeping a reference to the request,
-    // so we cannot actually abort it. This is a placeholder for demonstration.
-    if (downloadRequest) {
-      downloadRequest.abort();
-      downloadRequest = null;
-    }
-    event.returnValue = "cancelled";
-  });
   // Discord RPC handlers
   ipcMain.handle("discord-rpc-update", async (event, config) => {
     await setDiscordActivity(config);
   });
   ipcMain.handle("discord-rpc-clear", async (event) => {
     await clearDiscordActivity();
-  });
-  ipcMain.handle("update-win-app", (event, config) => {
-    let fileName = `koodo-reader-installer.exe`;
-    let supportedArchs = ["x64", "ia32", "arm64"];
-    //get system arch
-    let arch = os.arch();
-    if (!supportedArchs.includes(arch)) {
-      return;
-    }
-
-    let url = `https://dl.koodoreader.com/v${config.version}/Koodo-Reader-${config.version}-${arch}.exe`;
-    const https = require("https");
-    const { spawn } = require("child_process");
-    const file = fs.createWriteStream(path.join(app.getPath("temp"), fileName));
-    downloadRequest = https.get(url, (res) => {
-      const totalSize = parseInt(res.headers["content-length"], 10);
-      let downloadedSize = 0;
-      res.on("data", (chunk) => {
-        downloadedSize += chunk.length;
-        const progress = ((downloadedSize / totalSize) * 100).toFixed(2);
-        const downloadedMB = (downloadedSize / 1024 / 1024).toFixed(2);
-        const totalMB = (totalSize / 1024 / 1024).toFixed(2);
-        mainWin.webContents.send("download-app-progress", {
-          progress,
-          downloadedMB,
-          totalMB,
-        });
-      });
-
-      res.pipe(file);
-      file.on("finish", () => {
-        console.info("\n下载完成！");
-        file.close();
-
-        let updateExePath = path.join(app.getPath("temp"), fileName);
-        if (!fs.existsSync(updateExePath)) {
-          console.error("更新包不存在:", updateExePath);
-          return;
-        }
-        // 验证文件可执行性
-        try {
-          fs.accessSync(updateExePath, fs.constants.X_OK);
-          console.info("更新包可执行性验证通过");
-        } catch (err) {
-          console.error("更新包不可执行:", err.message);
-          return;
-        }
-        try {
-          // 先退出应用，再启动安装程序，避免文件锁定导致覆盖安装失败
-          app.once("will-quit", () => {
-            const child = spawn(updateExePath, [], {
-              stdio: "ignore",
-              detached: true,
-              shell: true,
-              windowsHide: false,
-            });
-            child.unref();
-          });
-          app.quit();
-        } catch (err) {
-          console.error(`spawn 执行异常: ${err.message}`);
-        }
-      });
-    });
   });
   ipcMain.handle("open-book", (event, config) => {
     let { url, isMergeWord, isAutoFullscreen, isAutoMaximize, isPreventSleep } =
@@ -1461,10 +1475,6 @@ const createMainWin = () => {
         return "{}";
       }
     }
-  });
-  ipcMain.handle("check-cloud-url", async (event, config) => {
-    const { url } = config;
-    return checkCloudUrl(url);
   });
   ipcMain.handle("get-proxy-config", async () => {
     const config = store.get("proxyConfig") || {
@@ -2103,40 +2113,6 @@ const createMainWin = () => {
     }
   });
 
-  ipcMain.handle("new-chat", (event, config) => {
-    if (!chatWindow && mainWin) {
-      let bounds = mainWin.getBounds();
-      chatWindow = new BrowserWindow({
-        ...options,
-        width: 450,
-        height: bounds.height,
-        x: bounds.x + (bounds.width - 450),
-        y: bounds.y,
-        frame: true,
-        hasShadow: true,
-        transparent: false,
-        webPreferences: {
-          ...options.webPreferences,
-          nodeIntegration: false,
-          contextIsolation: true,
-          preload: path.join(__dirname, "chat-preload.js"),
-        },
-      });
-      chatWindow.loadURL(config.url);
-      chatWindow.on("close", (event) => {
-        chatWindow && chatWindow.destroy();
-        chatWindow = null;
-      });
-    } else if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.show();
-      chatWindow.focus();
-    }
-  });
-  ipcMain.on("chat-message", (event, msg) => {
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send("chat-message", msg);
-    }
-  });
   ipcMain.handle("clear-all-data", async (event, config) => {
     try {
       if (fs.existsSync(path.join(dirPath, "tts"))) {
@@ -2480,6 +2456,10 @@ const applyCorsToRendererRequests = () => {
 };
 
 app.on("ready", async () => {
+  // 开发模式下 Dock 默认显示 Electron 图标；打包后由 icon.icns 提供
+  if (isDev && process.platform === "darwin" && app.dock) {
+    app.dock.setIcon(path.join(__dirname, "./public/assets/icon.png"));
+  }
   applyCorsToRendererRequests();
   await applyProxyToSession();
   applyNativeThemeSource(store.get("appSkin"));
@@ -2488,6 +2468,7 @@ app.on("ready", async () => {
 app.on("before-quit", () => {
   isQuitting = true;
   destroyDiscordRPC();
+  claudeCode.cancelAll();
 });
 app.on("window-all-closed", () => {
   app.quit();
@@ -2496,7 +2477,7 @@ app.on("open-file", (e, pathToFile) => {
   filePath = pathToFile;
 });
 // Register protocol handler
-app.setAsDefaultProtocolClient("koodo-reader");
+app.setAsDefaultProtocolClient("mentor");
 const serializeArg = (arg) => {
   if (arg === null) return "null";
   if (arg === undefined) return "undefined";
@@ -2540,7 +2521,7 @@ var lastDeepLinkAt = 0;
 const handleCallback = (url) => {
   try {
     // 检查 URL 是否有效
-    if (!url.startsWith("koodo-reader://")) {
+    if (!isAppDeepLink(url)) {
       console.error("Invalid URL format:", url);
       return;
     }

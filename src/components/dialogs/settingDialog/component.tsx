@@ -4,7 +4,6 @@ import { useAppStore } from "../../../store/useAppStore";
 import { Trans } from "react-i18next";
 import GeneralSetting from "../../../containers/settings/generalSetting";
 import SyncSetting from "../../../containers/settings/syncSetting";
-import AccountSetting from "../../../containers/settings/accountSetting";
 import PluginSetting from "../../../containers/settings/pluginSetting";
 import ReadingSetting from "../../../containers/settings/readingSetting";
 import AppearanceSetting from "../../../containers/settings/appearanceSetting";
@@ -79,8 +78,6 @@ const SettingDialog = () => {
         return "Plugins";
       case "sync":
         return "Sync and backup";
-      case "account":
-        return "Account";
       case "about":
         return "About";
       case "ai":
@@ -112,7 +109,6 @@ const SettingDialog = () => {
 
           {/* First group */}
           <div className="setting-dialog-sidebar-group">
-            {renderSidebarItem("account", "icon-user", "Account", "18px")}
             {renderSidebarItem("general", "icon-setting", "General", "")}
             {renderSidebarItem("data", "icon-archive", "Data", "15px")}
             {renderSidebarItem(
@@ -216,8 +212,6 @@ const SettingDialog = () => {
               <AppearanceSetting />
             ) : settingMode === "sync" ? (
               <SyncSetting />
-            ) : settingMode === "account" ? (
-              <AccountSetting />
             ) : settingMode === "data" ? (
               <DataSetting />
             ) : settingMode === "about" ? (

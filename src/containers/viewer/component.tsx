@@ -43,6 +43,8 @@ import {
   isReadingRawPDF,
   saveOcrCache,
   throttle,
+  getRightPanelInset,
+  isPaperLayout,
 } from "../../utils/common";
 import _ from "underscore";
 import {
@@ -52,8 +54,8 @@ import {
 import * as Kookit from "../../assets/lib/kookit.min";
 import PopupRefer from "../../components/popups/popupRefer";
 import DatabaseService from "../../utils/storage/databaseService";
-import { getOcrResult, getOcrResultV2 } from "../../utils/request/reader";
 import { BookHelper } from "../../assets/lib/kookit.min";
+import { isAiAvailable } from "../../utils/aiReading/aiGateway";
 import { parseWithSystemOCR } from "../../utils/request/common";
 import { isElectron } from "react-device-detect";
 import axios from "axios";
@@ -95,6 +97,9 @@ let lock = false; //prevent from clicking too fasts
 // 用 WeakSet 保证同一 doc 的 click/pointerup/contextmenu 只绑定一次
 const gestureBoundDocs = new WeakSet<Document>();
 
+// 纸张栏在正文左右各留出的内边距，与单页背景框（±50px）保持一致
+const PAPER_PADDING = 50;
+
 const Viewer = (props: ViewerProps) => {
   const currentBook = useAppStore((s) => s.book.currentBook);
   const htmlBook = useAppStore((s) => s.reader.htmlBook);
@@ -102,7 +107,6 @@ const Viewer = (props: ViewerProps) => {
   const isSettingLocked = useAppStore((s) => s.reader.isSettingLocked);
   const isDockedRight = useAppStore((s) => s.reader.isDockedRight);
   const isOpenMenu = useAppStore((s) => s.viewArea.isOpenMenu);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const readerMode = useAppStore((s) => s.reader.readerMode);
   const menuMode = useAppStore((s) => s.viewArea.menuMode);
   const scale = useAppStore((s) => s.reader.scale);
@@ -116,6 +120,7 @@ const Viewer = (props: ViewerProps) => {
   const isReadingRuler = useAppStore((s) => s.reader.isReadingRuler);
   const isSpeedReading = useAppStore((s) => s.reader.isSpeedReading);
   const isMergeWord = useAppStore((s) => s.reader.isMergeWord);
+  const backgroundColor = useAppStore((s) => s.reader.backgroundColor);
   const isShowPageBorder = useAppStore((s) => s.reader.isShowPageBorder);
   const textOrientation = useAppStore((s) => s.reader.textOrientation);
   const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
@@ -143,7 +148,6 @@ const Viewer = (props: ViewerProps) => {
     isSettingLocked,
     isDockedRight,
     isOpenMenu,
-    isAuthed,
     readerMode,
     menuMode,
     scale,
@@ -331,10 +335,6 @@ const Viewer = (props: ViewerProps) => {
         pdfCrop = { top, bottom, left, right };
       }
     }
-    const ocrLangKey =
-      propsRef.current.currentBook.description.indexOf("scanned") > -1
-        ? "scannedOcrLang"
-        : "textOcrLang";
     const isScannedBook =
       propsRef.current.currentBook.description.indexOf("scanned") > -1;
     const rawOcrEngine = getDefaultOcrEngine(propsRef.current.currentBook);
@@ -342,10 +342,7 @@ const Viewer = (props: ViewerProps) => {
     // 缓存 key 需要区分不同 OCR 插件，而渲染引擎统一用 "plugin-ocr"，两者分开维护
     let ocrCacheEngine = rawOcrEngine;
     let ocrLang = getDefaultOcrLang(rawOcrEngine, propsRef.current.currentBook);
-    const serverRegion =
-      getServerRegion() === "china" && propsRef.current.isAuthed
-        ? "china"
-        : "global";
+    const serverRegion = getServerRegion() === "china" ? "china" : "global";
     let externalWorker: {
       recognize: (input: string) => Promise<unknown>;
     } = {
@@ -359,9 +356,7 @@ const Viewer = (props: ViewerProps) => {
                 serverRegion,
                 isElectron
               ).recognize
-            : ConfigService.getReaderConfig(ocrLangKey) === "accurate"
-              ? getOcrResultV2
-              : getOcrResult,
+            : parseWithSystemOCR,
     };
 
     const builtinOcr = getBuiltinOcr(rawOcrEngine);
@@ -395,9 +390,7 @@ const Viewer = (props: ViewerProps) => {
                     serverRegion,
                     isElectron
                   ).recognize
-                : ConfigService.getReaderConfig(ocrLangKey) === "accurate"
-                  ? getOcrResultV2
-                  : getOcrResult,
+                : parseWithSystemOCR,
         };
       }
     }
@@ -437,7 +430,7 @@ const Viewer = (props: ViewerProps) => {
         fullTranslationMode:
           ConfigService.getAllListConfig("fullTranslationBooks").includes(
             propsRef.current.currentBook.key
-          ) && propsRef.current.isAuthed
+          ) && isAiAvailable("translate")
             ? ConfigService.getReaderConfig("fullTranslationMode")
             : "no",
         textOrientation: ConfigService.getReaderConfig("textOrientation"),
@@ -593,7 +586,7 @@ const Viewer = (props: ViewerProps) => {
       collectionUtil.getRecentBookKey(propsRef.current.currentBook.key),
       "recentBooks"
     );
-    document.title = name + " - Koodo Reader";
+    document.title = name + " - Mentor";
   };
 
   const handleRest = async (rendition: any) => {
@@ -852,7 +845,10 @@ const Viewer = (props: ViewerProps) => {
         propsRef.current.scale,
         parseInt(propsRef.current.margin),
         propsRef.current.isNavLocked,
-        propsRef.current.isSettingLocked || propsRef.current.isDockedRight,
+        getRightPanelInset(
+          propsRef.current.isSettingLocked,
+          propsRef.current.isDockedRight
+        ),
         propsRef.current.isFitPage
       )
     );
@@ -870,7 +866,10 @@ const Viewer = (props: ViewerProps) => {
             propsRef.current.scale,
             parseInt(propsRef.current.margin),
             propsRef.current.isNavLocked,
-            propsRef.current.isSettingLocked || propsRef.current.isDockedRight,
+            getRightPanelInset(
+          propsRef.current.isSettingLocked,
+          propsRef.current.isDockedRight
+        ),
             propsRef.current.isFitPage
           )
         );
@@ -883,7 +882,26 @@ const Viewer = (props: ViewerProps) => {
     });
     resizeHandlerRef.current = resizeHandler;
     window.addEventListener("resize", resizeHandler);
+    // 窗口在不同 DPI 的显示器间拖动时 devicePixelRatio 会变，但不会触发 resize。
+    // PDF 等固定版式书籍的 canvas 按渲染时的 DPR 绘制，不重绘就会在高分屏上发虚
+    let dprQuery: MediaQueryList | null = null;
+    const watchDpr = () => {
+      dprQuery?.removeEventListener("change", onDprChange);
+      const query = window.matchMedia(
+        `(resolution: ${window.devicePixelRatio}dppx)`
+      );
+      query.addEventListener("change", onDprChange);
+      dprQuery = query;
+    };
+    function onDprChange() {
+      watchDpr();
+      if (isPaginatedBook(propsRef.current.currentBook)) {
+        resizeHandler();
+      }
+    }
+    watchDpr();
     return () => {
+      dprQuery?.removeEventListener("change", onDprChange);
       teardownOverlayTurn();
       if (resizeHandlerRef.current) {
         window.removeEventListener("resize", resizeHandlerRef.current);
@@ -920,7 +938,10 @@ const Viewer = (props: ViewerProps) => {
           nextProps.scale,
           parseInt(nextProps.margin),
           nextProps.isNavLocked,
-          nextProps.isSettingLocked || nextProps.isDockedRight,
+          getRightPanelInset(
+            nextProps.isSettingLocked,
+            nextProps.isDockedRight
+          ),
           nextProps.isFitPage
         )
       );
@@ -1000,8 +1021,36 @@ const Viewer = (props: ViewerProps) => {
               }
         }
       ></div>
+      {isPaperLayout(readerMode, currentBook, isFitPage) &&
+        state.pageWidth && (
+          <>
+            <div
+              className="reader-desk"
+              style={{
+                left: isNavLocked ? 300 : 0,
+                right: getRightPanelInset(isSettingLocked, isDockedRight),
+                backgroundColor: `color-mix(in srgb, ${backgroundColor} 90%, #000)`,
+              }}
+            ></div>
+            <div
+              className="reader-paper"
+              style={{
+                left: `calc(${state.pageOffset} - ${PAPER_PADDING}px)`,
+                width: `calc(${state.pageWidth} + ${PAPER_PADDING * 2}px)`,
+                backgroundColor,
+                filter: `brightness(${
+                  ConfigService.getReaderConfig("brightness") || 1
+                }) invert(${
+                  ConfigService.getReaderConfig("isInvert") === "yes" ? 1 : 0
+                })`,
+              }}
+            ></div>
+          </>
+        )}
       <PageWidget />
-      {(isHideBackground && !readerBackgroundImage) ||
+      {((isHideBackground ||
+        isPaperLayout(readerMode, currentBook, isFitPage)) &&
+        !readerBackgroundImage) ||
       textOrientation === "vertical" ||
       isShowPageBorder ||
       ((isParagraphMode || isReadingRuler || isSpeedReading) &&

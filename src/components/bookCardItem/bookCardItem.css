@@ -1,37 +1,40 @@
 .book-list-item {
-  width: calc(133px * var(--card-scale, 1));
-  /* height: 192px; */
+  width: calc(145px * var(--card-scale, 1));
   float: left;
   overflow: hidden;
   position: relative;
   cursor: grab;
+  padding-bottom: calc(8px * var(--card-scale, 1));
 }
 .book-list-item:active {
   cursor: grabbing;
 }
 .book-item-cover {
   width: calc(105px * var(--card-scale, 1));
-  /* height: 137px; */
   opacity: 1;
-  margin: calc(10px * var(--card-scale, 1)) calc(15px * var(--card-scale, 1))
-    calc(5px * var(--card-scale, 1)) calc(15px * var(--card-scale, 1));
+  margin: calc(16px * var(--card-scale, 1)) calc(20px * var(--card-scale, 1))
+    calc(10px * var(--card-scale, 1)) calc(20px * var(--card-scale, 1));
   cursor: pointer;
-  /* overflow: hidden; */
   display: flex;
   justify-content: center;
-
-  border-radius: 2px;
+  border-radius: 4px;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.book-item-cover:hover {
+  transform: translateY(-3px);
 }
 .book-item-image {
-  border-radius: 2px;
+  border-radius: 4px;
 }
 .book-item-title {
-  width: 80%;
-  margin-left: 10%;
-  /* margin-bottom: 5px; */
-  height: 31px;
-  font-size: 12px;
-  line-height: 15px;
+  width: calc(105px * var(--card-scale, 1));
+  margin-left: calc(20px * var(--card-scale, 1));
+  height: 38px;
+  font-size: 13px;
+  line-height: 19px;
+  font-weight: 500;
   opacity: 1;
   text-align: left;
   text-overflow: ellipsis;
@@ -55,16 +58,17 @@
   }
 }
 .book-more-action {
-  /* position: absolute;
-  bottom: 23px;
-  right: 17px; */
   transform: rotate(90deg);
   float: right;
   font-size: 14px;
   cursor: pointer;
-  margin-right: 14px;
+  margin-right: calc(20px * var(--card-scale, 1));
   margin-top: 4px;
-  opacity: 0.8;
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+.book-list-item:hover .book-more-action {
+  opacity: 0.9;
 }
 .book-heart-action {
   font-size: 14px;
@@ -102,10 +106,10 @@
   /* width: 31px;
   height: 31px; */
   display: inline-block;
-  margin-left: 10px;
-  border-radius: 50%;
+  margin-left: calc(20px * var(--card-scale, 1));
+  margin-top: 2px;
   font-size: 12px;
-  /* line-height: 31px; */
+  line-height: 18px;
   cursor: pointer;
 }
 @keyframes slide-down {

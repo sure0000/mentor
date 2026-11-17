@@ -1,156 +1,22 @@
+// 二开：云同步只保留 iCloud Drive（macOS 桌面端）。
+// 其余网盘依赖 Koodo 服务器做 OAuth 中转或令牌加密，已移除。
 export const driveList = [
-  {
-    label: "WebDAV",
-    value: "webdav",
-    icon: "icon-webdav",
-    isPro: true,
-    support: ["desktop", "browser", "phone"],
-    scoped: false,
-    needExtension: true,
-  },
-  {
-    label: "S3 Compatible",
-    value: "s3compatible",
-    icon: "icon-s3compatible",
-    isPro: true,
-    support: ["desktop", "browser", "phone"],
-    scoped: false,
-    needExtension: true,
-  },
-  {
-    label: "Docker",
-    value: "docker",
-    icon: "icon-docker",
-    isPro: true,
-    support: ["desktop", "browser", "phone"],
-    scoped: true,
-  },
-  {
-    label: "OneDrive",
-    value: "microsoft",
-    icon: "icon-onedrive",
-    isPro: true,
-    support: ["desktop", "browser", "phone"],
-    scoped: true,
-  },
-  {
-    label: "Google Drive",
-    value: "google",
-    icon: "icon-googledrive",
-    isPro: true,
-    support: ["desktop", "browser", "phone"],
-    scoped: false,
-  },
-  {
-    label: "Dropbox",
-    value: "dropbox",
-    icon: "icon-dropbox",
-    isPro: true,
-    support: ["desktop", "browser", "phone"],
-    scoped: true,
-  },
   {
     label: "iCloud",
     value: "icloud",
     icon: "icon-icloud",
-    isPro: true,
-    support: ["desktop", "phone"],
-    scoped: true,
-  },
-  {
-    label: "Local folder",
-    value: "folder",
-    icon: "icon-local",
-    isPro: true,
     support: ["desktop"],
     scoped: true,
   },
-  {
-    label: "Dubox",
-    value: "dubox",
-    icon: "icon-dubox",
-    isPro: true,
-    support: ["desktop", "phone"],
-    scoped: false,
-  },
-
-  {
-    label: "Box",
-    value: "boxnet",
-    icon: "icon-box",
-    isPro: true,
-    support: ["desktop", "browser", "phone"],
-    scoped: false,
-  },
-
-  {
-    label: "MEGA",
-    value: "mega",
-    icon: "icon-mega",
-    isPro: true,
-    support: ["desktop", "browser"],
-    scoped: false,
-  },
-  {
-    label: "Aliyun Drive",
-    value: "adrive",
-    icon: "icon-adrive",
-    isPro: true,
-    support: ["desktop", "phone"],
-    scoped: false,
-  },
-  {
-    label: "Yandex Disk",
-    value: "yandex",
-    icon: "icon-yandex",
-    isPro: true,
-    support: ["desktop", "phone"],
-    scoped: false,
-  },
-  {
-    label: "115 Yun",
-    value: "yiyiwu",
-    icon: "icon-yiyiwu",
-    isPro: true,
-    support: ["desktop", "phone"],
-    scoped: false,
-  },
-
-  {
-    label: "pCloud",
-    value: "pcloud",
-    icon: "icon-pcloud",
-    isPro: true,
-    support: ["desktop", "phone"],
-    scoped: true,
-  },
-
-  {
-    label: "OneDrive (full access)",
-    value: "microsoft_exp",
-    icon: "icon-onedrive",
-    isPro: true,
-    support: ["desktop", "browser", "phone"],
-    scoped: false,
-  },
-
-  {
-    label: "FTP",
-    value: "ftp",
-    icon: "icon-ftp",
-    isPro: true,
-    support: ["desktop"],
-    scoped: false,
-  },
-  {
-    label: "SFTP",
-    value: "sftp",
-    icon: "icon-sftp",
-    isPro: true,
-    support: ["desktop"],
-    scoped: false,
-  },
-];
+] as {
+  label: string;
+  value: string;
+  icon: string;
+  support: string[];
+  scoped: boolean;
+  isPro?: boolean;
+  needExtension?: boolean;
+}[];
 interface ConfigItem {
   label: string;
   value: string;
@@ -332,7 +198,7 @@ export const driveInputConfig: DriveInputConfig = {
       value: "bucketName",
       type: "text",
       required: true,
-      example: "koodo-reader-bucket",
+      example: "mentor-bucket",
     },
     {
       label: "Path",

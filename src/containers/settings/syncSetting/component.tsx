@@ -16,12 +16,9 @@ import {
   generateSyncRecord,
   getICloudDrivePath,
   getServerRegion,
-  getWebsiteLang,
-  getWebsiteUrl,
   handleContextMenu,
   openExternalUrl,
   openInBrowser,
-  resetKoodoSync,
   showTaskProgress,
   testConnection,
   testCORS,
@@ -37,21 +34,15 @@ import {
   SyncHelper,
   SyncUtil,
 } from "../../../assets/lib/kookit-extra-browser.min";
-import {
-  encryptToken,
-  onSyncCallback,
-} from "../../../utils/request/thirdparty";
+import { encryptToken } from "../../../utils/request/thirdparty";
 import SyncService from "../../../utils/storage/syncService";
-import { updateUserConfig } from "../../../utils/request/user";
 import BookUtil from "../../../utils/file/bookUtil";
 import Book from "../../../models/Book";
-import ConfigUtil from "../../../utils/file/configUtil";
 import TokenService from "../../../utils/storage/tokenService";
 import { useAppStore } from "../../../store/useAppStore";
 
 export interface SettingInfoState {
   isKeepLocal: boolean;
-  isEnableKoodoSync: boolean;
   isDisableAutoSync: boolean;
   autoOffline: boolean;
   hideSyncProgress: boolean;
@@ -66,14 +57,11 @@ declare var window: any;
 
 const SyncSetting = () => {
   const books = useAppStore((s) => s.manager.books);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const settingDrive = useAppStore((s) => s.manager.settingDrive);
   const dataSourceList = useAppStore((s) => s.backupPage.dataSourceList);
   const defaultSyncOption = useAppStore(
     (s) => s.backupPage.defaultSyncOption
   );
-  const cloudSyncFunc = useAppStore((s) => s.book.cloudSyncFunc);
-  const handleSetting = useAppStore((s) => s.handleSetting);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleFetchDataSourceList = useAppStore(
     (s) => s.handleFetchDataSourceList
@@ -82,10 +70,8 @@ const SyncSetting = () => {
     (s) => s.handleFetchDefaultSyncOption
   );
   const handleTokenDialog = useAppStore((s) => s.handleTokenDialog);
-  const handleSettingMode = useAppStore((s) => s.handleSettingMode);
   const handleSettingDrive = useAppStore((s) => s.handleSettingDrive);
   const handleLoadingDialog = useAppStore((s) => s.handleLoadingDialog);
-  const handleFetchUserInfo = useAppStore((s) => s.handleFetchUserInfo);
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [state, setState] = useState<SettingInfoState>(() => ({
@@ -93,8 +79,6 @@ const SyncSetting = () => {
     autoOffline: ConfigService.getReaderConfig("autoOffline") === "yes",
     isDisableAutoSync:
       ConfigService.getReaderConfig("isDisableAutoSync") === "yes",
-    isEnableKoodoSync:
-      ConfigService.getReaderConfig("isEnableKoodoSync") === "yes",
     hideSyncProgress:
       ConfigService.getReaderConfig("hideSyncProgress") === "yes",
     driveConfig: {},
@@ -155,12 +139,6 @@ const SyncSetting = () => {
       );
       return;
     }
-    if (!isAuthed) {
-      toast(t("Please upgrade to Pro to use this feature"));
-      handleSetting(true);
-      handleSettingMode("account");
-      return;
-    }
     if (
       !isElectron &&
       driveList.find((item) => item.value === targetDrive)?.needExtension
@@ -168,15 +146,6 @@ const SyncSetting = () => {
       if (!(await confirmBrowserExtensionAsync())) {
         return;
       }
-    }
-    if (
-      driveList.find((item) => item.value === targetDrive)?.isPro &&
-      !isAuthed
-    ) {
-      toast(t("Please upgrade to Pro to use this feature"));
-      handleSetting(true);
-      handleSettingMode("account");
-      return;
     }
     handleSettingDrive(targetDrive);
     let settingDrive = targetDrive;
@@ -187,7 +156,7 @@ const SyncSetting = () => {
         if (!drivePath) {
           toast.error(
             t(
-              "Can't find Koodo Reader's folder in the default iCloud path, please make sure iCloud Drive is installed and set up correctly, and you have already synced your library to iCloud Drive on the iOS version first."
+              "iCloud Drive is not available. Please sign in to iCloud and turn on iCloud Drive in System Settings"
             ),
             {
               duration: 6000,
@@ -226,45 +195,13 @@ const SyncSetting = () => {
       }
       ConfigService.setListConfig(settingDrive, "dataSourceList");
       toast.success(i18n.t("Binding successful"), { id: "adding-sync-id" });
-      if (
-        isAuthed &&
-        !ConfigService.getItem("defaultSyncOption") &&
-        settingDrive !== "microsoft_exp"
-      ) {
+      if (!ConfigService.getItem("defaultSyncOption")) {
         ConfigService.setItem("defaultSyncOption", settingDrive);
-        if (ConfigService.getReaderConfig("isEnableKoodoSync") === "yes") {
-          resetKoodoSync();
-        }
         handleFetchDefaultSyncOption();
       }
       handleFetchDataSourceList();
       handleSettingDrive("");
       return;
-    }
-    if (
-      settingDrive === "dropbox" ||
-      settingDrive === "yandex" ||
-      settingDrive === "dubox" ||
-      settingDrive === "yiyiwu" ||
-      settingDrive === "google" ||
-      settingDrive === "boxnet" ||
-      settingDrive === "pcloud" ||
-      settingDrive === "adrive" ||
-      settingDrive === "microsoft_exp" ||
-      settingDrive === "microsoft"
-    ) {
-      handleJump(
-        new SyncUtil(settingDrive, {}).getAuthUrl(
-          getServerRegion() === "china" &&
-            (settingDrive === "microsoft" ||
-              settingDrive === "microsoft_exp" ||
-              settingDrive === "dubox" ||
-              settingDrive === "yiyiwu" ||
-              settingDrive === "adrive")
-            ? KookitConfig.ThirdpartyConfig.cnCallbackUrl
-            : KookitConfig.ThirdpartyConfig.callbackUrl
-        )
-      );
     }
   };
 
@@ -287,9 +224,6 @@ const SyncSetting = () => {
     if (targetDrive === ConfigService.getItem("defaultSyncOption")) {
       ConfigService.removeItem("defaultSyncOption");
       handleFetchDefaultSyncOption();
-      if (ConfigService.getReaderConfig("isEnableKoodoSync") === "yes") {
-        resetKoodoSync();
-      }
     }
     toast.success(t("Deletion successful"));
   };
@@ -298,32 +232,9 @@ const SyncSetting = () => {
     if (!newValue) {
       return;
     }
-    if (!isAuthed) {
-      toast(t("Please upgrade to Pro to use this feature"));
-      handleSetting(true);
-      handleSettingMode("account");
-      return;
-    }
-
     ConfigService.setItem("defaultSyncOption", newValue);
-    if (ConfigService.getReaderConfig("isEnableKoodoSync") === "yes") {
-      resetKoodoSync();
-    }
     handleFetchDefaultSyncOption();
     toast.success(t("Change successful"));
-    if (
-      !(await ConfigUtil.isCloudEmpty()) &&
-      ConfigService.getReaderConfig("isEnableKoodoSync") === "yes"
-    ) {
-      toast(
-        t(
-          "This data source already contains a library. If you need to merge local and cloud data, please turn off Koodo Sync and resync."
-        ),
-        {
-          duration: 10000,
-        }
-      );
-    }
   };
 
   const handleSelectBackupOrRestoreSource = async (
@@ -355,15 +266,6 @@ const SyncSetting = () => {
           "Koodo Reader's web version are limited by the browser, for more powerful features, please download the desktop version."
         )
       );
-      return;
-    }
-    if (
-      driveList.find((item) => item.value === targetDrive)?.isPro &&
-      !isAuthed
-    ) {
-      toast(t("Please upgrade to Pro to use this feature"));
-      handleSetting(true);
-      handleSettingMode("account");
       return;
     }
     setState((prevState) => ({
@@ -536,8 +438,6 @@ const SyncSetting = () => {
       } else {
         toast.error(i18n.t("Binding failed"), { id: "adding-sync-id" });
       }
-    } else {
-      await onSyncCallback(settingDrive, state.driveConfig.token);
     }
     SyncService.removeSyncUtil(settingDrive);
     removeCloudConfig(settingDrive);
@@ -547,15 +447,8 @@ const SyncSetting = () => {
         service: settingDrive,
       });
     }
-    if (
-      isAuthed &&
-      !ConfigService.getItem("defaultSyncOption") &&
-      settingDrive !== "microsoft_exp"
-    ) {
+    if (!ConfigService.getItem("defaultSyncOption")) {
       ConfigService.setItem("defaultSyncOption", settingDrive);
-      if (ConfigService.getReaderConfig("isEnableKoodoSync") === "yes") {
-        resetKoodoSync();
-      }
       handleFetchDefaultSyncOption();
     }
     handleFetchDataSourceList();
@@ -575,25 +468,6 @@ const SyncSetting = () => {
             isEnabled={(state as any)[item.propName]}
             onClick={async () => {
               switch (item.propName) {
-                case "isEnableKoodoSync":
-                  handleToggleSetting(item.propName);
-                  let encryptToken = await TokenService.getToken(
-                    defaultSyncOption + "_token"
-                  );
-                  await updateUserConfig({
-                    is_enable_koodo_sync:
-                      ConfigService.getReaderConfig("isEnableKoodoSync"),
-                    default_sync_option: defaultSyncOption,
-                    default_sync_token: encryptToken || "",
-                  });
-                  let userInfo = await handleFetchUserInfo();
-                  if (
-                    ConfigService.getReaderConfig("isEnableKoodoSync") === "yes"
-                  ) {
-                    cloudSyncFunc(userInfo);
-                  }
-
-                  break;
                 case "autoOffline":
                   handleToggleSetting(item.propName);
                   if (!state.autoOffline) {
@@ -681,6 +555,12 @@ const SyncSetting = () => {
           <Trans>Add data source</Trans>
         </span>
       </div>
+      {state.showDefaultSyncAddGrid &&
+        !(isElectron && window.electronAPI?.runtime?.platform === "darwin") && (
+          <p className="setting-option-subtitle" style={{ margin: "0 25px 20px" }}>
+            {t("Cloud sync is only available via iCloud Drive in the macOS desktop app")}
+          </p>
+        )}
       {state.showDefaultSyncAddGrid && (
         <div
           className="account-login-grid"
@@ -722,7 +602,7 @@ const SyncSetting = () => {
                 }}
               >
                 <span className="account-login-option-label">
-                  {t(item.label) + (item.isPro ? " (Pro)" : "")}
+                  {t(item.label)}
                 </span>
               </div>
             ))}
@@ -983,24 +863,6 @@ const SyncSetting = () => {
                   <Trans>Test</Trans>
                 </div>
               )}
-              {(settingDrive === "webdav" ||
-                settingDrive === "ftp" ||
-                settingDrive === "s3compatible" ||
-                settingDrive === "sftp") &&
-                ConfigService.getReaderConfig("lang") &&
-                ConfigService.getReaderConfig("lang").startsWith("zh") && (
-                  <div
-                    className="voice-add-cancel"
-                    style={{ borderWidth: 0, lineHeight: "30px" }}
-                    onClick={() => {
-                      openExternalUrl(
-                        getWebsiteUrl() + getWebsiteLang() + "/add-source"
-                      );
-                    }}
-                  >
-                    {t("How to fill out")}
-                  </div>
-                )}
             </div>
           </div>
         </div>
@@ -1093,7 +955,7 @@ const SyncSetting = () => {
                 key={item.value}
                 className="lang-setting-option"
               >
-                {t(item.label) + (item.isPro ? " (Pro)" : "")}
+                {t(item.label)}
               </option>
             ))}
         </select>
@@ -1116,7 +978,7 @@ const SyncSetting = () => {
                 key={item.value}
                 className="lang-setting-option"
               >
-                {t(item.label) + (item.isPro ? " (Pro)" : "")}
+                {t(item.label)}
               </option>
             ))}
         </select>
@@ -1151,7 +1013,7 @@ const SyncSetting = () => {
                 key={item.value}
                 className="lang-setting-option"
               >
-                {t(item.label) + (item.isPro ? " (Pro)" : "")}
+                {t(item.label)}
               </option>
             ))}
         </select>
@@ -1186,14 +1048,14 @@ const SyncSetting = () => {
                 key={item.value}
                 className="lang-setting-option"
               >
-                {t(item.label) + (item.isPro ? " (Pro)" : "")}
+                {t(item.label)}
               </option>
             ))}
         </select>
       </div>
 
-      {isAuthed && renderSwitchOption(syncSettingList)}
-      {isAuthed && (
+      {renderSwitchOption(syncSettingList)}
+      {(
         <>
           <div className="setting-dialog-new-title">
             <Trans>Scheduled sync interval</Trans>
@@ -1295,18 +1157,6 @@ const SyncSetting = () => {
               }
             </Trans>
           </p>
-          <div className="setting-dialog-new-plugin">
-            <span
-              style={{ textDecoration: "underline" }}
-              onClick={() => {
-                openExternalUrl(
-                  getWebsiteUrl() + getWebsiteLang() + "/use-sync"
-                );
-              }}
-            >
-              <Trans>How to sync library across devices</Trans>
-            </span>
-          </div>
         </>
       )}
     </>

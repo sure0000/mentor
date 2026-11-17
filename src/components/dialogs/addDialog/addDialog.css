@@ -100,3 +100,9 @@
   text-align: center;
   cursor: pointer;
 }
+/* 移动到分类：高度随内容变化 */
+.add-dialog-container {
+  height: auto;
+  min-height: 180px;
+  padding-bottom: 64px;
+}

@@ -19,16 +19,31 @@ import Book from "../../../models/Book";
 import { isElectron } from "react-device-detect";
 import DatabaseService from "../../../utils/storage/databaseService";
 import { throttle } from "../../../utils/common";
+import ShelfCategoryItem from "../../../components/shelfCategoryItem";
+import {
+  createCategory,
+  getCategoryBookKeys,
+  getCategoryList,
+  moveBooksToCategory,
+  sanitizeCategoryName,
+  validateCategoryName,
+} from "../../../utils/reader/shelfUtil";
+import {
+  isBookDragEvent,
+  parseBookDragData,
+} from "../../../utils/reader/bookDrag";
+import toast from "react-hot-toast";
 import { useAppStore } from "../../../store/useAppStore";
 
 export interface BookListState {
-  favoriteBooks: number;
-  isHideShelfBook: boolean;
   displayedBooksCount: number;
   isLoadingMore: boolean;
   fullBooksData: BookModel[];
   cardScale: number;
   readingStatusFilter: string;
+  isCreatingCategory: boolean;
+  newCategoryName: string;
+  isBackDropTarget: boolean;
 }
 
 const collectionUtil = new CollectionUtil(ConfigService);
@@ -41,8 +56,8 @@ function getBookCountPerPage() {
   if (!container) return 24; // fallback
   const containerWidth = container.clientWidth;
   const containerHeight = container.clientHeight;
-  const bookWidth = 133;
-  const bookHeight = 201;
+  const bookWidth = 145;
+  const bookHeight = 230;
   const columns = Math.max(1, Math.floor(containerWidth / bookWidth));
   const rows = Math.max(1, Math.floor(containerHeight / bookHeight)) + 2;
   return columns * rows;
@@ -53,25 +68,25 @@ const BookList = () => {
   const mode = useAppStore((s) => s.sidebar.mode);
   const selectedBooks = useAppStore((s) => s.manager.selectedBooks);
   const shelfTitle = useAppStore((s) => s.sidebar.shelfTitle);
-  const isCollapsed = useAppStore((s) => s.sidebar.isCollapsed);
   const searchResults = useAppStore((s) => s.manager.searchResults);
   const isSearch = useAppStore((s) => s.manager.isSearch);
   const isSelectBook = useAppStore((s) => s.manager.isSelectBook);
   const viewMode = useAppStore((s) => s.manager.viewMode);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
+  const handleShelf = useAppStore((s) => s.handleShelf);
   const handleLoadMore = useAppStore((s) => s.handleLoadMore);
   const { t } = useTranslation();
   const scrollContainer = useRef<HTMLUListElement | null>(null);
   const [state, setState] = useState<BookListState>(() => ({
-    favoriteBooks: Object.keys(ConfigService.getAllListConfig("favoriteBooks"))
-      .length,
-    isHideShelfBook: ConfigService.getReaderConfig("isHideShelfBook") === "yes",
     displayedBooksCount: 24,
     isLoadingMore: false,
     fullBooksData: [],
     // Migrated comment
     cardScale: parseFloat(ConfigService.getReaderConfig("cardScale") || "1"),
     readingStatusFilter: "",
+    isCreatingCategory: false,
+    newCategoryName: "",
+    isBackDropTarget: false,
   }));
 
   // Migrated comment
@@ -90,7 +105,7 @@ const BookList = () => {
     return itemArr;
   };
 
-  const handleShelf = (items: any, shelfTitle: string) => {
+  const filterByCategory = (items: any, shelfTitle: string) => {
     if (!shelfTitle) return items;
     let currentShelfTitle = shelfTitle;
     let currentShelfList = ConfigService.getMapConfig(
@@ -200,28 +215,16 @@ const BookList = () => {
   };
 
   const handleBooks = () => {
-    let bookMode = isSearch
-      ? "search"
-      : shelfTitle
-        ? "shelf"
-        : mode === "favorite"
-          ? "favorite"
-          : stateRef.current.isHideShelfBook
-            ? "hide"
-            : "home";
+    // 书架：根目录只显示未分类的书（分类以文件夹形式单独渲染），进入分类后只显示该分类的书
+    let bookMode = isSearch ? "search" : shelfTitle ? "shelf" : "home";
     let filteredBooks =
       bookMode === "search"
         ? searchResults
         : bookMode === "shelf"
-          ? handleShelf(books, shelfTitle)
-          : bookMode === "favorite"
-            ? handleKeyFilter(
-                books,
-                ConfigService.getAllListConfig("favoriteBooks")
-              )
-            : books;
+          ? filterByCategory(books, shelfTitle)
+          : books;
     filteredBooks = resolveCollectionItems(filteredBooks);
-    if (bookMode === "hide") {
+    if (bookMode === "home") {
       filteredBooks = handleFilterShelfBook(filteredBooks);
     }
     if (stateRef.current.readingStatusFilter) {
@@ -464,6 +467,133 @@ const BookList = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.readingStatusFilter]);
 
+  const handleCreateCategory = () => {
+    const name = sanitizeCategoryName(state.newCategoryName);
+    setState((prev) => ({
+      ...prev,
+      isCreatingCategory: false,
+      newCategoryName: "",
+    }));
+    if (!name) return;
+    const error = validateCategoryName(name);
+    if (error) {
+      toast(t(error));
+      return;
+    }
+    createCategory(name);
+    toast.success(t("Created successfully"));
+    handleFetchBooks();
+  };
+
+  const renderCategoryFolders = () => {
+    if (isSearch || shelfTitle || state.readingStatusFilter) return null;
+    return getCategoryList().map((name) => (
+      <ShelfCategoryItem
+        key={name}
+        name={name}
+        bookKeys={getCategoryBookKeys(name)}
+        cardScale={viewMode === "card" ? state.cardScale : 1}
+        onOpen={(category) => handleShelf(category)}
+      />
+    ));
+  };
+
+  const renderShelfToolbar = () => {
+    if (isSearch) return null;
+    return (
+      <li className="shelf-toolbar">
+        <div className="shelf-toolbar-title">
+          {shelfTitle ? (
+            <>
+              <span
+                className={
+                  "shelf-toolbar-back" +
+                  (state.isBackDropTarget ? " is-drop-target" : "")
+                }
+                onClick={() => handleShelf("")}
+                // 在分类内把书拖到「书架」上，即移回未分类
+                onDragEnter={(event) => {
+                  if (!isBookDragEvent(event)) return;
+                  event.preventDefault();
+                  setState((prev) => ({ ...prev, isBackDropTarget: true }));
+                }}
+                onDragOver={(event) => {
+                  if (!isBookDragEvent(event)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                }}
+                onDragLeave={(event) => {
+                  if (
+                    event.currentTarget.contains(
+                      event.relatedTarget as Node | null
+                    )
+                  )
+                    return;
+                  setState((prev) => ({ ...prev, isBackDropTarget: false }));
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setState((prev) => ({ ...prev, isBackDropTarget: false }));
+                  if (!isBookDragEvent(event)) return;
+                  const keys = parseBookDragData(event);
+                  if (keys.length === 0) return;
+                  moveBooksToCategory(keys, "");
+                  toast.success(
+                    t("Moved to {{name}}", { name: t("Uncategorized") })
+                  );
+                  handleFetchBooks();
+                }}
+              >
+                <span className="icon-dropdown shelf-toolbar-back-icon"></span>
+                {t("Shelf")}
+              </span>
+              <span className="shelf-toolbar-separator">/</span>
+              <span>{shelfTitle}</span>
+            </>
+          ) : (
+            <span>{t("Shelf")}</span>
+          )}
+        </div>
+        {!shelfTitle &&
+          (state.isCreatingCategory ? (
+            <input
+              className="shelf-toolbar-input"
+              autoFocus
+              placeholder={t("Category name")}
+              value={state.newCategoryName}
+              onChange={(event) =>
+                setState((prev) => ({
+                  ...prev,
+                  newCategoryName: event.target.value,
+                }))
+              }
+              onBlur={handleCreateCategory}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleCreateCategory();
+                if (event.key === "Escape") {
+                  setState((prev) => ({
+                    ...prev,
+                    isCreatingCategory: false,
+                    newCategoryName: "",
+                  }));
+                }
+              }}
+            />
+          ) : (
+            <span
+              className="shelf-toolbar-button"
+              onClick={() =>
+                setState((prev) => ({ ...prev, isCreatingCategory: true }))
+              }
+            >
+              <span className="icon-add"></span>
+              {t("New category")}
+            </span>
+          ))}
+      </li>
+    );
+  };
+
   const handleCardScaleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const scale = parseFloat(e.target.value);
     setState((prevState) => ({ ...prevState, cardScale: scale }));
@@ -471,7 +601,12 @@ const BookList = () => {
   };
 
   const renderBookList = (books: Book[], bookMode: string) => {
-    if (books.length === 0 && !isSearch) {
+    if (
+      books.length === 0 &&
+      !isSearch &&
+      !shelfTitle &&
+      getCategoryList().length === 0
+    ) {
       return <Navigate to="/manager/empty" replace />;
     }
     if (bookMode !== currentBookMode) {
@@ -557,10 +692,7 @@ const BookList = () => {
   if (!books) {
     return null;
   }
-  if (
-    (state.favoriteBooks === 0 && mode === "favorite") ||
-    !books[0]
-  ) {
+  if (!books[0]) {
     return <Navigate to="/manager/empty" replace />;
   }
   const { books: displayedBookList, bookMode } = handleBooks();
@@ -568,7 +700,6 @@ const BookList = () => {
     <>
       <div
         className="book-list-header"
-        style={isCollapsed ? { width: "calc(100% - 70px)", left: "70px" } : {}}
       >
         <SelectBook />
 
@@ -628,7 +759,6 @@ const BookList = () => {
       </div>
       <div
         className="book-list-container-parent"
-        style={isCollapsed ? { width: "calc(100vw - 70px)", left: "70px" } : {}}
       >
         <div className="book-list-container">
           <ul
@@ -636,7 +766,14 @@ const BookList = () => {
             ref={scrollContainer}
             style={{ "--card-scale": state.cardScale } as React.CSSProperties}
           >
+            {renderShelfToolbar()}
+            {renderCategoryFolders()}
             {renderBookList(displayedBookList, bookMode)}
+            {bookMode === "shelf" && displayedBookList.length === 0 && (
+              <li className="shelf-empty-hint">
+                {t("No books in this category yet")}
+              </li>
+            )}
           </ul>
         </div>
       </div>

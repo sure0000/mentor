@@ -10,6 +10,8 @@ import {
   KookitConfig,
 } from "../../../assets/lib/kookit-extra-browser.min";
 import { useAppStore } from "../../../store/useAppStore";
+import ClaudeCodeSetting from "../../../components/aiReading/claudeCodeSetting";
+import CustomTtsSetting from "../../../components/aiReading/customTtsSetting";
 
 export interface AIModelConfig {
   endpoint: string;
@@ -766,6 +768,9 @@ const AISetting = () => {
           ))}
         </select>
       </div>
+
+      <ClaudeCodeSetting />
+      <CustomTtsSetting />
 
       <div className="setting-dialog-new-plugin">
         <span

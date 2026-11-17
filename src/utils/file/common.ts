@@ -298,7 +298,7 @@ export const getCloudToken = async (service: string) => {
     return configCache[service];
   } else {
     let result = await decryptToken(service);
-    if (result.code !== 200) {
+    if (result.code !== 200 || !result.data) {
       return null;
     }
     let config = JSON.parse(result.data.token);

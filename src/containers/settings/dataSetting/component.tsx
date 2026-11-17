@@ -7,8 +7,6 @@ import {
   confirmBrowserExtensionAsync,
   generateSyncRecord,
   getStorageLocation,
-  getWebsiteLang,
-  getWebsiteUrl,
   reloadManager,
   vexComfirmAsync,
   vexOpenAsync,
@@ -238,8 +236,7 @@ const DataSetting = () => {
         },
       },
       "",
-      labels,
-      getWebsiteUrl() + getWebsiteLang() + "/add-thirdparty"
+      labels
     );
 
     if (!result) {
@@ -354,8 +351,7 @@ const DataSetting = () => {
       const result = await vexOpenAsync(
         defaultValues,
         "",
-        labelsMap,
-        getWebsiteUrl() + getWebsiteLang() + "/add-thirdparty"
+        labelsMap
       );
 
       if (!result) {

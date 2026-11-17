@@ -22,8 +22,9 @@ import TTSUtil from "../../utils/reader/ttsUtil";
 import { getTextRules } from "../../utils/common";
 import "./textToSpeech.css";
 import SwitchRow from "../readerSettings/switchRow";
-import { fetchUserInfo } from "../../utils/request/user";
 import { getSplitSentence } from "../../utils/request/reader";
+import { isAiAvailable } from "../../utils/aiReading/aiGateway";
+import { isCustomTtsConfigured } from "../../utils/aiReading/customTts";
 import { Howl } from "howler";
 import { useAppStore } from "../../store/useAppStore";
 
@@ -53,7 +54,6 @@ const TextToSpeech = () => {
   const isReading = useAppStore((s) => s.book.isReading);
   const plugins = useAppStore((s) => s.manager.plugins);
   const readerMode = useAppStore((s) => s.reader.readerMode);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const speechStartText = useAppStore((s) => s.reader.speechStartText);
   const isSpeechAutoStart = useAppStore((s) => s.reader.isSpeechAutoStart);
   const handleSetting = useAppStore((s) => s.handleSetting);
@@ -303,10 +303,12 @@ const TextToSpeech = () => {
   };
   const handleMultiRoleToggle = (enabled: boolean) => {
     if (enabled) {
-      if (!isAuthed) {
-        toast(t("Please upgrade to Pro to use this feature"));
+      if (!isAiAvailable("assistance")) {
+        toast(
+          t("No AI service configured. Please add one in Settings > AI service")
+        );
         handleSetting(true);
-        handleSettingMode("account");
+        handleSettingMode("ai");
         return;
       }
       ConfigService.setListConfig(
@@ -378,12 +380,11 @@ const TextToSpeech = () => {
       return;
     }
 
-    if (engine === "official-ai-voice-plugin") {
-      if (!isAuthed) {
-        toast(t("Please upgrade to Pro to use this feature"));
-        return;
-      }
-      await fetchUserInfo();
+    if (engine === "official-ai-voice-plugin" && !isCustomTtsConfigured()) {
+      toast(
+        t("Please configure the custom TTS service in Settings > AI service")
+      );
+      return;
     }
 
     const plugin = plugins.find((item) => item.key === engine);
@@ -461,19 +462,15 @@ const TextToSpeech = () => {
     return voiceList;
   };
   const handleStartAudio = async () => {
-    if (
-      isAuthed &&
-      ConfigService.getReaderConfig("voiceEngine") !== "system"
-    ) {
+    if (ConfigService.getReaderConfig("voiceEngine") !== "system") {
       toast.loading(t("Loading audio, please wait..."), {
         id: "tts-load",
       });
-      await fetchUserInfo();
     }
     if (
       ConfigService.getReaderConfig("voiceEngine") ===
         "official-ai-voice-plugin" &&
-      !isAuthed
+      !isCustomTtsConfigured()
     ) {
       ConfigService.setReaderConfig("voiceEngine", "system");
     }
@@ -561,9 +558,14 @@ const TextToSpeech = () => {
 
     const currentIndex = stateRef.current.currentIndex;
 
-    // 鉴权检查（AI 语音）
-    if (newVoiceEngine === "official-ai-voice-plugin" && !isAuthed) {
-      toast(t("Please upgrade to Pro to use this feature"));
+    // 自定义 TTS 未配置时不能切换过去
+    if (
+      newVoiceEngine === "official-ai-voice-plugin" &&
+      !isCustomTtsConfigured()
+    ) {
+      toast(
+        t("Please configure the custom TTS service in Settings > AI service")
+      );
       return;
     }
 
@@ -581,12 +583,10 @@ const TextToSpeech = () => {
     // 重置内存中的音频路径缓存（适用于所有引擎切换；磁盘 tts 缓存按内容哈希命名，切换语音无需清除）
     TTSUtil.setAudioPaths();
 
-    // AI 语音需要刷新用户信息
-    if (isAuthed && newVoiceEngine !== "system") {
+    if (newVoiceEngine !== "system") {
       toast.loading(t("Loading audio, please wait..."), {
         id: "tts-load",
       });
-      await fetchUserInfo();
     }
 
     // 非多角色模式下，将 nodeList 所有节点更新为新语音
@@ -630,7 +630,7 @@ const TextToSpeech = () => {
     if ((ConfigService.getReaderConfig("animation") || "none") !== "none") {
       await sleep(1000);
     }
-    let nodeList = [];
+    let nodeList: { text: string; voiceName: string; voiceEngine: string }[] = [];
     let nodeTextList = (await htmlBook.rendition.audioText()).filter(
       (item: string) => item && item.trim()
     );
@@ -647,7 +647,7 @@ const TextToSpeech = () => {
       nodeTextList = nodeTextList.slice(speechStartIndex);
     }
     clearSpeechStartState();
-    if (!stateRef.current.multiRoleEnabled || !isAuthed) {
+    if (!stateRef.current.multiRoleEnabled || !isAiAvailable("assistance")) {
       nodeList = nodeTextList.map((text: string) => {
         return {
           text,
@@ -1236,32 +1236,19 @@ const TextToSpeech = () => {
               const newEngine = voice.plugin || "system";
               if (
                 newEngine === "official-ai-voice-plugin" &&
-                !isAuthed
+                !isCustomTtsConfigured()
               ) {
                 toast(
-                  t("Please upgrade to Pro to use this feature")
+                  t(
+                    "Please configure the custom TTS service in Settings > AI service"
+                  )
                 );
                 handleSetting(true);
-                handleSettingMode("account");
+                handleSettingMode("ai");
                 return;
               }
               ConfigService.setReaderConfig("voiceName", voiceName);
               ConfigService.setReaderConfig("voiceEngine", newEngine);
-              if (
-                voice.plugin === "official-ai-voice-plugin" &&
-                event.target.value.indexOf("Neural") > -1 &&
-                !KookitConfig.SelfHostedVoiceList.includes(voiceName)
-              ) {
-                toast(
-                  t(
-                    "Due to the high cost of Azure TTS voices, this voice will consume 5 times of your daily quota than normal voice"
-                  ),
-                  {
-                    duration: 8000,
-                    id: "costWarning",
-                  }
-                );
-              }
               toast.success(t("Setup successful"));
               if (stateRef.current.isAudioOn) {
                 handleVoiceSwitch(voiceName, newEngine, previousEngine);
@@ -1336,7 +1323,6 @@ const TextToSpeech = () => {
           title={
             <>
               <Trans>AI multi-role speech</Trans>
-              <span style={{ fontSize: "13px", color: "#f16464" }}> (Pro)</span>
             </>
           }
           titleStyle={{ width: "calc(100% - 50px)" }}
@@ -1411,7 +1397,7 @@ const TextToSpeech = () => {
                   value="official-ai-voice-plugin"
                   className="lang-setting-option"
                 >
-                  {t("Official AI Voice")}
+                  {t("Custom TTS")}
                 </option>
                 <option value="custom" className="lang-setting-option">
                   {t("Custom voice")}

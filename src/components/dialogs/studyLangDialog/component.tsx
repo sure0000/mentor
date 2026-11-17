@@ -7,26 +7,17 @@ import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
 import {
   dropdownList,
   fullTranslationLangList,
-  wordFrequencyList,
 } from "../../../constants/dropdownList";
-import { detectLocalLanguage } from "../../../utils/common";
-import SwitchRow from "../../readerSettings/switchRow";
+import { isAiAvailable } from "../../../utils/aiReading/aiGateway";
 import { useAppStore } from "../../../store/useAppStore";
 
 export interface StudyLangDialogState {
   fullTranslationModeValue: string;
   fullTranslationTargetValue: string;
-  isWordDefinition: boolean;
-  wordDefinitionLang: string;
-  currentChineseLevel: string;
-  currentJapaneseLevel: string;
-  currentEnglishLevel: string;
 }
 
 const StudyLangDialog = () => {
   const currentBook = useAppStore((s) => s.book.currentBook);
-  const htmlBook = useAppStore((s) => s.reader.htmlBook);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
   const handleStudyLangDialog = useAppStore((s) => s.handleStudyLangDialog);
   const handleSetting = useAppStore((s) => s.handleSetting);
@@ -42,19 +33,8 @@ const StudyLangDialog = () => {
       ConfigService.getReaderConfig("fullTranslationTarget") ||
       ConfigService.getReaderConfig("lang") ||
       "zhCN",
-    isWordDefinition: ConfigService.getAllListConfig(
-      "wordDefinitionBooks"
-    ).includes(currentBook?.key),
-    wordDefinitionLang: "",
-    currentChineseLevel:
-      ConfigService.getReaderConfig("currentChineseLevel") || "HSK3",
-    currentJapaneseLevel:
-      ConfigService.getReaderConfig("currentJapaneseLevel") || "N3",
-    currentEnglishLevel:
-      ConfigService.getReaderConfig("currentEnglishLevel") || "四级",
   });
   const stateRef = useLatest(state);
-  const prevHtmlBookRef = useRef(htmlBook);
   const prevBookKeyRef = useRef(currentBook?.key);
 
   const mergeState = (patch: Partial<StudyLangDialogState>) => {
@@ -62,66 +42,19 @@ const StudyLangDialog = () => {
     setState(stateRef.current);
   };
 
-  const refreshWordDefinitionLang = async () => {
-    if (!htmlBook?.rendition) return;
-    try {
-      const text = await htmlBook.rendition.audioText();
-      if (text && text.length > 0) {
-        mergeState({
-          wordDefinitionLang: detectLocalLanguage(text.slice(0, 500).join(" ")),
-        });
-      }
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  useEffect(() => {
-    if (stateRef.current.isWordDefinition) {
-      refreshWordDefinitionLang();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useEffect(() => {
     if (currentBook?.key !== prevBookKeyRef.current) {
-      const isWordDefinition = ConfigService.getAllListConfig(
-        "wordDefinitionBooks"
-      ).includes(currentBook?.key);
       mergeState({
         fullTranslationModeValue: ConfigService.getAllListConfig(
           "fullTranslationBooks"
         ).includes(currentBook?.key)
           ? ConfigService.getReaderConfig("fullTranslationMode") || ""
           : "",
-        isWordDefinition,
-        wordDefinitionLang: "",
-        currentChineseLevel:
-          ConfigService.getReaderConfig("currentChineseLevel") || "HSK3",
-        currentJapaneseLevel:
-          ConfigService.getReaderConfig("currentJapaneseLevel") || "N3",
-        currentEnglishLevel:
-          ConfigService.getReaderConfig("currentEnglishLevel") || "四级",
       });
-      if (isWordDefinition) {
-        refreshWordDefinitionLang();
-      }
     }
     prevBookKeyRef.current = currentBook?.key;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBook?.key]);
-
-  useEffect(() => {
-    if (
-      prevHtmlBookRef.current !== htmlBook &&
-      stateRef.current.isWordDefinition &&
-      !stateRef.current.wordDefinitionLang
-    ) {
-      refreshWordDefinitionLang();
-    }
-    prevHtmlBookRef.current = htmlBook;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [htmlBook]);
 
   const handleFullTranslationChange = (value: string) => {
     mergeState({ fullTranslationModeValue: value });
@@ -132,11 +65,13 @@ const StudyLangDialog = () => {
       );
       ConfigService.setReaderConfig("fullTranslationMode", "no");
     } else {
-      if (!isAuthed) {
+      if (!isAiAvailable("translate")) {
         mergeState({ fullTranslationModeValue: "no" });
-        toast(t("Please upgrade to Pro to use this feature"));
+        toast(
+          t("No AI service configured. Please add one in Settings > AI service")
+        );
         handleSetting(true);
-        handleSettingMode("account");
+        handleSettingMode("ai");
         ConfigService.setReaderConfig("fullTranslationMode", "no");
         return;
       }
@@ -148,119 +83,6 @@ const StudyLangDialog = () => {
     }
     toast.success(t("Setup successful"));
     renderBookFunc();
-  };
-
-  const handleWordDefinitionToggle = async () => {
-    const next = !stateRef.current.isWordDefinition;
-    if (next) {
-      if (!isAuthed) {
-        toast(t("Please upgrade to Pro to use this feature"));
-        handleSetting(true);
-        handleSettingMode("account");
-        return;
-      }
-      if (ConfigService.getReaderConfig("isBionic") === "yes") {
-        toast.error(
-          t(
-            "Word definitions and fast reading mode cannot be enabled at the same time"
-          )
-        );
-        return;
-      }
-      const lang = await detectWordDefinitionLang();
-      if (lang === "ko") {
-        toast.error(
-          t(
-            "Unsupported language for word definition, currently only Chinese, Japanese and English are supported"
-          )
-        );
-        return;
-      }
-      ConfigService.setListConfig(
-        currentBook.key,
-        "wordDefinitionBooks"
-      );
-      mergeState({
-        isWordDefinition: true,
-        wordDefinitionLang: lang,
-      });
-    } else {
-      ConfigService.deleteListConfig(
-        currentBook.key,
-        "wordDefinitionBooks"
-      );
-      mergeState({
-        isWordDefinition: false,
-        wordDefinitionLang: "",
-      });
-    }
-    toast(t("Change successful"));
-    setTimeout(() => {
-      renderBookFunc();
-    }, 500);
-  };
-
-  const detectWordDefinitionLang = async () => {
-    if (!htmlBook?.rendition) return "";
-    try {
-      const text = await htmlBook.rendition.audioText();
-      if (text && text.length > 0) {
-        return detectLocalLanguage(text.slice(0, 500).join(" "));
-      }
-    } catch (error) {
-      console.error(error);
-    }
-    return "";
-  };
-
-  const renderWordLevelSelect = () => {
-    if (!state.isWordDefinition) return null;
-    if (
-      state.wordDefinitionLang !== "zh" &&
-      state.wordDefinitionLang !== "ja" &&
-      state.wordDefinitionLang !== "en"
-    ) {
-      return null;
-    }
-    const langKey =
-      state.wordDefinitionLang === "zh"
-        ? "currentChineseLevel"
-        : state.wordDefinitionLang === "ja"
-          ? "currentJapaneseLevel"
-          : "currentEnglishLevel";
-    const levelItem = wordFrequencyList.find((item) => item.value === langKey);
-    if (!levelItem) return null;
-    return (
-      <div
-        className="setting-dialog-new-title scale-page-preset-row"
-        key={langKey}
-      >
-        <span>
-          <Trans>{levelItem.title}</Trans>
-        </span>
-        <select
-          className="lang-setting-dropdown"
-          value={state[langKey as keyof StudyLangDialogState] as string}
-          onChange={(event) => {
-            const value = event.target.value;
-            mergeState({ [langKey]: value } as Partial<StudyLangDialogState>);
-            ConfigService.setReaderConfig(langKey, value);
-            toast(t("Change successful"));
-            renderBookFunc();
-          }}
-        >
-          {levelItem.option.map((option, index) => (
-            <option
-              key={index}
-              value={option.value}
-              className="lang-setting-option"
-            >
-              {t(option.label)}
-            </option>
-          ))}
-        </select>
-      </div>
-    );
   };
 
   const fullTranslationItem = dropdownList.find(
@@ -291,7 +113,6 @@ const StudyLangDialog = () => {
         <div className="setting-dialog-new-title scale-page-preset-row">
           <span>
             <Trans>Full text translation</Trans>
-            <span style={{ fontSize: "13px", color: "#f16464" }}> (Pro)</span>
           </span>
           <select
             className="lang-setting-dropdown"
@@ -344,28 +165,6 @@ const StudyLangDialog = () => {
             </select>
           </div>
         )}
-        <SwitchRow
-          title={
-            <>
-              <Trans>Enable word definitions</Trans>
-              <span style={{ fontSize: "13px", color: "#f16464" }}>
-                {" "}
-                (Pro)
-              </span>
-            </>
-          }
-          isEnabled={state.isWordDefinition}
-          onClick={handleWordDefinitionToggle}
-        />
-        <p
-          className="setting-option-subtitle"
-          style={{ margin: "4px 0 0", fontSize: "13px", lineHeight: 1.5 }}
-        >
-          <Trans>
-            {"Add definition next to the English, Chinese, Japanese words"}
-          </Trans>
-        </p>
-        {renderWordLevelSelect()}
       </ul>
     </div>
   );

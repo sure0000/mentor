@@ -1,14 +1,25 @@
 .menu-list {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  grid-template-rows: repeat(2, auto);
-  width: 252px;
-  padding: 6px 8px 10px;
-  gap: 4px;
+  width: 324px;
+  padding: 8px;
+  gap: 2px;
   box-sizing: border-box;
-  justify-items: center;
-  align-items: center;
-  padding-bottom: 5px;
+  justify-items: stretch;
+  align-items: start;
+}
+.menu-option-label {
+  display: block;
+  max-width: 100%;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+  pointer-events: none;
 }
 .note-option,
 .highlight-option,
@@ -22,13 +33,14 @@
 .dict-option,
 .wikipedia-option,
 .copy-option {
-  height: 36px;
-  width: 36px;
+  min-width: 0;
+  padding: 8px 2px 6px;
   font-size: 14px !important;
   line-height: 15px !important;
   opacity: 1;
   text-align: center;
   display: flex;
+  flex-direction: column;
   box-sizing: border-box;
   cursor: pointer;
   transition: 0.1s;
@@ -36,6 +48,7 @@
   align-items: center;
   font-weight: 500;
   margin: 0;
+  border-radius: 8px;
 }
 .note-option:hover,
 .highlight-option:hover,
@@ -67,7 +80,7 @@
 .wikipedia-icon,
 .highlight-icon {
   line-height: 1 !important;
-  font-size: 22px;
+  font-size: 20px;
 }
 .translation-icon {
   color: #f16464;

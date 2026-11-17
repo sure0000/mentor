@@ -11,18 +11,24 @@ import {
   handleExitFullScreen,
   handleFullScreen,
   isReadingRawPDF,
+  getRightPanelInset,
+  isPaperLayout,
 } from "../../utils/common";
 import { useAppStore } from "../../store/useAppStore";
 import WindowControls from "../windowControls";
+import "./readerTopToolbar.css";
 
 export interface ReaderTopToolbarProps {
   isNearEdge: boolean;
+  isSideRailShown: boolean;
   currentDuration: number;
   isMacOS: boolean;
   isMergeWord: boolean;
   isSeparateElectronWindow: boolean;
   showQuickButtons: () => void;
   hideQuickButtons: () => void;
+  showSideRail: () => void;
+  hideSideRail: () => void;
   handleDialogButtonHover: (
     handleDialog: (isOpen: boolean) => void,
     dialogSelector: string
@@ -45,6 +51,8 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
   const currentBook = useAppStore((s) => s.book.currentBook);
   const htmlBook = useAppStore((s) => s.reader.htmlBook);
   const readerMode = useAppStore((s) => s.reader.readerMode);
+  const isFitPage = useAppStore((s) => s.reader.isFitPage);
+  const readerBackgroundColor = useAppStore((s) => s.reader.backgroundColor);
   const isSettingLocked = useAppStore((s) => s.reader.isSettingLocked);
   const isDockedRight = useAppStore((s) => s.reader.isDockedRight);
   const isAnnotationOpen = useAppStore((s) => s.reader.isAnnotationOpen);
@@ -57,6 +65,8 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
   const handleMenuMode = useAppStore((s) => s.handleMenuMode);
   const handleOriginalText = useAppStore((s) => s.handleOriginalText);
   const handleOpenMenu = useAppStore((s) => s.handleOpenMenu);
+  const isCompanionOpen = useAppStore((s) => s.reader.isCompanionOpen);
+  const handleCompanionPanel = useAppStore((s) => s.handleCompanionPanel);
   const handleReadingState = useAppStore((s) => s.handleReadingState);
   const handleFetchBookmarks = useAppStore((s) => s.handleFetchBookmarks);
   const handleShowBookmark = useAppStore((s) => s.handleShowBookmark);
@@ -210,10 +220,111 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [htmlBook]);
 
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
+
+  /** 低频工具聚合进「更多」菜单；点击后在「更多」按钮下方打开原有的设置浮层 */
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  const openDialog =
+    (handleDialog: (isOpen: boolean) => void, selector: string) =>
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const hover = props.handleDialogButtonHover(handleDialog, selector);
+      // 浮层定位到「更多」按钮下方
+      hover.onMouseEnter({
+        ...event,
+        currentTarget: moreRef.current || event.currentTarget,
+      } as React.MouseEvent<HTMLDivElement>);
+      // 浮层自身在鼠标移出时收起；鼠标一直没移上去时稍后收起
+      window.setTimeout(hover.onMouseLeave, 1500);
+    };
+  const isTextBook = !!currentBook && !isReadingRawPDF(currentBook);
+  const moreItems: {
+    key: string;
+    icon: string;
+    label: string;
+    onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
+  }[] = [
+    ...(isTextBook
+      ? [
+          {
+            key: "trans",
+            icon: "icon-trans",
+            label: "Full text translation",
+            onClick: openDialog(
+              handleStudyLangDialog,
+              ".study-lang-dialog-container"
+            ),
+          },
+          {
+            key: "assist",
+            icon: "icon-light-bulb",
+            label: "Reading modes",
+            onClick: openDialog(
+              handleAssistReadDialog,
+              ".assist-read-dialog-container"
+            ),
+          },
+        ]
+      : []),
+    ...(readerMode === "scroll" || readerMode === "single"
+      ? [
+          {
+            key: "scale",
+            icon: "icon-zoom-in",
+            label: "Page width",
+            onClick: openDialog(
+              handleScalePageDialog,
+              ".scale-page-dialog-container"
+            ),
+          },
+        ]
+      : []),
+    ...(currentBook.format === "PDF" && readerMode === "scroll"
+      ? [
+          {
+            key: "crop",
+            icon: "icon-crop",
+            label: "Crop PDF",
+            onClick: openDialog(handlePdfCropDialog, ".pdf-crop-dialog-container"),
+          },
+        ]
+      : []),
+    ...(currentBook.format === "PDF"
+      ? [
+          {
+            key: "convert",
+            icon: "icon-convert-text",
+            label: "Convert PDF to Text",
+            onClick: openDialog(handleConvertDialog, ".convert-dialog-container"),
+          },
+        ]
+      : []),
+    ...(currentBook &&
+    isReadingRawPDF(currentBook) &&
+    currentBook.description?.indexOf("scanned") > -1
+      ? [
+          {
+            key: "annotation",
+            icon: "icon-pen-line",
+            label: "Annotation",
+            onClick: () => props.handleAnnotationClick(),
+          },
+        ]
+      : []),
+    {
+      key: "fullscreen",
+      icon: "icon-fullscreen-line",
+      label: isFullscreen ? "Exit full screen" : "Full screen",
+      onClick: () => handleScreen(),
+    },
+  ];
+
+  const isPaper = isPaperLayout(readerMode, currentBook, isFitPage);
   const showCustomWindowControls =
     props.isSeparateElectronWindow && (!props.isMacOS || props.isMergeWord);
   const showMacWindowControls =
     props.isSeparateElectronWindow && props.isMacOS && !props.isMergeWord;
+  // 独立窗口已有窗口关闭按钮，「退出」与之重复；全屏时窗口按钮会隐藏，仍需保留退出入口
+  const showExitButton = !props.isSeparateElectronWindow || isFullscreen;
 
   return (
     <>
@@ -256,21 +367,23 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
             color: ConfigService.getReaderConfig("textColor") || "",
           }}
         >
-          <div
-            className="reader-setting-icon-container"
-            style={props.isNearEdge ? NO_DRAG_REGION_STYLE : undefined}
-            aria-label={t("Exit")}
-            data-tooltip-id="my-tooltip"
-            data-tooltip-content={t("Exit")}
-            onClick={() => {
-              handleExit();
-            }}
-          >
-            <span
-              className="icon-exit reader-setting-icon"
-              style={{ fontSize: 18 }}
-            ></span>
-          </div>
+          {showExitButton && (
+            <div
+              className="reader-setting-icon-container"
+              style={props.isNearEdge ? NO_DRAG_REGION_STYLE : undefined}
+              aria-label={t("Exit")}
+              data-tooltip-id="my-tooltip"
+              data-tooltip-content={t("Exit")}
+              onClick={() => {
+                handleExit();
+              }}
+            >
+              <span
+                className="icon-exit reader-setting-icon"
+                style={{ fontSize: 18 }}
+              ></span>
+            </div>
+          )}
           <div
             className="reader-setting-icon-container reader-toolbar-bookmark"
             style={props.isNearEdge ? NO_DRAG_REGION_STYLE : undefined}
@@ -284,23 +397,6 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
             <span
               className="icon-bookmark-line reader-setting-icon"
               style={{ fontSize: 19 }}
-            ></span>
-          </div>
-          <div
-            className="reader-setting-icon-container"
-            style={props.isNearEdge ? NO_DRAG_REGION_STYLE : undefined}
-            aria-label={t(isFullscreen ? "Exit full screen" : "Full screen")}
-            data-tooltip-id="my-tooltip"
-            data-tooltip-content={t(
-              isFullscreen ? "Exit full screen" : "Full screen"
-            )}
-            onClick={() => {
-              handleScreen();
-            }}
-          >
-            <span
-              className="icon-fullscreen-line reader-setting-icon"
-              style={{ fontSize: 17 }}
             ></span>
           </div>
           <span
@@ -346,185 +442,152 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
       )}
 
       <div
-        className="reader-quick-buttons"
-        onMouseEnter={props.showQuickButtons}
-        onMouseLeave={props.hideQuickButtons}
+        className={
+          "reader-quick-buttons reader-side-rail" +
+          (props.isNearEdge || props.isSideRailShown ? " is-active" : "") +
+          (isPaper ? " is-paper" : "")
+        }
+        onMouseEnter={props.showSideRail}
+        onMouseLeave={props.hideSideRail}
         style={{
-          position: "absolute",
-          top: "0px",
-          right: isSettingLocked || isDockedRight ? 300 : 15,
-          zIndex: 14,
-          width: "max-content",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          justifyContent: "flex-end",
-          opacity: props.isNearEdge ? 1 : 0,
-          transition: "opacity 0.3s ease",
-          color: ConfigService.getReaderConfig("textColor")
-            ? ConfigService.getReaderConfig("textColor")
-            : "",
+          right:
+            (isSettingLocked || isDockedRight
+              ? getRightPanelInset(isSettingLocked, isDockedRight)
+              : 0) + 20,
+          color: ConfigService.getReaderConfig("textColor") || "",
+          ["--rail-bg" as string]: readerBackgroundColor,
         }}
       >
         <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-          }}
+          className="reader-setting-icon-container"
+          aria-label={t("Content")}
+          data-tooltip-id="my-tooltip"
+          data-tooltip-content={t("Content")}
+          data-tooltip-place="left"
+          onClick={() => props.handleEnterReader("left")}
         >
-          {currentBook && !isReadingRawPDF(currentBook) && (
-            <>
-              <div
-                className="reader-setting-icon-container"
-                {...props.handleDialogButtonHover(
-                  handleStudyLangDialog,
-                  ".study-lang-dialog-container"
-                )}
-              >
-                <span
-                  className="icon-trans reader-setting-icon"
-                  style={{ fontSize: 19 }}
-                ></span>
-              </div>
-              <div
-                className="reader-setting-icon-container"
-                {...props.handleDialogButtonHover(
-                  handleAssistReadDialog,
-                  ".assist-read-dialog-container"
-                )}
-              >
-                <span
-                  className="icon-light-bulb reader-setting-icon"
-                  style={{ fontSize: 20 }}
-                ></span>
-              </div>
-            </>
+          <span
+            className="icon-list reader-setting-icon"
+            style={{ fontSize: 18 }}
+          ></span>
+        </div>
+        <div
+          className="reader-setting-icon-container"
+          aria-label={t("Setting")}
+          data-tooltip-id="my-tooltip"
+          data-tooltip-content={t("Setting")}
+          data-tooltip-place="left"
+          onClick={() => props.handleEnterReader("right")}
+        >
+          <span
+            className="icon-font reader-setting-icon"
+            style={{ fontSize: 18 }}
+          ></span>
+        </div>
+        <div
+          className="reader-setting-icon-container"
+          {...props.handleDialogButtonHover(
+            handleSpeechDialog,
+            ".speech-dialog-container"
           )}
-          {(readerMode === "scroll" || readerMode === "single") && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "flex-end",
-              }}
-            >
-              <div
-                className="reader-setting-icon-container"
-                {...props.handleDialogButtonHover(
-                  handleScalePageDialog,
-                  ".scale-page-dialog-container"
-                )}
-              >
-                <span
-                  className="icon-zoom-in reader-setting-icon"
-                  style={{ fontSize: 20 }}
-                ></span>
-              </div>
-            </div>
-          )}
+        >
+          <span
+            className={`icon-earphone-line reader-setting-icon`}
+            style={{ fontSize: 19 }}
+          ></span>
+        </div>
 
-          {currentBook.format === "PDF" && readerMode === "scroll" && (
-            <div
-              className="reader-setting-icon-container"
-              {...props.handleDialogButtonHover(
-                handlePdfCropDialog,
-                ".pdf-crop-dialog-container"
-              )}
-            >
-              <span
-                className="icon-crop reader-setting-icon"
-                style={{ fontSize: 20 }}
-              ></span>
-            </div>
-          )}
-
-          {currentBook.format === "PDF" && (
-            <div
-              className="reader-setting-icon-container"
-              {...props.handleDialogButtonHover(
-                handleConvertDialog,
-                ".convert-dialog-container"
-              )}
-            >
-              <span
-                className="icon-convert-text reader-setting-icon"
-                style={{ fontSize: 22 }}
-              ></span>
-            </div>
-          )}
+        {ConfigService.getReaderConfig("isDisableAI") !== "yes" && (
           <div
             className="reader-setting-icon-container"
-            {...props.handleDialogButtonHover(
-              handleSpeechDialog,
-              ".speech-dialog-container"
-            )}
-          >
-            <span
-              className={`icon-earphone-line reader-setting-icon`}
-              style={{ fontSize: 20 }}
-            ></span>
-          </div>
-
-          <div
-            className="reader-setting-icon-container"
-            style={{
-              display:
-                currentBook &&
-                isReadingRawPDF(currentBook) &&
-                currentBook.description?.indexOf("scanned") > -1
-                  ? undefined
-                  : "none",
-            }}
-            aria-label={t("Annotation")}
+            aria-label={t("Reading Assistant")}
             data-tooltip-id="my-tooltip"
-            data-tooltip-content={t("Annotation")}
-            onClick={props.handleAnnotationClick}
+            data-tooltip-content={t("Reading Assistant")}
+            data-tooltip-place="left"
+            onClick={async () => {
+              if (!htmlBook) return;
+              handleMenuMode("assistant");
+              handleOriginalText(await htmlBook.rendition.chapterText());
+              handleOpenMenu(true);
+            }}
           >
             <span
-              className={`icon-pen-line reader-setting-icon`}
-              style={{ fontSize: 20 }}
+              className={`icon-star-line reader-setting-icon`}
+              style={{ fontSize: 19 }}
             ></span>
           </div>
-          {ConfigService.getReaderConfig("isDisableAI") !== "yes" && (
+        )}
+        {isElectron &&
+          ConfigService.getReaderConfig("isDisableAI") !== "yes" && (
             <div
               className="reader-setting-icon-container"
-              aria-label={t("Reading Assistant")}
+              aria-label={t("Reading Companion")}
               data-tooltip-id="my-tooltip"
-              data-tooltip-content={t("Reading Assistant")}
-              onClick={async () => {
-                if (!htmlBook) return;
-                handleMenuMode("assistant");
-                handleOriginalText(await htmlBook.rendition.chapterText());
-                handleOpenMenu(true);
-              }}
+              data-tooltip-content={t("Reading Companion")}
+              data-tooltip-place="left"
+              onClick={() => handleCompanionPanel(!isCompanionOpen)}
             >
               <span
-                className={`icon-star-line reader-setting-icon`}
-                style={{ fontSize: 20 }}
+                className={`icon-highlight-line reader-setting-icon`}
+                style={{ fontSize: 19 }}
               ></span>
             </div>
           )}
-          <div
-            className="reader-setting-icon-container"
-            aria-label={t("Toggle menu")}
-            data-tooltip-id="my-tooltip"
-            data-tooltip-content={t("Toggle menu")}
-            onClick={() => {
-              props.handleEnterReader("left");
-              props.handleEnterReader("right");
-            }}
-          >
-            <span
-              className="icon-grid reader-setting-icon"
-              style={{ fontSize: 16 }}
-            ></span>
-          </div>
-          {showCustomWindowControls && (
-            <WindowControls t={t} isMacOS={props.isMacOS} />
+        <div
+          ref={moreRef}
+          className="reader-setting-icon-container reader-more-container"
+          aria-label={t("More")}
+          onMouseEnter={() => setIsMoreOpen(true)}
+          onMouseLeave={() => setIsMoreOpen(false)}
+        >
+          <span
+            className="icon-more reader-setting-icon"
+            style={{ fontSize: 19 }}
+          ></span>
+          {isMoreOpen && (
+            <div className="sort-dialog-container reader-more-menu">
+              {moreItems.map((item) => (
+                <div
+                  key={item.key}
+                  className="reader-more-item"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsMoreOpen(false);
+                    item.onClick(event);
+                  }}
+                >
+                  <span
+                    className={item.icon + " reader-more-item-icon"}
+                  ></span>
+                  {t(item.label)}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
+      {showCustomWindowControls && (
+        <div
+          className="reader-quick-buttons"
+          onMouseEnter={props.showQuickButtons}
+          onMouseLeave={props.hideQuickButtons}
+          style={{
+            position: "absolute",
+            top: 0,
+            right:
+              isSettingLocked || isDockedRight
+                ? getRightPanelInset(isSettingLocked, isDockedRight)
+                : 15,
+            zIndex: 14,
+            display: "flex",
+            opacity: props.isNearEdge ? 1 : 0,
+            transition: "opacity 0.3s ease",
+            color: ConfigService.getReaderConfig("textColor") || "",
+          }}
+        >
+          <WindowControls t={t} isMacOS={props.isMacOS} />
+        </div>
+      )}
     </>
   );
 };

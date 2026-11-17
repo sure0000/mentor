@@ -16,6 +16,7 @@
   font-size: 15px;
   transition: 0.1s;
   font-weight: 500;
+  box-shadow: 0 4px 12px rgba(27, 136, 238, 0.25);
 }
 
 .import-book-box {
@@ -47,7 +48,7 @@
   transform: translateY(-50%);
   cursor: pointer;
   z-index: 11;
-  background-color: rgba(0, 0, 0, 0.1); /* Semi-transparent white overlay */
+  background-color: rgba(0, 0, 0, 0.12);
   border-radius: 0 30px 30px 0;
 }
 

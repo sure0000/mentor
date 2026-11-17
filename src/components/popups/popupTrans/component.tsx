@@ -11,6 +11,7 @@ import { Trans } from "react-i18next";
 import toast from "react-hot-toast";
 import { getDefaultTransTarget, openExternalUrl } from "../../../utils/common";
 import { getTransStream } from "../../../utils/request/reader";
+import { isAiAvailable } from "../../../utils/aiReading/aiGateway";
 import { chatStream } from "../../../utils/request/common";
 import { getIframeDoc } from "../../../utils/reader/docUtil";
 import { getBuiltinTranslation } from "../../../utils/plugins/rendererRegistry";
@@ -37,7 +38,6 @@ export interface PopupTransState {
 const PopupTrans = (props: PopupTransProps) => {
   const originalText = useAppStore((s) => s.reader.originalText);
   const plugins = useAppStore((s) => s.manager.plugins);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const currentBook = useAppStore((s) => s.book.currentBook);
   const handleOpenMenu = useAppStore((s) => s.handleOpenMenu);
   const handleMenuMode = useAppStore((s) => s.handleMenuMode);
@@ -198,10 +198,7 @@ const PopupTrans = (props: PopupTransProps) => {
         isFinishOutput: true,
         isAiWaiting: false,
       }));
-    } else if (
-      isAuthed &&
-      ConfigService.getReaderConfig("isDisableAI") !== "yes"
-    ) {
+    } else if (isAiAvailable("translate")) {
       setState((prev) => ({
         ...prev,
         transService: "official-ai-trans-plugin",
@@ -258,7 +255,7 @@ const PopupTrans = (props: PopupTransProps) => {
           setState((prev) => ({ ...prev, transService: pluginList[0].key }));
           ConfigService.setReaderConfig("transService", pluginList[0].key);
           await new Promise((resolve) => setTimeout(resolve, 100));
-        } else if (isAuthed) {
+        } else if (isAiAvailable("translate")) {
           setState((prev) => ({
             ...prev,
             transService: "official-ai-trans-plugin",
@@ -302,10 +299,10 @@ const PopupTrans = (props: PopupTransProps) => {
   }, [originalText]);
 
   const handleChangeService = (target: string) => {
-    if (target === "official-ai-trans-plugin" && !isAuthed) {
-      toast(t("Please upgrade to Pro to use this feature"));
+    if (target === "official-ai-trans-plugin" && !isAiAvailable("translate")) {
+      toast(t("No AI service configured. Please add one in Settings > AI service"));
       handleSetting(true);
-      handleSettingMode("account");
+      handleSettingMode("ai");
       return;
     }
     setState((prev) => ({ ...prev, transService: target }));
@@ -357,12 +354,6 @@ const PopupTrans = (props: PopupTransProps) => {
                 >
                   <span className={`icon-${item.icon} trans-icon`}></span>
                   {t(item.displayName)}
-                  {item.key === "official-ai-trans-plugin" && (
-                    <span style={{ fontSize: "13px", color: "#f16464" }}>
-                      {" "}
-                      (Pro)
-                    </span>
-                  )}
                 </div>
               );
             })}
@@ -373,7 +364,7 @@ const PopupTrans = (props: PopupTransProps) => {
               marginTop: "50px",
               textAlign: "center",
               fontSize: "17px",
-              color: "#f16464",
+              color: "var(--brand)",
             }}
           >
             <span
@@ -531,7 +522,7 @@ const PopupTrans = (props: PopupTransProps) => {
                     state.isFinishOutput && (
                       <p
                         className="dict-learn-more"
-                        style={{ color: "#f16464" }}
+                        style={{ color: "var(--brand)" }}
                       >
                         {t("Generated with AI")}
                       </p>

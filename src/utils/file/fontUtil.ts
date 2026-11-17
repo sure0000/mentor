@@ -233,7 +233,7 @@ class FontUtil {
 
   static getFeaturedFontUrl(fontPath: string, isAuthed: boolean): string {
     const base =
-      getServerRegion() === "china" && isAuthed
+      getServerRegion() === "china"
         ? "https://storage.koodoreader.cn"
         : "https://storage.koodoreader.com";
     return `${base}/fonts${fontPath}`;

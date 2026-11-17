@@ -12,12 +12,10 @@ import {
   paraSpacingList,
   titleSizeList,
 } from "../../../constants/dropdownList";
-import toast from "react-hot-toast";
 import { getDefaultOcrEngine, getOcrLangList } from "../../../utils/common";
 import SwitchRow from "../../readerSettings/switchRow";
 
 const ConvertDialog = () => {
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const currentBook = useAppStore((s) => s.book.currentBook);
   const plugins = useAppStore((s) => s.manager.plugins || []);
   const handleSetting = useAppStore((s) => s.handleSetting);
@@ -126,12 +124,6 @@ const ConvertDialog = () => {
                 forceUpdate();
                 return;
               }
-              if (event.target.value === "official-ai-ocr" && !isAuthed) {
-                toast(t("Please upgrade to Pro to use this feature"));
-                handleSetting(true);
-                handleSettingMode("account");
-                return;
-              }
               ConfigService.setReaderConfig(
                 isScanned ? "scannedOcrEngine" : "textOcrEngine",
                 event.target.value
@@ -168,7 +160,7 @@ const ConvertDialog = () => {
                 key={item.value}
                 className="lang-setting-option"
               >
-                {t(item.label) + (item.isPro ? " (Pro)" : "")}
+                {t(item.label)}
               </option>
             ))}
             <option
@@ -257,9 +249,7 @@ const ConvertDialog = () => {
           </>
         ) : ocrLangList.length > 0 ? (
           renderSelectRow(
-            ocrEngine === "official-ai-ocr"
-              ? "Set OCR mode"
-              : "Set OCR language",
+            "Set OCR language",
             <select
               className="lang-setting-dropdown"
               value={(() => {

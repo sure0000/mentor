@@ -1,23 +1,5 @@
 export const generalSettingList = [
   {
-    isElectron: false,
-    title: "Disable trash bin",
-    desc: "When deleting books, they will be deleted permanently instead of sending to trash bin",
-    propName: "isDisableTrashBin",
-  },
-  {
-    isElectron: false,
-    title: "Hide books already added to the shelf",
-    desc: "Hide books which have been added to the shelf, so they won't show up in home page",
-    propName: "isHideShelfBook",
-  },
-  {
-    isElectron: false,
-    title: "Delete book from shelf also deleting book itself",
-    desc: "When deleting book from shelf, the book will be deleted as well",
-    propName: "isDeleteShelfBook",
-  },
-  {
     isElectron: true,
     title: "Disable screen blanking",
     desc: "When Koodo is running, your computer won't enter sleep mode",
@@ -341,12 +323,6 @@ export const syncSettingList = [
     title: "Auto download cloud books",
     desc: "To reduce storage usage, only the book metadata is downloaded by default, and the book files are not downloaded. After enabling this option, all book files will be downloaded during synchronization",
     propName: "autoOffline",
-  },
-  {
-    isElectron: false,
-    title: "Enable Koodo Sync",
-    desc: "Enable this option to increase synchronization speed. Your reading progress, notes, highlights, bookmarks, and other reading-related data will be encrypted, stored and synced via our cloud service, your books and covers will still be synced by your added data sources. Turning off this option will remove the above data from our cloud.",
-    propName: "isEnableKoodoSync",
   },
   {
     isElectron: false,

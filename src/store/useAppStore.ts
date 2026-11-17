@@ -9,29 +9,26 @@ import Bookmark from "../models/Bookmark";
 import {
   ConfigService,
   HighlightUtil,
-  KookitConfig,
   CollectionUtil,
 } from "../assets/lib/kookit-extra-browser.min";
 import DatabaseService from "../utils/storage/databaseService";
-import {
-  fetchUserInfo,
-  getUserRequest,
-  resetUserRequest,
-} from "../utils/request/user";
-import { resetReaderRequest } from "../utils/request/reader";
-import { resetThirdpartyRequest } from "../utils/request/thirdparty";
 import { officialDictList, officialTranList } from "../constants/settingList";
 import BookUtil from "../utils/file/bookUtil";
 import ConfigUtil from "../utils/file/configUtil";
 import DictUtil from "../utils/file/dictUtil";
-import TokenService from "../utils/storage/tokenService";
 import { resolveStoredPlugin } from "../utils/plugins/records";
 import { NATURAL_VOICE_SAPI_ADAPTER_PLUGIN_KEY } from "../utils/plugins/catalog";
 import type { PluginConfig, PluginVoice } from "../utils/plugins/types";
-import { handleExitApp } from "../utils/request/common";
-import { HighlightValue, langToName } from "../utils/common";
+import { HighlightValue } from "../utils/common";
 import toast from "react-hot-toast";
 import i18n from "../i18n";
+import { isElectron } from "react-device-detect";
+import { CLAUDE_CODE_PLUGIN_KEY } from "../utils/aiReading/claudeCode";
+import {
+  getCustomTtsConfig,
+  isCustomTtsConfigured,
+  parseVoiceNames,
+} from "../utils/aiReading/customTts";
 
 const collectionUtil = new CollectionUtil(ConfigService);
 const highlightUtil = new HighlightUtil(ConfigService);
@@ -72,9 +69,6 @@ const initialManager = {
   isSearch: false,
   isShowPopupNote: false,
   isAboutOpen: false,
-  isAuthed: false,
-  userInfo: null as any,
-  userConfig: null as any,
   isSettingOpen: false,
   viewMode: "card",
   isSortDisplay: false,
@@ -82,8 +76,6 @@ const initialManager = {
   isNewWarning: false,
   isDetailDialog: false,
   isLoadMore: false,
-  isShowNew: false,
-  isShowSupport: false,
   bookSortCode: { sort: 1, order: 2 },
   noteSortCode: { sort: 1, order: 2 },
   isSelectBook: false,
@@ -99,7 +91,6 @@ const initialBook = {
   isOpenEditDialog: false,
   isDetailDialog: false,
   isOpenDeleteDialog: false,
-  isDeleteAllBooksInTrash: true,
   isOpenDissolveDialog: false,
   isOpenAddDialog: false,
   isOpenActionDialog: false,
@@ -107,7 +98,7 @@ const initialBook = {
   currentBook: {} as BookModel,
   renderBookFunc: (() => {}) as () => void,
   importBookFunc: (() => {}) as unknown as (file: any) => Promise<void>,
-  cloudSyncFunc: (() => {}) as unknown as (userInfo?: any) => Promise<void>,
+  cloudSyncFunc: (() => {}) as unknown as () => Promise<void>,
 };
 
 const initialReader = {
@@ -145,6 +136,7 @@ const initialReader = {
   isAssistReadOpen: false,
   isSpeechOpen: false,
   isAnnotationOpen: false,
+  isCompanionOpen: false,
   speechStartText: "",
   isSpeechAutoStart: false,
   isNavLocked: ConfigService.getReaderConfig("isNavLocked") === "yes",
@@ -179,7 +171,6 @@ const initialViewArea = {
 const initialSidebar = {
   mode: "home",
   shelfTitle: "",
-  isCollapsed: ConfigService.getReaderConfig("isCollapsed") === "yes",
 };
 
 const initialBackupPage = {
@@ -189,11 +180,9 @@ const initialBackupPage = {
   isOpenImportDialog: false,
   isOpenOPDSDialog: false,
   isOpenAutoImportDialog: false,
-  isOpenSortShelfDialog: false,
   isOpenPopupOptionDialog: false,
   popupOptionUpdateIndex: 0,
   dataSourceList: [] as string[],
-  loginOptionList: [] as { email: string; provider: string }[],
   defaultSyncOption: "",
 };
 
@@ -224,7 +213,6 @@ export type AppActionName =
   | "handleAddDialog"
   | "handleAnnotationDialog"
   | "handleAssistReadDialog"
-  | "handleAuthed"
   | "handleAutoImportDialog"
   | "handleAutoReading"
   | "handleBackgroundColor"
@@ -233,7 +221,7 @@ export type AppActionName =
   | "handleBooks"
   | "handleChangeDirection"
   | "handleCloudSyncFunc"
-  | "handleCollapse"
+  | "handleCompanionPanel"
   | "handleCollectionDetailDialog"
   | "handleCollectionDialog"
   | "handleCollectionDialogBooks"
@@ -250,18 +238,15 @@ export type AppActionName =
   | "handleDissolveDialog"
   | "handleDockedRight"
   | "handleEditDialog"
-  | "handleFetchAuthed"
   | "handleFetchBookSortCode"
   | "handleFetchBookmarks"
   | "handleFetchBooks"
   | "handleFetchDataSourceList"
   | "handleFetchDefaultSyncOption"
-  | "handleFetchLoginOptionList"
   | "handleFetchNoteSortCode"
   | "handleFetchNotes"
   | "handleFetchPercentage"
   | "handleFetchPlugins"
-  | "handleFetchUserInfo"
   | "handleFetchViewMode"
   | "handleFitPage"
   | "handleHideBackground"
@@ -276,13 +261,11 @@ export type AppActionName =
   | "handleLoadMore"
   | "handleLoadingDialog"
   | "handleLocalFileDialog"
-  | "handleLoginOptionList"
   | "handleMargin"
   | "handleMenuMode"
   | "handleMergeWord"
   | "handleMode"
   | "handleNavLock"
-  | "handleNewDialog"
   | "handleNewWarning"
   | "handleNoteKey"
   | "handleNoteSortCode"
@@ -320,9 +303,7 @@ export type AppActionName =
   | "handleShowBookmark"
   | "handleShowBorder"
   | "handleShowPopupNote"
-  | "handleShowSupport"
   | "handleSortDisplay"
-  | "handleSortShelfDialog"
   | "handleSpeechAutoStart"
   | "handleSpeechDialog"
   | "handleSpeechStartText"
@@ -330,7 +311,6 @@ export type AppActionName =
   | "handleStudyLangDialog"
   | "handleTextOrientation"
   | "handleTokenDialog"
-  | "handleUserInfo"
   | "handleViewMode";
 
 export type AppState = stateType & {
@@ -373,7 +353,6 @@ export const useAppStore = create<AppState>()((set, get) => {
     handleSearch: (isSearch: boolean) => setManager({ isSearch }),
     handleRefreshBookCover: (key: string) =>
       setManager({ refreshBookKey: key }),
-    handleUserInfo: (userInfo: any) => setManager({ userInfo }),
     handleDetailDialog: (isDetailDialog: boolean) =>
       setManager({ isDetailDialog }),
     handleSetting: (isSettingOpen: boolean) => setManager({ isSettingOpen }),
@@ -389,15 +368,11 @@ export const useAppStore = create<AppState>()((set, get) => {
       setManager({ isSortDisplay }),
     handleLoadingDialog: (isShowLoading: boolean) =>
       setManager({ isShowLoading }),
-    handleNewDialog: (isShowNew: boolean) => setManager({ isShowNew }),
     handleSelectBook: (isSelectBook: boolean) => setManager({ isSelectBook }),
     handleSelectedBooks: (selectedBooks: string[]) =>
       setManager({ selectedBooks }),
     handleNewWarning: (isNewWarning: boolean) => setManager({ isNewWarning }),
-    handleShowSupport: (isShowSupport: boolean) =>
-      setManager({ isShowSupport }),
     handleLoadMore: (isLoadMore: boolean) => setManager({ isLoadMore }),
-    handleAuthed: (isAuthed: boolean) => setManager({ isAuthed }),
     handleBookSortCode: (bookSortCode: { sort: number; order: number }) =>
       setManager({ bookSortCode }),
     handleNoteSortCode: (noteSortCode: { sort: number; order: number }) =>
@@ -573,59 +548,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         deletedBookKeys.map((key) => ({ key })) as BookModel[]
       );
     },
-    handleFetchUserInfo: async () => {
-      let response = await fetchUserInfo();
-      let userInfo: any = null;
-      if (response.code === 200) {
-        userInfo = response.data;
-        ConfigService.setReaderConfig(
-          "isEnableKoodoSync",
-          userInfo.is_enable_koodo_sync || "no"
-        );
-        if (
-          userInfo.is_enable_koodo_sync === "yes" &&
-          userInfo.default_sync_option &&
-          userInfo.default_sync_token
-        ) {
-          if (
-            ConfigService.getItem("defaultSyncOption") ===
-            userInfo.default_sync_option
-          ) {
-            let encryptedToken = await TokenService.getToken(
-              userInfo.default_sync_option + "_token"
-            );
-            if (encryptedToken !== userInfo.default_sync_token) {
-              await TokenService.setToken(
-                userInfo.default_sync_option + "_token",
-                userInfo.default_sync_token
-              );
-            }
-          }
-        }
-      }
-      if (
-        userInfo &&
-        userInfo.valid_until < parseInt(new Date().getTime() / 1000 + "")
-      ) {
-        get().handleShowSupport(true);
-      }
-      if (userInfo && userInfo.valid_until && userInfo.token_valid_until) {
-        if (
-          userInfo.valid_until > 0 &&
-          userInfo.token_valid_until > 0 &&
-          userInfo.valid_until > userInfo.token_valid_until
-        ) {
-          let userRequest = await getUserRequest();
-          await userRequest.refreshUserToken();
-          resetReaderRequest();
-          resetUserRequest();
-          resetThirdpartyRequest();
-        }
-      }
-
-      get().handleUserInfo(userInfo);
-      return userInfo;
-    },
     handleFetchPlugins: async () => {
       DatabaseService.getAllRecords("plugins").then(async (pluginList) => {
         try {
@@ -750,116 +672,84 @@ export const useAppStore = create<AppState>()((set, get) => {
               pluginList.push(assistPlugin);
             }
           }
-          if (ConfigService.getReaderConfig("isDisableAI") !== "yes") {
-            let dictPlugin = new PluginModel(
-              "official-ai-dict-plugin",
-              "dictionary",
-              "Official AI Dictionary",
-              "dict",
-              "1.0.0",
-              "",
-              {},
-              officialDictList,
-              [],
-              "",
-              ""
+          if (isElectron) {
+            // AI 伴读：本机 Claude Code 后端，无需配置 Key
+            pluginList.push(
+              new PluginModel(
+                CLAUDE_CODE_PLUGIN_KEY,
+                "assistant",
+                "Claude Code (local)",
+                "assistant",
+                "1.0.0",
+                "",
+                {},
+                officialTranList,
+                [],
+                "",
+                ""
+              )
             );
-            pluginList.push(dictPlugin);
-            let transPlugin = new PluginModel(
-              "official-ai-trans-plugin",
-              "translation",
-              "Official AI Translation",
-              "translation",
-              "1.0.0",
-              "",
-              {},
-              officialTranList,
-              [],
-              "",
-              ""
-            );
-            pluginList.push(transPlugin);
-            let sumPlugin = new PluginModel(
-              "official-ai-assistant-plugin",
-              "assistant",
-              "Official AI Assistant",
-              "assistant",
-              "1.0.0",
-              "",
-              {},
-              officialTranList,
-              [],
-              "",
-              ""
-            );
-            pluginList.push(sumPlugin);
-          }
-          const isAuthed = (await TokenService.getToken("is_authed")) === "yes";
-          if (isAuthed && !ConfigService.getItem("serverRegion")) {
-            ConfigService.setItem("serverRegion", "global");
           }
           if (ConfigService.getReaderConfig("isDisableAI") !== "yes") {
-            let sortedVoiceList = [
-              ...KookitConfig.OfficialVoiceList.map((item) => {
-                return {
-                  ...item,
-                  label:
-                    i18n.t("Kokoro") +
-                    " - " +
-                    (KookitConfig.SelfHostedVoiceList.includes(item.name) &&
-                    isAuthed
-                      ? i18n.t("Limited free") + " - "
-                      : "") +
-                    item.displayName +
-                    " - " +
-                    item.language +
-                    " - " +
-                    (item.gender === "female"
-                      ? i18n.t("Female voice")
-                      : i18n.t("Male voice")),
-                };
-              }),
-              ...KookitConfig.AzureTTSVoiceList.map((item) => {
-                return {
-                  ...item,
-                  label:
-                    "Azure" +
-                    " - " +
-                    (KookitConfig.SelfHostedVoiceList.includes(item.name) &&
-                    isAuthed
-                      ? i18n.t("Limited free") + " - "
-                      : "") +
-                    item.displayName +
-                    " - " +
-                    langToName(item.locale) +
-                    " - " +
-                    (item.gender === "female"
-                      ? i18n.t("Female voice")
-                      : i18n.t("Male voice")),
-                };
-              }),
-            ];
-            let voicePlugin = new PluginModel(
-              "official-ai-voice-plugin",
-              "voice",
-              "Official AI Voice",
-              "speaker",
-              "1.0.0",
-              "",
-              {},
-              {},
-              sortedVoiceList.map((item: any) => {
-                return {
-                  ...item,
-                  plugin: "official-ai-voice-plugin",
-                  config: {},
-                  displayName: item.label,
-                };
-              }),
-              "",
-              ""
+            // 二开：原「官方 AI」插件改为走统一 AI 网关（Claude Code / 自定义接口），
+            // 沿用原 key 以兼容用户已保存的服务选择。
+            pluginList.push(
+              new PluginModel(
+                "official-ai-dict-plugin",
+                "dictionary",
+                "AI Dictionary",
+                "dict",
+                "1.0.0",
+                "",
+                {},
+                officialDictList,
+                [],
+                "",
+                ""
+              )
             );
-            pluginList.push(voicePlugin);
+            pluginList.push(
+              new PluginModel(
+                "official-ai-trans-plugin",
+                "translation",
+                "AI Translation",
+                "translation",
+                "1.0.0",
+                "",
+                {},
+                officialTranList,
+                [],
+                "",
+                ""
+              )
+            );
+            // 自定义 TTS（OpenAI 兼容 /audio/speech），配置在「设置 > AI 服务」
+            const ttsConfig = getCustomTtsConfig();
+            if (isCustomTtsConfigured(ttsConfig)) {
+              pluginList.push(
+                new PluginModel(
+                  "official-ai-voice-plugin",
+                  "voice",
+                  "Custom TTS",
+                  "speaker",
+                  "1.0.0",
+                  "",
+                  {},
+                  {},
+                  parseVoiceNames(ttsConfig.voices).map((name) => ({
+                    name,
+                    displayName: i18n.t("Custom TTS") + " - " + name,
+                    label: i18n.t("Custom TTS") + " - " + name,
+                    language: "",
+                    locale: "",
+                    plugin: "official-ai-voice-plugin",
+                    config: {},
+                  })),
+                  "",
+                  ""
+                )
+              );
+            }
           }
           get().handlePlugins(pluginList);
           const sapiPlugin = pluginList.find(
@@ -894,19 +784,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
       });
     },
-    handleFetchAuthed: () => {
-      try {
-        TokenService.getToken("is_authed").then((value) => {
-          let isAuthed = value === "yes";
-          if (isAuthed && !ConfigService.getItem("serverRegion")) {
-            ConfigService.setItem("serverRegion", "global");
-          }
-          get().handleAuthed(isAuthed);
-        });
-      } catch (error) {
-        console.error(error);
-      }
-    },
     handleFetchBookSortCode: () => {
       let bookSortCode = JSON.parse(
         ConfigService.getReaderConfig("bookSortCode") ||
@@ -928,10 +805,8 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // book
     handleEditDialog: (mode: boolean) => setBook({ isOpenEditDialog: mode }),
-    handleDeleteDialog: (
-      mode: boolean,
-      isDeleteAllBooksInTrash: boolean = true
-    ) => setBook({ isOpenDeleteDialog: mode, isDeleteAllBooksInTrash }),
+    handleDeleteDialog: (mode: boolean) =>
+      setBook({ isOpenDeleteDialog: mode }),
     handleDissolveDialog: (mode: boolean) =>
       setBook({ isOpenDissolveDialog: mode }),
     handleAddDialog: (mode: boolean) => setBook({ isOpenAddDialog: mode }),
@@ -939,7 +814,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       setBook({ renderBookFunc }),
     handleImportBookFunc: (importBookFunc: () => void) =>
       setBook({ importBookFunc: importBookFunc as any }),
-    handleCloudSyncFunc: (cloudSyncFunc: (userInfo?: any) => Promise<void>) =>
+    handleCloudSyncFunc: (cloudSyncFunc: () => Promise<void>) =>
       setBook({ cloudSyncFunc }),
     handleActionDialog: (mode: boolean) =>
       setBook({ isOpenActionDialog: mode }),
@@ -966,6 +841,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     handleSpeechDialog: (isSpeechOpen: boolean) => setReader({ isSpeechOpen }),
     handleAnnotationDialog: (isAnnotationOpen: boolean) =>
       setReader({ isAnnotationOpen }),
+    handleCompanionPanel: (isCompanionOpen: boolean) =>
+      setReader({ isCompanionOpen }),
     handleSpeechStartText: (speechStartText: string) =>
       setReader({ speechStartText }),
     handleSpeechAutoStart: (isSpeechAutoStart: boolean) =>
@@ -1066,7 +943,6 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // sidebar
     handleShelf: (shelfTitle: string) => setSidebar({ shelfTitle }),
-    handleCollapse: (isCollapsed: boolean) => setSidebar({ isCollapsed }),
     handleMode: (mode: string) => setSidebar({ mode }),
 
     // backupPage
@@ -1078,8 +954,6 @@ export const useAppStore = create<AppState>()((set, get) => {
       setBackupPage({ isOpenOPDSDialog: mode }),
     handleAutoImportDialog: (mode: boolean) =>
       setBackupPage({ isOpenAutoImportDialog: mode }),
-    handleSortShelfDialog: (isOpen: boolean) =>
-      setBackupPage({ isOpenSortShelfDialog: isOpen }),
     handlePopupOptionDialog: (isOpen: boolean) =>
       setBackupPage({ isOpenPopupOptionDialog: isOpen }),
     handlePopupOptionUpdate: (popupOptionUpdateIndex: number) =>
@@ -1088,25 +962,12 @@ export const useAppStore = create<AppState>()((set, get) => {
       setBackupPage({ isOpenTokenDialog: mode }),
     handleDataSourceList: (dataSource: any) =>
       setBackupPage({ dataSourceList: dataSource }),
-    handleLoginOptionList: (loginOptionList: any) =>
-      setBackupPage({ loginOptionList }),
     handleDefaultSyncOption: (option: string) =>
       setBackupPage({ defaultSyncOption: option }),
     handleFetchDataSourceList: () => {
       let dataSourceList =
         ConfigService.getAllListConfig("dataSourceList") || [];
       get().handleDataSourceList(dataSourceList);
-    },
-    handleFetchLoginOptionList: async () => {
-      let loginOptionList: { email: string; provider: string }[] = [];
-      let userRequest = await getUserRequest();
-      let response = await userRequest.getLoginsV2();
-      if (response.code === 200) {
-        loginOptionList = response.data;
-      } else if (response.code === 401) {
-        handleExitApp();
-      }
-      get().handleLoginOptionList(loginOptionList);
     },
     handleFetchDefaultSyncOption: () => {
       let defaultSyncOption = ConfigService.getItem("defaultSyncOption") || "";

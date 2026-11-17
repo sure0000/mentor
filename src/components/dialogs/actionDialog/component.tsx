@@ -1,5 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import "./actionDialog.css";
 import { Trans } from "react-i18next";
@@ -68,7 +67,6 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
   const handleAddCollectionDialog = useAppStore(
     (s) => s.handleAddCollectionDialog
   );
-  const navigate = useNavigate();
   const { t } = useTranslation();
   const [state, setState] = useState<ActionDialogState>(() => ({
     isShowExport: false,
@@ -139,22 +137,6 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
     handleDissolveDialog(true);
     handleActionDialog(false);
   };
-  const handleRestoreBook = () => {
-    ConfigService.deleteListConfig(currentBook.key, "deletedBooks");
-    handleActionDialog(false);
-    toast.success(t("Restore successful"));
-    handleFetchBooks();
-  };
-  const handleDeleteBookFromTrash = () => {
-    handleReadingBook(currentBook);
-    handleDeleteDialog(true, false);
-    handleActionDialog(false);
-  };
-  const handleLoveBook = () => {
-    ConfigService.setListConfig(currentBook.key, "favoriteBooks");
-    toast.success(t("Addition successful"));
-    handleActionDialog(false);
-  };
   const handleMultiSelect = () => {
     handleSelectBook(true);
     handleSelectedBooks([currentBook.key]);
@@ -172,27 +154,6 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
     handleActionDialog(false);
     handleFetchBooks();
   };
-  const handleCancelLoveBook = () => {
-    ConfigService.deleteListConfig(currentBook.key, "favoriteBooks");
-    if (collectionUtil.isCollection(currentBook.key)) {
-      let collection = collectionUtil.getCollection(currentBook.key);
-      if (collection) {
-        collection.books.forEach((bookKey) => {
-          ConfigService.deleteListConfig(bookKey, "favoriteBooks");
-        });
-      }
-    }
-    if (
-      Object.keys(ConfigService.getAllListConfig("favoriteBooks")).length ===
-        0 &&
-      mode === "favorite"
-    ) {
-      navigate("/manager/empty");
-    }
-    toast.success(t("Cancellation successful"));
-    handleActionDialog(false);
-    handleFetchBooks();
-  };
   const handleMoreAction = (isShow: boolean) => {
     updateState({ isShowExport: isShow });
   };
@@ -204,10 +165,6 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
   const collection = isCollection
     ? collectionUtil.getCollection(currentBook.key)
     : null;
-  const isFavorite = collection
-    ? collectionUtil.isCollectionFavorite(collection)
-    : ConfigService.getAllListConfig("favoriteBooks").indexOf(currentBook.key) >
-      -1;
   const moreActionProps = {
     left: props.left,
     top: props.top,
@@ -228,48 +185,6 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
     handleMenuLeave: scheduleClose,
     menuItemIndex: isCollection ? 6 : 7,
   };
-  if (mode === "trash") {
-    return (
-      <div
-        className="action-dialog-container"
-        onMouseLeave={() => {
-          handleActionDialog(false);
-        }}
-        onMouseEnter={() => {
-          handleActionDialog(true);
-        }}
-        style={{
-          left: props.left,
-          top: props.top,
-        }}
-      >
-        <div className="action-dialog-actions-container">
-          <div
-            className="action-dialog-add"
-            onClick={() => {
-              handleRestoreBook();
-            }}
-          >
-            <span className="icon-clockwise view-icon"></span>
-            <span className="action-name">
-              <Trans>Restore</Trans>
-            </span>
-          </div>
-          <div
-            className="action-dialog-delete"
-            onClick={() => {
-              handleDeleteBookFromTrash();
-            }}
-          >
-            <span className="icon-trash-line view-icon"></span>
-            <span className="action-name">
-              <Trans>Delete</Trans>
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  }
   return (
     <>
       <div
@@ -287,31 +202,12 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
           <div
             className="action-dialog-add"
             onClick={() => {
-              if (isFavorite) {
-                handleCancelLoveBook();
-              } else {
-                handleLoveBook();
-              }
-            }}
-          >
-            <span className="icon-heart view-icon"></span>
-            <p className="action-name">
-              {isFavorite ? (
-                <Trans>Remove from favorite</Trans>
-              ) : (
-                <Trans>Add to favorite</Trans>
-              )}
-            </p>
-          </div>
-          <div
-            className="action-dialog-add"
-            onClick={() => {
               handleAddShelf();
             }}
           >
             <span className="icon-bookshelf-line view-icon"></span>
             <p className="action-name">
-              <Trans>Add to shelf</Trans>
+              <Trans>Move to category</Trans>
             </p>
           </div>
           {!isCollection && (

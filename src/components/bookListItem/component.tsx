@@ -1,6 +1,6 @@
 import React from "react";
 import "./bookListItem.css";
-import { Trans } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import EmptyCover from "../emptyCover";
 import BookCoverFrame from "../bookCoverFrame";
 import ActionDialog from "../dialogs/actionDialog";
@@ -26,6 +26,7 @@ export interface BookItemProps {
 declare var window: any;
 
 const BookListItem: React.FC<BookItemProps> = (props) => {
+  const { t } = useTranslation();
   const isOpenActionDialog = useAppStore((s) => s.book.isOpenActionDialog);
   const currentBook = useAppStore((s) => s.book.currentBook);
   const isSelectBook = useAppStore((s) => s.manager.isSelectBook);
@@ -63,7 +64,6 @@ const BookListItem: React.FC<BookItemProps> = (props) => {
     handleBookDropDragLeave,
     handleBookBookDrop,
     getPercentage,
-    isFavoriteBook,
     isTopBook,
   } = useBookItem({
     ...props,
@@ -219,11 +219,8 @@ const BookListItem: React.FC<BookItemProps> = (props) => {
               {!isBookOffline && (
                 <span className="icon-cloud book-download-action"></span>
               )}
-              {(isFavoriteBook() || isTopBook()) && (
+              {isTopBook() && (
                 <span className="book-item-list-status">
-                  {isFavoriteBook() && (
-                    <span className="icon-heart book-item-list-favorite"></span>
-                  )}
                   {isTopBook() && (
                     <span className="icon-pin book-item-list-top"></span>
                   )}
@@ -238,9 +235,9 @@ const BookListItem: React.FC<BookItemProps> = (props) => {
           <p className="book-item-list-percentage">
             {percentage && !isNaN(parseFloat(percentage))
               ? percentage === "0"
-                ? "New"
+                ? t("Unread")
                 : percentage === "1"
-                  ? "Done"
+                  ? t("Finished")
                   : (parseFloat(percentage) * 100).toFixed(2)
               : "0"}
             {percentage &&

@@ -127,8 +127,10 @@
   margin-right: 10px;
 }
 .reader-setting-icon-container {
-  width: 50px;
-  height: 50px;
+  width: 44px;
+  height: 44px;
+  margin: 3px 2px;
+  border-radius: 10px;
   font-size: 20px;
   cursor: pointer;
   z-index: 10;
@@ -141,7 +143,7 @@
   float: right;
 }
 .reader-setting-icon-container:hover {
-  border-radius: 50%;
+  border-radius: 10px;
 }
 .reader-setting-dialog-anchor {
   position: absolute;
@@ -187,4 +189,23 @@
   .reader-top-toolbar-time {
     display: none !important;
   }
+}
+
+/* WeRead-like solid toolbar bars that follow the reading background */
+.reader-toolbar-backdrop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.reader-toolbar-backdrop.visible {
+  opacity: 0.96;
+}
+.reader-toolbar-backdrop-top {
+  top: 0;
+  height: 56px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.06);
 }

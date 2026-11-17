@@ -81,3 +81,11 @@
   font-size: 15px;
   opacity: 0.64;
 }
+
+.book-content-current {
+  color: var(--brand);
+  font-weight: 600;
+}
+.book-content-name:hover .book-content-title-label {
+  color: var(--brand);
+}

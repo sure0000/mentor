@@ -34,7 +34,8 @@ export interface SettingInfoState {
 
 const FontSetting = () => {
   const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
+  // 资源镜像只按地区选择，与账号无关
+  const isAuthed = false;
   const { t } = useTranslation();
   const [state, setState] = useState<SettingInfoState>(() => ({
     fonts: [],

@@ -14,16 +14,12 @@ import DictHistory from "../../../models/DictHistory";
 import { Trans } from "react-i18next";
 import {
   getFullTranslationTarget,
-  getOfficialDictLang,
-  getWebsiteUrl,
   openExternalUrl,
 } from "../../../utils/common";
 import toast from "react-hot-toast";
 import DatabaseService from "../../../utils/storage/databaseService";
-import {
-  getDictText,
-  getDictionaryStream,
-} from "../../../utils/request/reader";
+import { getDictionaryStream } from "../../../utils/request/reader";
+import { isAiAvailable } from "../../../utils/aiReading/aiGateway";
 import { chatStream } from "../../../utils/request/common";
 import { marked } from "marked";
 import { getIframeDoc } from "../../../utils/reader/docUtil";
@@ -71,7 +67,6 @@ const PopupDict = (props: PopupDictProps) => {
   const originalText = useAppStore((s) => s.reader.originalText);
   const originalSentence = useAppStore((s) => s.reader.originalSentence);
   const plugins = useAppStore((s) => s.manager.plugins);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const currentBook = useAppStore((s) => s.book.currentBook);
   const handleOpenMenu = useAppStore((s) => s.handleOpenMenu);
   const handleMenuMode = useAppStore((s) => s.handleMenuMode);
@@ -277,19 +272,11 @@ const PopupDict = (props: PopupDictProps) => {
         if (!dictId) return "";
         dictText = await DictUtil.lookupWord(dictId, text);
       } else if (
-        isAuthed &&
-        ConfigService.getReaderConfig("isDisableAI") !== "yes" &&
         ConfigService.getReaderConfig("dictService") ===
-          "official-ai-dict-plugin"
+        "official-ai-dict-plugin"
       ) {
-        dictText = await getDictText(
-          text,
-          ConfigService.getReaderConfig("dictTarget") || "auto",
-          getOfficialDictLang()
-        );
-        if (dictText) {
-          isFullAnalysis = false;
-        }
+        // AI 词典：结果在下方流式输出
+        dictText = "";
       } else if (
         ConfigService.getReaderConfig("dictService") &&
         ConfigService.getReaderConfig("dictService") !==
@@ -329,10 +316,9 @@ const PopupDict = (props: PopupDictProps) => {
         updateState({ dictText: dictText });
       }
       if (
-        isAuthed &&
-        ConfigService.getReaderConfig("isDisableAI") !== "yes" &&
         ConfigService.getReaderConfig("dictService") ===
-          "official-ai-dict-plugin"
+          "official-ai-dict-plugin" &&
+        isAiAvailable("dict")
       ) {
         handleDictionaryStream(text, isFullAnalysis);
       }
@@ -376,7 +362,7 @@ const PopupDict = (props: PopupDictProps) => {
         updateState({ dictService: pluginList[0].key });
         ConfigService.setReaderConfig("dictService", pluginList[0].key);
         await new Promise((resolve) => setTimeout(resolve, 100));
-      } else if (isAuthed) {
+      } else if (isAiAvailable("dict")) {
         updateState({
           dictService: "official-ai-dict-plugin",
           isAddNew: false,
@@ -436,18 +422,18 @@ const PopupDict = (props: PopupDictProps) => {
       (item as HTMLAudioElement).load();
     });
     let moreElement = document.querySelector(".dict-learn-more");
-    if (moreElement) {
+    if (moreElement && window.learnMoreUrl) {
       moreElement.addEventListener("click", () => {
-        openExternalUrl(window.learnMoreUrl || getWebsiteUrl());
+        if (window.learnMoreUrl) openExternalUrl(window.learnMoreUrl);
       });
     }
   }, [state.dictText]);
 
   const handleChangeDictService = (dictService: string) => {
-    if (dictService === "official-ai-dict-plugin" && !isAuthed) {
-      toast(t("Please upgrade to Pro to use this feature"));
+    if (dictService === "official-ai-dict-plugin" && !isAiAvailable("dict")) {
+      toast(t("No AI service configured. Please add one in Settings > AI service"));
       handleSetting(true);
-      handleSettingMode("account");
+      handleSettingMode("ai");
       return;
     }
     updateState({
@@ -516,12 +502,6 @@ const PopupDict = (props: PopupDictProps) => {
                       className="add-dialog-shelf-list-option"
                     >
                       {t(item.displayName)}
-                      {item.key === "official-ai-dict-plugin" && (
-                        <span style={{ fontSize: "13px", color: "#f16464" }}>
-                          {" "}
-                          (Pro)
-                        </span>
-                      )}
                     </option>
                     {item.key === lastLocalDictKey &&
                       localDictPlugins.length >= 2 && (

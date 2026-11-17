@@ -9,7 +9,6 @@ import {
   MetadataResult,
   BookResultItem,
 } from "./types";
-import { useAppStore } from "../../../store/useAppStore";
 import toast from "react-hot-toast";
 import copy from "copy-text-to-clipboard";
 import { getBookMetadata } from "../../../utils/request/reader";
@@ -24,9 +23,6 @@ const MetadataDialog = (
     | "handleApplyMetadata"
   >
 ) => {
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
-  const handleSetting = useAppStore((s) => s.handleSetting);
-  const handleSettingMode = useAppStore((s) => s.handleSettingMode);
   const { t } = useTranslation();
   const [state, setState] = useState<Record<string, any>>({
     searchName: props.currentBookName || "",
@@ -49,13 +45,6 @@ const MetadataDialog = (
     const { searchName, searchAuthor } = state;
     if (!searchName.trim()) {
       toast(t("Please enter book name"));
-      return;
-    }
-
-    if (!isAuthed) {
-      toast(t("Please upgrade to Pro to use this feature"));
-      handleSetting(true);
-      handleSettingMode("account");
       return;
     }
 
@@ -131,7 +120,6 @@ const MetadataDialog = (
       <div className="metadata-dialog-container edit-dialog-container">
         <div className="metadata-dialog-title">
           <Trans>Get metadata</Trans>
-          <span style={{ fontSize: "13px", color: "#f16464" }}> (Pro)</span>
         </div>
 
         {/* Search inputs */}

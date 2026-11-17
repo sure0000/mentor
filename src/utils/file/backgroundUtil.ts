@@ -210,7 +210,7 @@ class BackgroundUtil {
 
   static getFeaturedThumbnailUrl(index: number, isAuthed: boolean): string {
     const base =
-      getServerRegion() === "china" && isAuthed
+      getServerRegion() === "china"
         ? "https://storage.koodoreader.cn"
         : "https://storage.koodoreader.com";
     return `${base}/backgrounds/desktop-thumbnail/official-background-${index}.png`;
@@ -218,7 +218,7 @@ class BackgroundUtil {
 
   static getFeaturedOriginalUrl(index: number, isAuthed: boolean): string {
     const base =
-      getServerRegion() === "china" && isAuthed
+      getServerRegion() === "china"
         ? "https://storage.koodoreader.cn"
         : "https://storage.koodoreader.com";
     return `${base}/backgrounds/desktop/official-background-${index}.png`;

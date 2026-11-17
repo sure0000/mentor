@@ -27,8 +27,8 @@ export interface PopupMenuProps {
 
 declare var window: any;
 
-const MENU_WIDTH = 252;
-const MENU_HEIGHT = 141;
+const MENU_WIDTH = 324;
+const MENU_HEIGHT = 172;
 const highlightUtil: any = new HighlightUtil(ConfigService);
 
 const PopupMenu = (props: PopupMenuProps) => {

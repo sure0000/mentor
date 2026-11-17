@@ -3,6 +3,7 @@ import "./bookCardItem.css";
 import ActionDialog from "../dialogs/actionDialog";
 import EmptyCover from "../emptyCover";
 import BookCoverFrame from "../bookCoverFrame";
+import { useTranslation } from "react-i18next";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { useBookItem } from "../bookItem/useBookItem";
 import { getFileNameWithoutExtension } from "../../utils/common";
@@ -26,6 +27,7 @@ export interface BookCardProps {
 declare var window: any;
 
 const BookCardItem: React.FC<BookCardProps> = (props) => {
+  const { t } = useTranslation();
   const isOpenActionDialog = useAppStore((s) => s.book.isOpenActionDialog);
   const currentBook = useAppStore((s) => s.book.currentBook);
   const isSelectBook = useAppStore((s) => s.manager.isSelectBook);
@@ -64,7 +66,6 @@ const BookCardItem: React.FC<BookCardProps> = (props) => {
     handleBookDropDragLeave,
     handleBookBookDrop,
     getPercentage,
-    isFavoriteBook,
     isTopBook,
   } = useBookItem({
     ...props,
@@ -261,9 +262,9 @@ const BookCardItem: React.FC<BookCardProps> = (props) => {
           <div style={{ position: "relative", left: "4px" }}>
             {percentage && !isNaN(parseFloat(percentage))
               ? percentage === "0"
-                ? "New"
+                ? t("Unread")
                 : percentage === "1"
-                  ? "Done"
+                  ? t("Finished")
                   : (parseFloat(percentage) * 100).toFixed(2)
               : "0"}
             {percentage &&
@@ -279,11 +280,8 @@ const BookCardItem: React.FC<BookCardProps> = (props) => {
             handleMoreAction(event);
           }}
         ></span>
-        {(isFavoriteBook() || isTopBook()) && (
+        {isTopBook() && (
           <span className="book-status-actions">
-            {isFavoriteBook() && (
-              <span className="icon-heart book-heart-action"></span>
-            )}
             {isTopBook() && <span className="icon-pin book-top-action"></span>}
           </span>
         )}

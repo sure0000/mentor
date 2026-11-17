@@ -27,7 +27,8 @@ export interface SettingInfoState {
 }
 
 const DictSetting = () => {
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
+  // 资源镜像只按地区选择，与账号无关
+  const isAuthed = false;
   const handleFetchPlugins = useAppStore((s) => s.handleFetchPlugins);
   const { t } = useTranslation();
   const [dicts, setDicts] = useState<DictMeta[]>([]);

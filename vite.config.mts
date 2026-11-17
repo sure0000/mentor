@@ -34,7 +34,6 @@ export default defineConfig(({ command }) => ({
         "./src/router/index.tsx",
         "./src/pages/manager/index.tsx",
         "./src/pages/reader/index.tsx",
-        "./src/pages/login/index.tsx",
       ],
     },
   },
@@ -45,6 +44,11 @@ export default defineConfig(({ command }) => ({
     target: "chrome130",
     chunkSizeWarningLimit: 4000,
     rollupOptions: {
+      // AI 伴读：全书文本提取器是独立页面（见 docs/ai-reading/decisions.md）
+      input: {
+        main: "index.html",
+        extractor: "extractor.html",
+      },
       output: {
         manualChunks(id) {
           if (id.includes("assets/lib/kookit")) {

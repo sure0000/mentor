@@ -12,7 +12,6 @@ import i18n from "../../i18n";
 import { getCloudConfig } from "./common";
 import CoverUtil from "./coverUtil";
 import { LocalFileManager } from "./localFile";
-import TokenService from "../storage/tokenService";
 declare var window: any;
 
 class BookUtil {
@@ -274,7 +273,7 @@ class BookUtil {
         position: "bottom-center",
       });
       if (
-        (await TokenService.getToken("is_authed")) === "yes" &&
+        ConfigService.getItem("defaultSyncOption") &&
         (await this.isBookExistInCloud(book.key))
       ) {
         let timer = showDownloadProgress(
@@ -476,10 +475,6 @@ class BookUtil {
     if (key.startsWith("cache")) {
       return;
     }
-    let isAuthed = await TokenService.getToken("is_authed");
-    if (isAuthed !== "yes") {
-      return;
-    }
     let service = ConfigService.getItem("defaultSyncOption");
     if (!service) {
       return;
@@ -521,10 +516,6 @@ class BookUtil {
     }
   }
   static async deleteCloudBook(key: string, format: string) {
-    let isAuthed = await TokenService.getToken("is_authed");
-    if (isAuthed !== "yes") {
-      return;
-    }
     let service = ConfigService.getItem("defaultSyncOption");
     if (!service) {
       return;

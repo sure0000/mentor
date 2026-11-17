@@ -104,7 +104,10 @@ const PopupOptionDialog = () => {
                   {t(item.title)}
                 </span>
                 <span
-                  className="single-control-switch popup-option-dialog-switch"
+                  className={
+                    "single-control-switch popup-option-dialog-switch" +
+                    (item.enabled ? " is-on" : "")
+                  }
                   onClick={() => {
                     handleToggleOption(item.key);
                   }}

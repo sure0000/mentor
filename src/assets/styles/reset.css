@@ -90,6 +90,9 @@ body {
     "Fira Sans",
     "Droid Sans",
     "Helvetica Neue",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
     sans-serif !important;
   overflow-x: hidden !important;
   /* font-weight: 500; */
@@ -125,6 +128,9 @@ textarea::placeholder {
     "Fira Sans",
     "Droid Sans",
     "Helvetica Neue",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
     sans-serif !important;
   font-weight: 500 !important;
   line-height: 1.25 !important;

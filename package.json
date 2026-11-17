@@ -1,17 +1,15 @@
 {
-  "name": "koodo-reader",
+  "name": "mentor",
   "main": "main.js",
   "version": "2.4.8",
-  "description": "Koodo Reader is a cross-platform ebook reader",
+  "description": "Mentor — an AI reading companion that helps you understand books in depth",
   "author": {
-    "name": "App by Troye",
-    "email": "feedback@koodoreader.com"
+    "name": "Mentor"
   },
   "engines": {
     "node": ">=22.12.0",
     "npm": ">=6.0.0"
   },
-  "repository": "https://github.com/koodo-reader/koodo-reader",
   "private": false,
   "resolutions": {
     "node-gyp": "^10.0.0"
@@ -121,9 +119,9 @@
     "rebuild": "electron-rebuild -f -w better-sqlite3"
   },
   "build": {
-    "appId": "xyz.960960.koodo",
-    "productName": "Koodo Reader",
-    "copyright": "Copyright (c) 2020-2025 ${author}",
+    "appId": "app.mentor.reader",
+    "productName": "Mentor",
+    "copyright": "Copyright (c) 2026 Mentor. Based on Koodo Reader, Copyright (c) 2020-2025 App by Troye (AGPL-3.0)",
     "files": [
       "build/**/*",
       "node_modules/**/*",
@@ -133,8 +131,7 @@
       "src/utils/plugins/main/**/*.js",
       "main.js",
       "src/utils/main/**/*.js",
-      "preload.js",
-      "chat-preload.js"
+      "preload.js"
     ],
     "extraResources": [
       {
@@ -146,18 +143,13 @@
       }
     ],
     "protocols": {
-      "name": "KoodoReader",
+      "name": "Mentor",
       "schemes": [
-        "koodo-reader"
+        "mentor"
       ]
     },
     "directories": {
       "buildResources": "assets"
-    },
-    "publish": {
-      "provider": "github",
-      "repo": "koodo-reader",
-      "owner": "koodo-reader"
     },
     "buildDependenciesFromSource": false,
     "nodeGypRebuild": false,
@@ -332,12 +324,12 @@
       "artifactName": "${productName}-${version}-${arch}-Portable.${ext}"
     },
     "appx": {
-      "applicationId": "com.koodoreader.electron",
-      "identityName": "AppbyTroye.KoodoReader",
+      "applicationId": "Mentor",
+      "identityName": "Mentor.Reader",
       "publisher": "CN=0AEAD7C6-DF4A-4D05-8FA0-D816D7DE37FF",
-      "publisherDisplayName": "App by Troye",
+      "publisherDisplayName": "Mentor",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "displayName": "Koodo Reader",
+      "displayName": "Mentor",
       "backgroundColor": "transparent"
     },
     "nsis": {
@@ -348,12 +340,7 @@
       "include": "assets/windows/installer.nsh"
     },
     "snap": {
-      "base": "core22",
-      "publish": [
-        {
-          "provider": "github"
-        }
-      ]
+      "base": "core22"
     }
   },
   "browserslist": {

@@ -9,7 +9,6 @@ import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 
 const EmptyPage = () => {
   const mode = useAppStore((s) => s.sidebar.mode);
-  const isCollapsed = useAppStore((s) => s.sidebar.isCollapsed);
   const renderEmptyList = () => {
     return emptyList.map((item) => {
       return (
@@ -30,14 +29,7 @@ const EmptyPage = () => {
   };
   return (
     <>
-      <div
-        className="empty-page-container"
-        style={
-          isCollapsed
-            ? { width: "calc(100vw - 100px)", left: "100px" }
-            : {}
-        }
-      >
+      <div className="empty-page-container">
         <div
           className="empty-illustration-container"
           style={{ width: "calc(100% - 50px)" }}

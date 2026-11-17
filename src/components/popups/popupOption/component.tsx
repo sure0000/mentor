@@ -303,6 +303,7 @@ const PopupOption = (props: PopupOptionProps) => {
                   style={{ pointerEvents: "none" }}
                 ></span>
               </span>
+              <span className="menu-option-label">{t(item.title)}</span>
             </div>
           );
         })}
@@ -316,11 +317,9 @@ const PopupOption = (props: PopupOptionProps) => {
             data-tooltip-id="option-tooltip"
             data-tooltip-content={t("Customize popup menu")}
           >
-            <span
-              className="icon-setting setting-icon"
-              style={{ color: "#8a8f9f", fontSize: "20px" }}
-            ></span>
+            <span className="icon-setting setting-icon"></span>
           </span>
+          <span className="menu-option-label">{t("Customize")}</span>
         </div>
       </div>
   );

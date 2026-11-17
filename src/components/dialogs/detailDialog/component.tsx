@@ -44,8 +44,7 @@ const DetailDialog = () => {
   const handleShelfClick = (shelfTitle: string) => {
     handleDetailDialog(false);
     handleShelf(shelfTitle);
-    handleMode("shelf");
-    navigate("/manager/shelf");
+    navigate("/manager/home");
   };
 
   const renderShelfLocation = (shelfLocationList: string[]) => {

@@ -122,10 +122,10 @@ const Stats = () => {
   const getHeatmapColor = (seconds: number, isDarkMode: boolean): string => {
     if (seconds === 0)
       return isDarkMode ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
-    if (seconds < 300) return isDarkMode ? "#0e4429" : "#9be9a8";
-    if (seconds < 900) return isDarkMode ? "#006d32" : "#40c463";
-    if (seconds < 1800) return isDarkMode ? "#26a641" : "#30a14e";
-    return isDarkMode ? "#39d353" : "#216e39";
+    if (seconds < 300) return isDarkMode ? "#12355a" : "#c6e2fb";
+    if (seconds < 900) return isDarkMode ? "#1b5a96" : "#82bff5";
+    if (seconds < 1800) return isDarkMode ? "#2f7fd0" : "#3d9bf0";
+    return isDarkMode ? "#5aabf7" : "#1471c9";
   };
 
   const isDark = (): boolean => {
@@ -436,16 +436,17 @@ const Stats = () => {
   } = state;
 
   const darkMode = isDark();
-  const bgColor = darkMode ? "#1e1e1e" : "#f5f5f5";
-  const cardBg = darkMode ? "#2a2a2a" : "#ffffff";
-  const textColor = darkMode ? "#e0e0e0" : "#333333";
-  const chartColor = textColor;
-  const lineChartColor = darkMode ? "#ffb066" : "#ff6b1a";
+  const bgColor = darkMode ? "#191a1c" : "#f7f8fa";
+  const cardBg = darkMode ? "#232427" : "#ffffff";
+  const textColor = darkMode ? "#e0e0e0" : "#1f2329";
+  const brandColor = darkMode ? "#3d9bf5" : "#1b88ee";
+  const chartColor = brandColor;
+  const lineChartColor = brandColor;
   const lineChartGradientId = `stats-line-gradient-${
     darkMode ? "dark" : "light"
   }`;
   const gridColor = darkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
-  const tabActiveBg = darkMode ? "#3a3a3a" : "#333";
+  const tabActiveBg = brandColor;
   const tabActiveColor = darkMode ? "#fff" : "#fff";
   const tabInactiveBg = darkMode
     ? "rgba(255,255,255,0.06)"

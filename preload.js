@@ -1,10 +1,8 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const INVOKE_CHANNELS = new Set([
-  "cancel-download-app",
   "discord-rpc-update",
   "discord-rpc-clear",
-  "update-win-app",
   "open-book",
   "generate-tts",
   "get-tts-voices",
@@ -30,7 +28,6 @@ const INVOKE_CHANNELS = new Set([
   "select-import-file",
   "encrypt-data",
   "decrypt-data",
-  "check-cloud-url",
   "get-proxy-config",
   "set-proxy-config",
   "test-proxy-connection",
@@ -59,7 +56,6 @@ const INVOKE_CHANNELS = new Set([
   "open-console",
   "reload-reader",
   "reload-main",
-  "new-chat",
   "clear-all-data",
   "new-tab",
   "reload-tab",
@@ -90,6 +86,9 @@ const INVOKE_CHANNELS = new Set([
   "untar-file",
   "list-zip-file",
   "unzip-file",
+  "claude-code-check",
+  "claude-code-chat",
+  "claude-code-cancel",
 ]);
 const SEND_CHANNELS = new Set([
   "reader-close-ready",
@@ -114,14 +113,13 @@ const EVENT_CHANNELS = new Set([
   "reader-window-state",
   "reader-mouse-leave",
   "reading-finished",
-  "chat-message",
   "import-url-from-link",
   "open-book-from-link",
   "open-note-from-link",
   "picker-finished",
-  "download-app-progress",
   "backup-progress",
   "restore-progress",
+  "claude-code-delta",
 ]);
 
 const assertChannel = (set, channel) => {

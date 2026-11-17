@@ -454,16 +454,9 @@ export interface OcrEngineOption {
   label: string;
   value: string;
   lang: string;
-  isPro?: boolean;
 }
 export const ocrEngineList: OcrEngineOption[] = [
   { label: "Please select", value: "", lang: "" },
-  {
-    label: "Official AI OCR",
-    value: "official-ai-ocr",
-    lang: "general",
-    isPro: true,
-  },
   {
     label: "System OCR",
     value: "system-ocr",

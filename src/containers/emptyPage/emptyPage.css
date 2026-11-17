@@ -23,18 +23,18 @@
 }
 .empty-page-info-container {
   position: absolute;
-  left: 30px;
-  top: 80px;
+  left: 40px;
+  top: 90px;
 }
 .empty-page-info-main {
-  font-size: 32px;
-  line-height: 50px;
+  font-size: 26px;
+  line-height: 40px;
+  font-weight: 600;
   opacity: 1;
 }
 .empty-page-info-sub {
   width: 400px;
-  font-size: 24px;
-
-  line-height: 30px;
-  opacity: 0.49;
+  margin-top: 8px;
+  font-size: 15px;
+  line-height: 24px;
 }

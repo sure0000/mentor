@@ -11,6 +11,7 @@ import { isElectron } from "react-device-detect";
 import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
 import { useAppStore } from "../../../store/useAppStore";
 import type { NoteType } from "../../../models/Note";
+import { DOCKED_PANEL_WIDTH } from "../../../utils/common";
 
 export interface PopupBoxProps {
   rendition: any;
@@ -40,7 +41,6 @@ export interface PopupBoxStates {
 
 const SNAP_THRESHOLD_PX = 50;
 const RIGHT_SNAP_THRESHOLD_PX = 50;
-const SETTING_PANEL_WIDTH = 299;
 
 const POPUP_SIZE_KEY = "popupBoxSize";
 const POPUP_POS_KEY = "popupBoxPosition";
@@ -132,7 +132,8 @@ const PopupBox = (props: PopupBoxProps) => {
       dragStartY: 0,
       isNearBottom: false,
       isNearRight: false,
-      isDockedRight: storeIsDockedRight,
+      // AI 问书始终停靠在右侧侧边栏，不以悬浮窗形式出现
+      isDockedRight: storeIsDockedRight || storeMenuMode === "assistant",
       noteType: "text",
     };
   });
@@ -155,8 +156,8 @@ const PopupBox = (props: PopupBoxProps) => {
     setState((prev) => ({ ...prev, ...patch }));
   };
 
-  const syncDockedToRedux = (docked: boolean) => {
-    saveDockedToConfig(docked);
+  const syncDockedToRedux = (docked: boolean, persist = true) => {
+    if (persist) saveDockedToConfig(docked);
     handleDockedRight(docked);
     if (docked) {
       setTimeout(() => {
@@ -315,10 +316,7 @@ const PopupBox = (props: PopupBoxProps) => {
     const { popupWidth, popupHeight } = stateRef.current;
     const maxWidth = Math.max(300, window.innerWidth - 40);
     const maxHeight = Math.max(200, window.innerHeight - 40);
-    const targetWidth = Math.min(
-      maxWidth,
-      popupWidth + PREVIEW_EXTRA_WIDTH
-    );
+    const targetWidth = Math.min(maxWidth, popupWidth + PREVIEW_EXTRA_WIDTH);
     const targetHeight = Math.min(
       maxHeight,
       popupHeight + PREVIEW_EXTRA_HEIGHT
@@ -402,7 +400,30 @@ const PopupBox = (props: PopupBoxProps) => {
     if (POPUP_MODES.includes(storeMenuMode)) {
       setMode(storeMenuMode);
     }
+    if (
+      storeMenuMode === "assistant" &&
+      !useAppStore.getState().reader.isDockedRight
+    ) {
+      previewDelta.current = { width: 0, height: 0 };
+      updateState({
+        isDockedRight: true,
+        isNearRight: false,
+        isNearBottom: false,
+      });
+      // 自动停靠不写入配置，避免下次打开书时侧边栏常驻
+      syncDockedToRedux(true, false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeMenuMode]);
+
+  const handleCloseDocked = () => {
+    handleClose();
+    updateState({ isDockedRight: false });
+    syncDockedToRedux(false);
+    setTimeout(() => {
+      renderBookFunc();
+    }, 300);
+  };
 
   useEffect(() => {
     if (isElectron) {
@@ -443,6 +464,7 @@ const PopupBox = (props: PopupBoxProps) => {
     onTypeChange: handlePopupNoteTypeChange,
   };
   const isAtBottom = popupBottom === 0;
+  const isAssistantSidebar = isDockedRight && menuMode === "assistant";
 
   const innerStyle: React.CSSProperties = isDockedRight
     ? { position: "absolute", top: 20, left: 0, right: 0, bottom: 0 }
@@ -455,7 +477,7 @@ const PopupBox = (props: PopupBoxProps) => {
         top: 0,
         left: "auto",
         bottom: 0,
-        width: SETTING_PANEL_WIDTH,
+        width: DOCKED_PANEL_WIDTH,
         height: "100%",
         transform: "none",
         borderRadius: 0,
@@ -512,36 +534,48 @@ const PopupBox = (props: PopupBoxProps) => {
                 : { top: "-30px", left: "calc(50% - 10px)" }),
             }}
           ></span>
-          <span
-            className={`icon-sidebar popup-pin-handle ${isDockedRight ? "" : "popup-close"}`}
-            onClick={handleToggleDock}
-            title={t(isDockedRight ? "Unpin" : "Pin to right")}
-            style={
-              isDockedRight
-                ? {
-                    right: "40px",
-                  }
-                : {
-                    top: "-30px",
-                    right: "40px",
-                  }
-            }
-          ></span>
-          <span
-            className={`icon-menu popup-drag-handle ${isDockedRight ? "" : "popup-close"}`}
-            onMouseDown={handleDragStart}
-            title={t("Move")}
-            style={
-              isDockedRight
-                ? {
-                    right: "10px",
-                  }
-                : {
-                    top: "-30px",
-                    right: "10px",
-                  }
-            }
-          ></span>
+          {isAssistantSidebar && (
+            <span
+              className="icon-close popup-pin-handle"
+              onClick={handleCloseDocked}
+              title={t("Close")}
+              style={{ right: "10px", fontSize: "14px" }}
+            ></span>
+          )}
+          {!isAssistantSidebar && (
+            <span
+              className={`icon-sidebar popup-pin-handle ${isDockedRight ? "" : "popup-close"}`}
+              onClick={handleToggleDock}
+              title={t(isDockedRight ? "Unpin" : "Pin to right")}
+              style={
+                isDockedRight
+                  ? {
+                      right: "40px",
+                    }
+                  : {
+                      top: "-30px",
+                      right: "40px",
+                    }
+              }
+            ></span>
+          )}
+          {!isAssistantSidebar && (
+            <span
+              className={`icon-menu popup-drag-handle ${isDockedRight ? "" : "popup-close"}`}
+              onMouseDown={handleDragStart}
+              title={t("Move")}
+              style={
+                isDockedRight
+                  ? {
+                      right: "10px",
+                    }
+                  : {
+                      top: "-30px",
+                      right: "10px",
+                    }
+              }
+            ></span>
+          )}
 
           {!isDockedRight && (
             <div

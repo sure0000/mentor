@@ -1,6 +1,6 @@
 ## Architecture Overview
 
-Koodo Reader 是一个跨平台电子书阅读器（Electron + Vite + React 19 + Zustand）。
+Mentor 是一个跨平台电子书阅读器（Electron + Vite + React 19 + Zustand）。
 
 ### 四层架构
 

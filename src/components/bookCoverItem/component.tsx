@@ -3,7 +3,7 @@ import "./bookCoverItem.css";
 import ActionDialog from "../dialogs/actionDialog";
 import EmptyCover from "../emptyCover";
 import BookCoverFrame from "../bookCoverFrame";
-import { Trans } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { useBookItem } from "../bookItem/useBookItem";
 import { getFileNameWithoutExtension } from "../../utils/common";
@@ -26,8 +26,8 @@ export interface BookCoverProps {
 declare var window: any;
 
 const BookCoverItem: React.FC<BookCoverProps> = (props) => {
+  const { t } = useTranslation();
   const isOpenActionDialog = useAppStore((s) => s.book.isOpenActionDialog);
-  const isCollapsed = useAppStore((s) => s.sidebar.isCollapsed);
   const currentBook = useAppStore((s) => s.book.currentBook);
   const isSelectBook = useAppStore((s) => s.manager.isSelectBook);
   const selectedBooks = useAppStore((s) => s.manager.selectedBooks);
@@ -65,7 +65,6 @@ const BookCoverItem: React.FC<BookCoverProps> = (props) => {
     handleBookDropDragLeave,
     handleBookBookDrop,
     getPercentage,
-    isFavoriteBook,
     isTopBook,
   } = useBookItem({
     ...props,
@@ -85,7 +84,7 @@ const BookCoverItem: React.FC<BookCoverProps> = (props) => {
     event.preventDefault();
     const e = event || window.event;
     let x = e.clientX;
-    if (x > document.body.clientWidth - 300 && !isCollapsed) {
+    if (x > document.body.clientWidth - 300) {
       x = x - 180;
     }
     const pos = clampMenuPosition(
@@ -143,9 +142,9 @@ const BookCoverItem: React.FC<BookCoverProps> = (props) => {
             <div style={{ position: "relative", left: "4px" }}>
               {percentage && !isNaN(parseFloat(percentage))
                 ? percentage === "0"
-                  ? "New"
+                  ? t("Unread")
                   : percentage === "1"
-                    ? "Done"
+                    ? t("Finished")
                     : (parseFloat(percentage) * 100).toFixed(2)
                 : "0"}
               {percentage &&
@@ -160,11 +159,8 @@ const BookCoverItem: React.FC<BookCoverProps> = (props) => {
               handleMoreAction(event);
             }}
           ></span>
-          {(isFavoriteBook() || isTopBook()) && (
+          {isTopBook() && (
             <span className="book-cover-status-actions">
-              {isFavoriteBook() && (
-                <span className="icon-heart book-heart-action"></span>
-              )}
               {isTopBook() && (
                 <span className="icon-pin book-top-action"></span>
               )}

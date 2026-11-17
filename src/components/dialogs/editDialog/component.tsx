@@ -17,6 +17,7 @@ import {
   trimSpecialCharacters,
 } from "../../../utils/common";
 import { analyzeBookTitle } from "../../../utils/request/reader";
+import { isAiAvailable } from "../../../utils/aiReading/aiGateway";
 
 export interface EditDialogState {
   isCheck: boolean;
@@ -36,7 +37,6 @@ declare var window: any;
 
 const EditDialog = () => {
   const currentBook = useAppStore((s) => s.book.currentBook);
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleEditDialog = useAppStore((s) => s.handleEditDialog);
   const handleActionDialog = useAppStore((s) => s.handleActionDialog);
@@ -180,10 +180,12 @@ const EditDialog = () => {
   };
 
   const handleAnalyzeTitle = async () => {
-    if (!isAuthed) {
-      toast(t("Please upgrade to Pro to use this feature"));
+    if (!isAiAvailable()) {
+      toast(
+        t("No AI service configured. Please add one in Settings > AI service")
+      );
       handleSetting(true);
-      handleSettingMode("account");
+      handleSettingMode("ai");
       return;
     }
     if (stateRef.current.isAnalyzing) return;
@@ -314,7 +316,7 @@ const EditDialog = () => {
         <div
           style={{
             fontSize: 16,
-            color: "rgb(231, 69, 69)",
+            color: "var(--brand)",
             position: "absolute",
             right: 20,
             top: 23,
@@ -322,17 +324,10 @@ const EditDialog = () => {
             opacity: 0.8,
           }}
           onClick={() => {
-            if (!isAuthed) {
-              toast(t("Please upgrade to Pro to use this feature"));
-              handleSetting(true);
-              handleSettingMode("account");
-              return;
-            }
             setState((prev) => ({ ...prev, isMetadataDialogOpen: true }));
           }}
         >
           <Trans>Get metadata</Trans>
-          <span style={{ fontSize: "13px", color: "#f16464" }}> (Pro)</span>
         </div>
       </div>
 

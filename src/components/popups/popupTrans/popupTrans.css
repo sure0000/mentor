@@ -80,7 +80,7 @@
 }
 .trans-service-selector {
   border: 1px solid rgba(0, 0, 0, 0.05);
-  color: #f16464;
+  color: var(--brand);
   background-color: rgba(241, 100, 100, 0.05);
   height: 34px;
   display: inline-block; /* 修改：从 float: left 改为 inline-block */
@@ -106,7 +106,7 @@
 }
 .trans-service-selector-inactive {
   border: 1px solid rgba(0, 0, 0, 0.05);
-  color: #f16464;
+  color: var(--brand);
   display: inline-block; /* 修改：从 float: left 改为 inline-block */
   vertical-align: top; /* 添加：对齐方式 */
   height: 34px;
@@ -216,7 +216,7 @@
   cursor: pointer;
   border-radius: 5px;
   float: right;
-  background-color: #f16464;
+  background-color: var(--brand);
   color: white;
   margin-left: 5px;
 }

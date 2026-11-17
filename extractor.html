@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Koodo Reader AI Extractor</title>
+    <!-- AI 伴读：全书文本提取器，由阅读器以不可见 iframe 加载（见 docs/ai-reading/decisions.md） -->
+    <script type="module" src="/lib/pdfjs/pdf.mjs"></script>
+    <script type="module">
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          "lib/pdfjs/pdf.worker.mjs",
+          document.baseURI
+        ).href;
+      }
+    </script>
+  </head>
+  <body>
+    <div id="page-area" style="width: 800px; height: 1000px"></div>
+    <script type="module" src="/src/utils/aiReading/extractor/entry.ts"></script>
+  </body>
+</html>

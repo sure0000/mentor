@@ -36,7 +36,8 @@ export interface SettingInfoState {
 const FEATURED_COUNT = 100;
 
 const BackgroundSetting = () => {
-  const isAuthed = useAppStore((s) => s.manager.isAuthed);
+  // 资源镜像只按地区选择，与账号无关
+  const isAuthed = false;
   const handleReaderBackgroundImage = useAppStore(
     (s) => s.handleReaderBackgroundImage
   );

@@ -1,0 +1,98 @@
+.ai-guide-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  font-size: 14px;
+}
+.ai-guide-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 10px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+.ai-guide-link {
+  color: var(--brand);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: 12px;
+}
+.ai-guide-error {
+  color: var(--brand);
+}
+.ai-guide-spin {
+  display: inline-block;
+  animation: rotation 1s linear infinite;
+}
+.ai-guide-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-right: -20px;
+  padding-right: 20px;
+}
+.ai-guide-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.ai-guide-item:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+.ai-guide-item-extra {
+  opacity: 0.55;
+}
+.ai-guide-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-guide-item-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.6;
+}
+.ai-guide-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+}
+.ai-guide-hint {
+  font-size: 12px;
+  opacity: 0.6;
+}
+.ai-guide-item-current {
+  background: rgba(241, 100, 100, 0.1);
+}
+.ai-guide-item-done {
+  color: #52a36b;
+  margin-right: 8px;
+}
+.ai-guide-item-jump {
+  margin-left: 8px;
+  opacity: 0.5;
+  font-size: 12px;
+}
+.ai-guide-item-jump:hover {
+  opacity: 1;
+}
+.ai-guide-current {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.1);
+  cursor: pointer;
+  font-size: 13px;
+}
