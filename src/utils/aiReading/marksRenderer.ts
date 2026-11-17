@@ -16,15 +16,28 @@ const NAMES = {
   key: "koodo-ai-key",
 } as const;
 
+// 重点句：荧光笔式底色 + 实心粗下划线，叠在精读底色之上仍清晰可辨
+const KEY_STYLE = `
+::highlight(${NAMES.key}) {
+  background-color: rgba(255, 140, 50, 0.38);
+  text-decoration: underline solid rgb(220, 70, 40);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 4px;
+}`;
+
 const STYLE = `
 ::highlight(${NAMES.skim}) { color: rgba(128, 128, 128, 0.75); }
 ::highlight(${NAMES.deep}) { background-color: rgba(255, 196, 0, 0.16); }
-::highlight(${NAMES.key}) {
-  text-decoration: underline;
-  text-decoration-color: rgba(230, 80, 60, 0.9);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-}`;
+${KEY_STYLE}`;
+
+// PDF 等固定版式：文字由 canvas 绘制，上面叠一层透明文字层用于选区。
+// 改文字颜色会让透明层显形并与 canvas 错位形成重影，所以只能用底色，不能改 color。
+const FIXED_LAYOUT_STYLE = `
+::highlight(${NAMES.skim}) { background-color: rgba(128, 128, 128, 0.1); }
+::highlight(${NAMES.deep}) { background-color: rgba(255, 196, 0, 0.16); }
+::highlight(${NAMES.key}) { background-color: rgba(255, 140, 50, 0.38); }`;
+
+const isFixedLayoutDoc = (doc: Document) => !!doc.querySelector(".textLayer");
 
 type HighlightCtor = new (...ranges: Range[]) => unknown;
 type HighlightWindow = Window & {
@@ -106,7 +119,7 @@ const ensureStyle = (doc: Document) => {
   if (doc.getElementById(STYLE_ID)) return;
   const style = doc.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = STYLE;
+  style.textContent = isFixedLayoutDoc(doc) ? FIXED_LAYOUT_STYLE : STYLE;
   (doc.head || doc.documentElement).appendChild(style);
 };
 
@@ -151,7 +164,10 @@ export const renderMarks = (
   const H = win.Highlight;
   win.CSS.highlights.set(NAMES.skim, new H(...byLevel.skim));
   win.CSS.highlights.set(NAMES.deep, new H(...byLevel.deep));
-  win.CSS.highlights.set(NAMES.key, new H(...keyRanges));
+  const keyHighlight = new H(...keyRanges) as { priority?: number };
+  // 重点句画在精读/略读之上
+  keyHighlight.priority = 1;
+  win.CSS.highlights.set(NAMES.key, keyHighlight);
   rendered.set(doc, { docIndex: marks.docIndex, stamp, segments });
   return { located: spans.filter(Boolean).length, total };
 };
