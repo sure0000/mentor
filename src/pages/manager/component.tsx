@@ -7,9 +7,6 @@ import DeleteDialog from "../../components/dialogs/deleteDialog";
 import EditDialog from "../../components/dialogs/editDialog";
 import AddDialog from "../../components/dialogs/addDialog";
 import SortDialog from "../../components/dialogs/sortBookDialog";
-import LocalFileDialog from "../../components/dialogs/localFileDialog";
-import OPDSDialog from "../../components/dialogs/opdsDialog";
-import AutoImportDialog from "../../components/dialogs/autoImportDialog";
 import { Trans } from "react-i18next";
 import SettingDialog from "../../components/dialogs/settingDialog";
 import { Route, Routes } from "react-router-dom";
@@ -33,7 +30,6 @@ import {
   isExternalFileDragEvent,
 } from "../../utils/reader/bookDrag";
 import Footer from "../../components/footer";
-import ProtectionOverlay from "../../components/protection";
 import { useAppStore } from "../../store/useAppStore";
 
 const collectionUtil = new CollectionUtil(ConfigService);
@@ -49,19 +45,12 @@ const Manager = () => {
   const importBookFunc = useAppStore((s) => s.book.importBookFunc);
   const cloudSyncFunc = useAppStore((s) => s.book.cloudSyncFunc);
   const isSettingOpen = useAppStore((s) => s.manager.isSettingOpen);
-  const isOpenOPDSDialog = useAppStore((s) => s.backupPage.isOpenOPDSDialog);
-  const isOpenAutoImportDialog = useAppStore(
-    (s) => s.backupPage.isOpenAutoImportDialog
-  );
   const isOpenDeleteDialog = useAppStore((s) => s.book.isOpenDeleteDialog);
   const isOpenDissolveDialog = useAppStore(
     (s) => s.book.isOpenDissolveDialog
   );
   const currentBook = useAppStore((s) => s.book.currentBook);
   const isOpenEditDialog = useAppStore((s) => s.book.isOpenEditDialog);
-  const isOpenLocalFileDialog = useAppStore(
-    (s) => s.backupPage.isOpenLocalFileDialog
-  );
   const isDetailDialog = useAppStore((s) => s.manager.isDetailDialog);
   const isOpenAddDialog = useAppStore((s) => s.book.isOpenAddDialog);
   const isOpenCollectionDialog = useAppStore(
@@ -87,7 +76,6 @@ const Manager = () => {
   );
   const handleFetchViewMode = useAppStore((s) => s.handleFetchViewMode);
   const handleReadingState = useAppStore((s) => s.handleReadingState);
-  const handleShelf = useAppStore((s) => s.handleShelf);
   const handleMode = useAppStore((s) => s.handleMode);
   const handleEditDialog = useAppStore((s) => s.handleEditDialog);
   const handleDeleteDialog = useAppStore((s) => s.handleDeleteDialog);
@@ -95,9 +83,6 @@ const Manager = () => {
   const handleAddDialog = useAppStore((s) => s.handleAddDialog);
   const handleDetailDialog = useAppStore((s) => s.handleDetailDialog);
   const handleLoadingDialog = useAppStore((s) => s.handleLoadingDialog);
-  const handleLocalFileDialog = useAppStore((s) => s.handleLocalFileDialog);
-  const handleOPDSDialog = useAppStore((s) => s.handleOPDSDialog);
-  const handleAutoImportDialog = useAppStore((s) => s.handleAutoImportDialog);
   const handleShowPopupNote = useAppStore((s) => s.handleShowPopupNote);
   const handleSetting = useAppStore((s) => s.handleSetting);
   const handleCollectionDialog = useAppStore((s) => s.handleCollectionDialog);
@@ -156,15 +141,6 @@ const Manager = () => {
     document.addEventListener("dragstart", handleDocumentDragStart, true);
     document.addEventListener("dragend", handleDocumentDragEnd, true);
     document.addEventListener("dragenter", handleExternalDragEnter, true);
-    // Auto switch to configured startup shelf
-    const startupShelf = ConfigService.getReaderConfig("startupShelf");
-    if (startupShelf) {
-      const shelfList = ConfigService.getAllMapConfig("shelfList") || {};
-      if (shelfList.hasOwnProperty(startupShelf)) {
-        handleShelf(startupShelf);
-        navigate("/manager/home");
-      }
-    }
     return () => {
       document.removeEventListener(
         "dragstart",
@@ -210,7 +186,6 @@ const Manager = () => {
         }
       }}
     >
-      <ProtectionOverlay />
       <Tooltip id="my-tooltip" style={{ zIndex: 25 }} />
       {isShowPopupNote && (
         <div
@@ -305,9 +280,6 @@ const Manager = () => {
           handleAddDialog(false);
           handleDetailDialog(false);
           handleLoadingDialog(false);
-          handleLocalFileDialog(false);
-          handleOPDSDialog(false);
-          handleAutoImportDialog(false);
           handleShowPopupNote(false);
           handleSetting(false);
           handleCollectionDialog(false);
@@ -317,12 +289,9 @@ const Manager = () => {
         }}
         style={
           isSettingOpen ||
-          isOpenOPDSDialog ||
-          isOpenAutoImportDialog ||
           isOpenDeleteDialog ||
           isOpenDissolveDialog ||
           isOpenEditDialog ||
-          isOpenLocalFileDialog ||
           isDetailDialog ||
           isShowPopupNote ||
           isOpenAddDialog ||
@@ -373,9 +342,6 @@ const Manager = () => {
       {isOpenAddDialog && <AddDialog />}
       {isShowLoading && <LoadingDialog />}
       {isSortDisplay && <SortDialog />}
-      {isOpenLocalFileDialog && <LocalFileDialog />}
-      {isOpenOPDSDialog && <OPDSDialog />}
-      {isOpenAutoImportDialog && <AutoImportDialog />}
       {isSettingOpen && <SettingDialog />}
       {isDetailDialog && <DetailDialog />}
       {isOpenCollectionDialog && <CollectionDialog />}

@@ -29,18 +29,6 @@ export const shortcutList: ShortcutListItem[] = [
     desc: "Go to the next chapter while reading",
   },
   {
-    action: "bossKey",
-    title: "Hide reader (Boss key)",
-    desc: "Quickly hide the reader window",
-    isElectron: true,
-  },
-  {
-    action: "toggleFishMode",
-    title: "Toggle fish mode",
-    desc: "Switch between fish mode and normal mode",
-    isElectron: true,
-  },
-  {
     action: "toggleFullscreen",
     title: "Toggle fullscreen",
     desc: "Enter or exit fullscreen mode",

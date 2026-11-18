@@ -1,6 +1,6 @@
 import type { BookSource } from "../../constants/bookSourceList";
 import { supportedFormats } from "../common";
-import { ACQUISITION_RELS, DOWNLOAD_TYPES } from "./opds";
+import { ACQUISITION_RELS, DOWNLOAD_TYPES, fetchOPDSFeed } from "./opds";
 import type { OPDSEntry, OPDSFeed, OPDSLink } from "./opds";
 
 export interface StoreBook {
@@ -128,3 +128,80 @@ export const buildSearchUrl = (source: BookSource, query: string): string =>
     "{searchTerms}",
     encodeURIComponent(query.trim())
   );
+
+// 书名归一化：去掉标点、空白、大小写差异，便于跨书源比对
+export const normalizeTitle = (title: string): string =>
+  title
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+
+// 副标题（冒号、分号、括号之后）在不同书源里写法差异很大，只取主标题
+const mainTitle = (title: string): string =>
+  title.split(/[:;：；(（[【,，—–-]/)[0] || title;
+
+/**
+ * 判断书源里的书名是否对应豆瓣上的书：任一候选书名的主标题与结果主标题互相包含即视为同一本。
+ */
+export const isTitleMatch = (resultTitle: string, queries: string[]): boolean => {
+  const result = normalizeTitle(mainTitle(resultTitle));
+  if (!result) return false;
+  return queries.some((q) => {
+    const query = normalizeTitle(mainTitle(q));
+    // 过短的书名（如单字）容易误匹配
+    if (query.length < 2) return false;
+    return result === query || result.includes(query) || query.includes(result);
+  });
+};
+
+export const buildWebSearchUrl = (source: BookSource, query: string): string =>
+  source.webSearchTemplate.replace(
+    "{searchTerms}",
+    encodeURIComponent(query.trim())
+  );
+
+const MAX_MATCHES_PER_SOURCE = 3;
+
+/**
+ * 在单个书源里按候选书名搜索，返回书名匹配的条目。
+ */
+export const findInSource = async (
+  source: BookSource,
+  queries: string[]
+): Promise<StoreBook[]> => {
+  const seen = new Set<string>();
+  const matches: StoreBook[] = [];
+  let lastError: unknown = null;
+  let isAnySucceeded = false;
+  for (const query of queries) {
+    try {
+      const feed = await fetchOPDSFeed(buildSearchUrl(source, query));
+      isAnySucceeded = true;
+      for (const entry of feed.entries) {
+        const book = toStoreBook(entry, source);
+        if (!book || seen.has(book.id) || !isTitleMatch(book.title, queries))
+          continue;
+        seen.add(book.id);
+        matches.push(book);
+      }
+    } catch (err) {
+      lastError = err;
+    }
+    if (matches.length >= MAX_MATCHES_PER_SOURCE) break;
+  }
+  // 所有查询都失败（如书源维护中）时向上抛出，让界面区分「没找到」和「访问失败」
+  if (!isAnySucceeded && lastError) throw lastError;
+  return matches.slice(0, MAX_MATCHES_PER_SOURCE);
+};
+
+/**
+ * 取一本书源条目的可下载链接；Gutenberg 等列表条目需要再请求详情 feed。
+ */
+export const resolveDownloadLinks = async (
+  book: StoreBook
+): Promise<OPDSLink[]> => {
+  if (book.entry) return toStoreBookDetail([book.entry], book).downloadLinks;
+  if (!book.detailUrl) return [];
+  const feed = await fetchOPDSFeed(book.detailUrl);
+  return toStoreBookDetail(feed.entries, book).downloadLinks;
+};

@@ -23,7 +23,6 @@ export interface ReaderTopToolbarProps {
   isSideRailShown: boolean;
   currentDuration: number;
   isMacOS: boolean;
-  isMergeWord: boolean;
   isSeparateElectronWindow: boolean;
   showQuickButtons: () => void;
   hideQuickButtons: () => void;
@@ -59,8 +58,6 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
   const handleStudyLangDialog = useAppStore((s) => s.handleStudyLangDialog);
   const handleAssistReadDialog = useAppStore((s) => s.handleAssistReadDialog);
   const handleScalePageDialog = useAppStore((s) => s.handleScalePageDialog);
-  const handlePdfCropDialog = useAppStore((s) => s.handlePdfCropDialog);
-  const handleConvertDialog = useAppStore((s) => s.handleConvertDialog);
   const handleSpeechDialog = useAppStore((s) => s.handleSpeechDialog);
   const handleMenuMode = useAppStore((s) => s.handleMenuMode);
   const handleOriginalText = useAppStore((s) => s.handleOriginalText);
@@ -278,26 +275,6 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
           },
         ]
       : []),
-    ...(currentBook.format === "PDF" && readerMode === "scroll"
-      ? [
-          {
-            key: "crop",
-            icon: "icon-crop",
-            label: "Crop PDF",
-            onClick: openDialog(handlePdfCropDialog, ".pdf-crop-dialog-container"),
-          },
-        ]
-      : []),
-    ...(currentBook.format === "PDF"
-      ? [
-          {
-            key: "convert",
-            icon: "icon-convert-text",
-            label: "Convert PDF to Text",
-            onClick: openDialog(handleConvertDialog, ".convert-dialog-container"),
-          },
-        ]
-      : []),
     ...(currentBook &&
     isReadingRawPDF(currentBook) &&
     currentBook.description?.indexOf("scanned") > -1
@@ -320,9 +297,9 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
 
   const isPaper = isPaperLayout(readerMode, currentBook, isFitPage);
   const showCustomWindowControls =
-    props.isSeparateElectronWindow && (!props.isMacOS || props.isMergeWord);
+    props.isSeparateElectronWindow && !props.isMacOS;
   const showMacWindowControls =
-    props.isSeparateElectronWindow && props.isMacOS && !props.isMergeWord;
+    props.isSeparateElectronWindow && props.isMacOS;
   // 独立窗口已有窗口关闭按钮，「退出」与之重复；全屏时窗口按钮会隐藏，仍需保留退出入口
   const showExitButton = !props.isSeparateElectronWindow || isFullscreen;
 
@@ -352,11 +329,7 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
             position: "absolute",
             top: 0,
             left:
-              props.isMacOS &&
-              !props.isMergeWord &&
-              props.isSeparateElectronWindow
-                ? 125
-                : 15,
+              props.isMacOS && props.isSeparateElectronWindow ? 125 : 15,
             zIndex: 9,
             height: 28,
             display: "flex",
@@ -497,42 +470,39 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
           ></span>
         </div>
 
-        {ConfigService.getReaderConfig("isDisableAI") !== "yes" && (
+        <div
+          className="reader-setting-icon-container"
+          aria-label={t("Reading Assistant")}
+          data-tooltip-id="my-tooltip"
+          data-tooltip-content={t("Reading Assistant")}
+          data-tooltip-place="left"
+          onClick={async () => {
+            if (!htmlBook) return;
+            handleMenuMode("assistant");
+            handleOriginalText(await htmlBook.rendition.chapterText());
+            handleOpenMenu(true);
+          }}
+        >
+          <span
+            className={`icon-star-line reader-setting-icon`}
+            style={{ fontSize: 19 }}
+          ></span>
+        </div>
+        {isElectron && (
           <div
             className="reader-setting-icon-container"
-            aria-label={t("Reading Assistant")}
+            aria-label={t("Reading Companion")}
             data-tooltip-id="my-tooltip"
-            data-tooltip-content={t("Reading Assistant")}
+            data-tooltip-content={t("Reading Companion")}
             data-tooltip-place="left"
-            onClick={async () => {
-              if (!htmlBook) return;
-              handleMenuMode("assistant");
-              handleOriginalText(await htmlBook.rendition.chapterText());
-              handleOpenMenu(true);
-            }}
+            onClick={() => handleCompanionPanel(!isCompanionOpen)}
           >
             <span
-              className={`icon-star-line reader-setting-icon`}
+              className={`icon-highlight-line reader-setting-icon`}
               style={{ fontSize: 19 }}
             ></span>
           </div>
         )}
-        {isElectron &&
-          ConfigService.getReaderConfig("isDisableAI") !== "yes" && (
-            <div
-              className="reader-setting-icon-container"
-              aria-label={t("Reading Companion")}
-              data-tooltip-id="my-tooltip"
-              data-tooltip-content={t("Reading Companion")}
-              data-tooltip-place="left"
-              onClick={() => handleCompanionPanel(!isCompanionOpen)}
-            >
-              <span
-                className={`icon-highlight-line reader-setting-icon`}
-                style={{ fontSize: 19 }}
-              ></span>
-            </div>
-          )}
         <div
           ref={moreRef}
           className="reader-setting-icon-container reader-more-container"

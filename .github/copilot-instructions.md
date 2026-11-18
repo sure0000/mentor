@@ -7,7 +7,7 @@
 - Flag any new `eval()` call; existing plugin TTS/dictionary paths in the main process are intentional
 - Sanitize HTML injected into reader iframes (style/note utilities in `src/utils/reader/`)
 - Check for hardcoded credentials, API keys, or secrets in code and config files
-- Review authentication and authorization on any new OPDS or cloud-sync endpoints
+- Review authentication and authorization on any new cloud-sync endpoints
 
 ## Performance Red Flags
 
@@ -47,9 +47,8 @@ Koodo Reader is an **Electron + React (CRA) + Redux** cross-platform ebook reade
 | Electron main | `main.js` | IPC handlers, SQLite via `better-sqlite3`, cloud sync, native integrations |
 | React renderer | `src/` | UI, Redux state, book rendering |
 | Reader engine | `src/assets/lib/kookit-extra.min.mjs` | Closed-source ESM — book parsing, SQL statements, sync utilities |
-| HTTP server | `httpserver/` | Optional Go server for KOReader / OPDS integration |
 
-**Key IPC channels:** `open-book`, `new-tab`, `exit-tab`, `database-command`, `cloud-upload/download`, `discord-rpc-update`, `prompt-biometric-auth`
+**Key IPC channels:** `open-book`, `new-tab`, `exit-tab`, `database-command`, `cloud-upload/download`
 
 **Redux slices:** `book`, `reader`, `manager`, `viewArea`, `backupPage`, `sidebar`, `progressPanel`
 
@@ -57,4 +56,4 @@ Koodo Reader is an **Electron + React (CRA) + Redux** cross-platform ebook reade
 
 **Window modes:** `new-tab` → `WebContentsView` overlay (in-app); `open-book` → separate `BrowserWindow`. Reader close is two-phase: `before-reader-close` → flush data → `reader-close-ready`.
 
-Path-specific review rules are in `.github/instructions/` for `main.js`, `src/**/*.{ts,tsx}`, `httpserver/**`, and `src/assets/locales/**`.
+Path-specific review rules are in `.github/instructions/` for `main.js`, `src/**/*.{ts,tsx}`, and `src/assets/locales/**`.

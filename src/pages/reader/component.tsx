@@ -13,9 +13,7 @@ import { Tooltip } from "react-tooltip";
 import "./index.css";
 import Book from "../../models/Book";
 import DatabaseService from "../../utils/storage/databaseService";
-import ConvertDialog from "../../components/dialogs/convertDialog";
 import ScalePageDialog from "../../components/dialogs/scalePageDialog";
-import PdfCropDialog from "../../components/dialogs/pdfCropDialog";
 import StudyLangDialog from "../../components/dialogs/studyLangDialog";
 import AssistReadDialog from "../../components/dialogs/assistReadDialog";
 import { isElectron } from "react-device-detect";
@@ -24,16 +22,13 @@ import SpeechDialog from "../../components/dialogs/speechDialog";
 import KeepMounted from "../../components/keepMounted";
 import AnnotationDialog from "../../components/dialogs/annotationDialog";
 import PopupOptionDialog from "../../components/dialogs/popupOptionDialog";
-import {
-  updateDiscordPresence,
-  clearDiscordPresence,
-} from "../../utils/reader/discordRPC";
 import ReaderTopToolbar from "../../components/readerTopToolbar";
 import ChapterEndPrompt from "../../components/aiReading/chapterEndPrompt";
 import ReadingMarksLayer from "../../components/aiReading/readingMarksLayer";
 import CompanionPanel from "../../components/aiReading/companionPanel";
 import { READING_PANEL_TOGGLE_EVENT } from "../../utils/reader/mouseEvent";
 import {
+  getIsFitPage,
   getRightPanelInset,
   isPaginatedBook,
   POPUP_BOX_MODES,
@@ -50,8 +45,6 @@ const SIDE_RAIL_EDGE_DISTANCE = 80;
 export interface ReaderState {
   isOpenRightPanel: boolean;
   isOpenLeftPanel: boolean;
-  isTouch: boolean;
-  isPreventTrigger: boolean;
   hoverPanel: string;
   isNearEdge: boolean;
   // 仅右侧按钮栏可见（指针靠近右边缘时），不带出顶部工具栏
@@ -91,9 +84,7 @@ const Reader = () => {
   const readerBackgroundColor = useAppStore((s) => s.reader.backgroundColor);
   const readerMode = useAppStore((s) => s.reader.readerMode);
   const isNavLocked = useAppStore((s) => s.reader.isNavLocked);
-  const isConvertOpen = useAppStore((s) => s.reader.isConvertOpen);
   const isScaleOpen = useAppStore((s) => s.reader.isScaleOpen);
-  const isPdfCropOpen = useAppStore((s) => s.reader.isPdfCropOpen);
   const isStudyLangOpen = useAppStore((s) => s.reader.isStudyLangOpen);
   const isAssistReadOpen = useAppStore((s) => s.reader.isAssistReadOpen);
   const isSpeechOpen = useAppStore((s) => s.reader.isSpeechOpen);
@@ -110,12 +101,11 @@ const Reader = () => {
   const handleReadingBook = useAppStore((s) => s.handleReadingBook);
   const handleFetchPercentage = useAppStore((s) => s.handleFetchPercentage);
   const handleReaderMode = useAppStore((s) => s.handleReaderMode);
+  const handleFitPage = useAppStore((s) => s.handleFitPage);
   const handleMenuMode = useAppStore((s) => s.handleMenuMode);
   const handleOriginalText = useAppStore((s) => s.handleOriginalText);
   const handleOpenMenu = useAppStore((s) => s.handleOpenMenu);
-  const handleConvertDialog = useAppStore((s) => s.handleConvertDialog);
   const handleScalePageDialog = useAppStore((s) => s.handleScalePageDialog);
-  const handlePdfCropDialog = useAppStore((s) => s.handlePdfCropDialog);
   const handleStudyLangDialog = useAppStore((s) => s.handleStudyLangDialog);
   const handleAssistReadDialog = useAppStore((s) => s.handleAssistReadDialog);
   const handleSpeechDialog = useAppStore((s) => s.handleSpeechDialog);
@@ -129,9 +119,7 @@ const Reader = () => {
     htmlBook,
     readerMode,
     isNavLocked,
-    isConvertOpen,
     isScaleOpen,
-    isPdfCropOpen,
     isStudyLangOpen,
     isAssistReadOpen,
     isSpeechOpen,
@@ -144,12 +132,11 @@ const Reader = () => {
     handleReadingBook,
     handleFetchPercentage,
     handleReaderMode,
+    handleFitPage,
     handleMenuMode,
     handleOriginalText,
     handleOpenMenu,
-    handleConvertDialog,
     handleScalePageDialog,
-    handlePdfCropDialog,
     handleStudyLangDialog,
     handleAssistReadDialog,
     handleSpeechDialog,
@@ -163,9 +150,6 @@ const Reader = () => {
     isOpenRightPanel: isSettingLocked,
     totalDuration: 0,
     currentDuration: 0,
-    isTouch: ConfigService.getReaderConfig("isTouch") === "yes",
-    isPreventTrigger:
-      ConfigService.getReaderConfig("isPreventTrigger") === "yes",
     isNearEdge: false,
     isNearRightEdge: false,
   });
@@ -233,7 +217,7 @@ const Reader = () => {
   const scheduleEnterReader = (position: string) => {
     cancelEnterReader(position);
     isEdgeHovering[position] = true;
-    const delay = stateRef.current.isPreventTrigger ? 0 : PANEL_ENTER_DELAY;
+    const delay = PANEL_ENTER_DELAY;
     enterTimers[position] = setTimeout(() => {
       enterTimers[position] = null;
       if (!isEdgeHovering[position] || isMouseMoving) return;
@@ -260,11 +244,7 @@ const Reader = () => {
   };
 
   const handleEdgeMouseEnter = (position: PanelPosition) => {
-    if (
-      stateRef.current.isTouch ||
-      stateRef.current[PANEL_OPEN_STATE[position]] ||
-      stateRef.current.isPreventTrigger
-    ) {
+    if (stateRef.current[PANEL_OPEN_STATE[position]]) {
       cancelLeaveReader(position);
       updateState({ hoverPanel: position });
       return;
@@ -333,8 +313,6 @@ const Reader = () => {
   };
   const closeSettingDialogs = () => {
     propsRef.current.handleScalePageDialog(false);
-    propsRef.current.handleConvertDialog(false);
-    propsRef.current.handlePdfCropDialog(false);
     propsRef.current.handleStudyLangDialog(false);
     propsRef.current.handleAssistReadDialog(false);
     propsRef.current.handleSpeechDialog(false);
@@ -524,6 +502,7 @@ const Reader = () => {
           ? ConfigService.getReaderConfig("pdfReaderMode") || "scroll"
           : ConfigService.getReaderConfig("readerMode") || "double";
         propsRef.current.handleReaderMode(readerMode);
+        propsRef.current.handleFitPage(getIsFitPage(book));
         propsRef.current.handleReadingBook(book);
         // Start event-driven reading-time tracking
         readingTimeUtilRef.current!.start(book.key);
@@ -532,9 +511,6 @@ const Reader = () => {
           book.key
         );
         updateState({ totalDuration: savedTotal, currentDuration: 0 });
-        if (isElectron) {
-          updateDiscordPresence(book);
-        }
       });
     };
     run();
@@ -542,13 +518,6 @@ const Reader = () => {
   }, []);
 
   useEffect(() => {
-    if (ConfigService.getReaderConfig("isMergeWord") === "yes") {
-      document.documentElement.style.backgroundColor = "transparent";
-      document
-        .querySelector("body")
-        ?.setAttribute("style", "background-color: rgba(0,0,0,0)");
-    }
-
     // Update UI counters every second so the navigation panel still shows
     // live reading-time values, but actual storage writes only happen when
     // a reading session ends (visibility hidden / blur / unmount).
@@ -648,9 +617,6 @@ const Reader = () => {
       if (hideSideRailTimerRef.current) {
         clearTimeout(hideSideRailTimerRef.current);
         hideSideRailTimerRef.current = null;
-      }
-      if (isElectron) {
-        clearDiscordPresence();
       }
       if (tickTimerRef.current) {
         clearInterval(tickTimerRef.current);
@@ -781,7 +747,6 @@ const Reader = () => {
     isElectron && ConfigService.getReaderConfig("isOpenInMain") !== "yes";
   const isMacOS =
     isElectron && window.electronAPI?.runtime?.platform === "darwin";
-  const isMergeWord = ConfigService.getReaderConfig("isMergeWord") === "yes";
   const isUndockedPopupBoxOpen =
     !isDockedRight && isOpenMenu && POPUP_BOX_MODES.includes(menuMode);
   const renditionProps = {
@@ -809,7 +774,6 @@ const Reader = () => {
         isNearEdge={state.isNearEdge && !isUndockedPopupBoxOpen}
         currentDuration={state.currentDuration}
         isMacOS={isMacOS}
-        isMergeWord={isMergeWord}
         isSeparateElectronWindow={isSeparateElectronWindow}
         isSideRailShown={state.isNearRightEdge && !isUndockedPopupBoxOpen}
         showQuickButtons={showQuickButtons}
@@ -917,12 +881,6 @@ const Reader = () => {
             <ScalePageDialog />
           </KeepMounted>
         )}
-        <KeepMounted open={isConvertOpen}>
-          <ConvertDialog />
-        </KeepMounted>
-        <KeepMounted open={isPdfCropOpen}>
-          <PdfCropDialog />
-        </KeepMounted>
         <KeepMounted open={isStudyLangOpen}>
           <StudyLangDialog />
         </KeepMounted>

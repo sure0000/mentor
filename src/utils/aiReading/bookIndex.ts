@@ -8,7 +8,6 @@ import {
   getParserRegex,
   getPdfPassword,
   getStorageLocation,
-  getTextRules,
 } from "../common";
 import {
   BookIndex,
@@ -117,7 +116,7 @@ const runExtractor = (
             parserRegex: getParserRegex(book.format, book.key),
             password: getPdfPassword(book),
             convertChinese: ConfigService.getReaderConfig("convertChinese") || "",
-            textRules: getTextRules(book.key),
+            textRules: [],
           },
         };
         frame.contentWindow?.postMessage(req, "*", [buffer]);

@@ -68,11 +68,6 @@ const reset = () => {
 describe("resolveAiBackend", () => {
   beforeEach(reset);
 
-  it("returns null when AI is disabled", () => {
-    readerConfig.isDisableAI = "yes";
-    expect(resolveAiBackend()).toBeNull();
-  });
-
   it("uses the purpose-specific custom model first", () => {
     objectConfig.m1 = { key: "m1", config: { endpoint: "https://a", modelId: "x" } };
     readerConfig.aiTranslateModel = "m1";

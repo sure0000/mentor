@@ -321,57 +321,6 @@ export const vexOpenAsync = (
   });
 };
 
-export const vexPasswordInputAsync = (
-  message: string,
-  confirmMessage?: string,
-  isNoOverlay?: boolean
-) => {
-  return new Promise<string | false>((resolve) => {
-    window.vex.dialog.buttons.YES.text = i18n.t("Confirm");
-    window.vex.dialog.buttons.NO.text = i18n.t("Cancel");
-    const inputHtml = confirmMessage
-      ? [
-          `<div style="margin-bottom:10px">`,
-          `<label style="display:block;margin-bottom:4px;font-weight:500">${i18n.t(message)}</label>`,
-          `<input name="vex-pwd" type="password" style="width:100%" required />`,
-          `</div>`,
-          `<div style="margin-bottom:10px">`,
-          `<label style="display:block;margin-bottom:4px;font-weight:500">${i18n.t(confirmMessage)}</label>`,
-          `<input name="vex-pwd-confirm" type="password" style="width:100%" required />`,
-          `</div>`,
-        ].join("")
-      : [
-          `<div style="margin-bottom:10px">`,
-          `<label style="display:block;margin-bottom:4px;font-weight:500">${i18n.t(message)}</label>`,
-          `<input name="vex-pwd" type="password" style="width:100%" required />`,
-          `</div>`,
-        ].join("");
-    window.vex.dialog.open({
-      input: inputHtml,
-      overlayClassName: isNoOverlay ? "no-overlay" : "",
-      callback: function (data) {
-        if (!data) {
-          resolve(false);
-          return;
-        }
-        const pwd: string = data["vex-pwd"] ?? "";
-        if (!pwd) {
-          resolve(false);
-          return;
-        }
-        if (confirmMessage) {
-          const confirm: string = data["vex-pwd-confirm"] ?? "";
-          if (pwd !== confirm) {
-            resolve(false);
-            return;
-          }
-        }
-        resolve(pwd);
-      },
-    });
-  });
-};
-
 export const REPORT_REASONS = [
   "Inaccurate or misleading information",
   "Inappropriate or offensive content",
@@ -379,31 +328,6 @@ export const REPORT_REASONS = [
   "Privacy concern",
   "Other",
 ];
-
-export const vexSelectAsync = (
-  message: string,
-  options: { value: string; label: string }[]
-) => {
-  return new Promise<string | false>((resolve) => {
-    window.vex.dialog.buttons.YES.text = i18n.t("Confirm");
-    window.vex.dialog.buttons.NO.text = i18n.t("Cancel");
-    const optionsHtml = options
-      .map((o) => `<option value="${o.value}">${i18n.t(o.label)}</option>`)
-      .join("");
-    const selectHtml = `<select name="vex-select" style="width:100%;padding:6px">${optionsHtml}</select>`;
-    window.vex.dialog.open({
-      unsafeMessage: i18n.t(message),
-      input: selectHtml,
-      callback: function (data) {
-        if (!data) {
-          resolve(false);
-        } else {
-          resolve(data["vex-select"] ?? false);
-        }
-      },
-    });
-  });
-};
 
 export const getFormatFromAudioPath = (audioPath: string) => {
   let format = "mp3";
@@ -417,45 +341,6 @@ export const getFormatFromAudioPath = (audioPath: string) => {
     format = "aac";
   }
   return format;
-};
-/**
- * Returns the file name (no directory) without the last extension from a path or name.
- * Normalizes `/` and `\`, strips trailing separators, and leaves leading-dot names
- * (e.g. `.gitignore`) unchanged when there is no extension segment to remove.
- */
-export const getFileNameWithoutExtension = (
-  filePathOrName: string,
-  fallback = ""
-): string => {
-  if (filePathOrName == null) {
-    return fallback;
-  }
-  let normalized = String(filePathOrName).trim();
-  if (!normalized) {
-    return fallback;
-  }
-
-  normalized = normalized.replace(/[/\\]+$/, "");
-
-  const lastSlash = Math.max(
-    normalized.lastIndexOf("/"),
-    normalized.lastIndexOf("\\")
-  );
-  const baseName =
-    lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
-
-  if (!baseName) {
-    return fallback;
-  }
-  if (baseName === "." || baseName === "..") {
-    return baseName;
-  }
-
-  const lastDot = baseName.lastIndexOf(".");
-  if (lastDot > 0) {
-    return baseName.slice(0, lastDot);
-  }
-  return baseName;
 };
 
 export const sleep = (time: number) => {
@@ -599,7 +484,7 @@ export const openExternalUrl = (
   type: string = "link"
 ) => {
   isElectron
-    ? ConfigService.getReaderConfig("isUseBuiltIn") === "yes" || isPlugin
+    ? isPlugin
       ? window.electronAPI.invoke("open-url", { url, type })
       : window.electronAPI.shell.openExternal(url)
     : window.open(url);
@@ -684,8 +569,7 @@ export const isPaperLayout = (
     (readerMode === "single" || readerMode === "scroll") &&
     !isFitPage &&
     !!book?.format &&
-    !isPaginatedBook(book) &&
-    ConfigService.getReaderConfig("isMergeWord") !== "yes"
+    !isPaginatedBook(book)
   );
 };
 export const getPageWidth = (
@@ -836,7 +720,7 @@ export const preCacheAllBooks = async (bookList: Book[]) => {
         animation: ConfigService.getReaderConfig("animation") || "none",
         convertChinese: ConfigService.getReaderConfig("convertChinese"),
         bookLayout: ConfigService.getReaderConfig("bookLayout") || "",
-        textRules: getTextRules(selectedBook.key),
+        textRules: [],
         codeHighlight: ConfigService.getReaderConfig("codeHighlight") || "",
         fullTranslationMode: "no",
         textOrientation: ConfigService.getReaderConfig("textOrientation"),
@@ -1470,29 +1354,6 @@ export const detectLocalLanguage = (text: string): string => {
     return "ja";
   return "ko";
 };
-export interface TextRule {
-  id: string;
-  type: "replace" | "delete";
-  pattern: string;
-  replacement?: string;
-  matchType: "regex" | "plain";
-  scope: "all" | "book";
-  bookKey?: string;
-  bookName?: string;
-}
-
-export const getTextRules = (bookKey?: string): TextRule[] => {
-  const ruleList: string[] =
-    ConfigService.getAllListConfig("textRuleList") || [];
-  return ruleList
-    .map((id) => ConfigService.getObjectConfig(id, "textRules", null))
-    .filter((rule): rule is TextRule => {
-      if (!rule) return false;
-      if (rule.scope === "all") return true;
-      return !!bookKey && rule.bookKey === bookKey;
-    });
-};
-
 export const getParserRegex = (extension: string, bookKey?: string) => {
   let parserRegex = "";
   if (extension.toLowerCase().endsWith("txt")) {
@@ -1504,15 +1365,8 @@ export const getParserRegex = (extension: string, bookKey?: string) => {
         defaultTxtParser = rule.defaultTxtParser;
       }
     }
-    //历史bug，部分parser的取值为null
-    let txtParsers: any[] = [
-      ...Object.values(ConfigService.getAllObjectConfig("txtParsers")).filter(
-        (parser) => parser
-      ),
-      ...KookitConfig.ContentRegxConfig,
-    ];
-    let txtParser = txtParsers.find(
-      (parser) => parser && parser.value === defaultTxtParser
+    let txtParser = KookitConfig.ContentRegxConfig.find(
+      (parser: any) => parser && parser.value === defaultTxtParser
     );
     if (txtParser) {
       parserRegex = txtParser.regex;
@@ -2040,100 +1894,6 @@ export function shouldSubmenuOpenLeft(
   return anchorLeft + SUBMENU_GAP + subWidth + CONTEXT_MENU_MARGIN > vw.width;
 }
 
-export const AUTO_IMPORT_FOLDERS_KEY = "autoImportFolders";
-
-export interface BookPathIndex {
-  existingPaths: Set<string>;
-  sizeSet: Set<number>;
-}
-
-export const getBookPathIndex = async (): Promise<BookPathIndex> => {
-  const existingPaths = new Set<string>();
-  const sizeSet = new Set<number>();
-  const bookListResult = await window.electronAPI.invoke(
-    "custom-database-command",
-    {
-      query: `SELECT path, size FROM books`,
-      dbName: "books",
-      storagePath: ConfigService.getItem("storageLocation"),
-      executeType: "all",
-    }
-  );
-  (bookListResult || []).forEach((item: any) => {
-    if (item.path) existingPaths.add(item.path);
-    if (item.size != null) sizeSet.add(item.size);
-  });
-  return { existingPaths, sizeSet };
-};
-
-export const collectSupportedFiles = (
-  fs: any,
-  path: any,
-  dirPath: string
-): string[] => {
-  let files: string[] = [];
-  try {
-    const items = fs.readdirSync(dirPath);
-    for (const item of items) {
-      const fullPath = path.join(dirPath, item);
-      const stat = fs.statSync(fullPath);
-      if (stat.isDirectory && !stat.isFile) {
-        files = files.concat(collectSupportedFiles(fs, path, fullPath));
-      } else if (stat.isFile) {
-        const ext = path.extname(item).toLowerCase();
-        if (supportedFormats.includes(ext)) {
-          files.push(fullPath);
-        }
-      }
-    }
-  } catch (error) {
-    console.error(`Error reading directory ${dirPath}:`, error);
-  }
-  return files;
-};
-
-// Lightweight dedup: only read db size/path, no file read, no md5.
-// A path match means already imported; a size match against any book in
-// the library also counts as already imported, regardless of path.
-export const scanFolderForNewBooks = async (
-  folderPath: string,
-  importFile: (file: any) => Promise<void>,
-  index?: BookPathIndex
-): Promise<number> => {
-  const fs = window.electronAPI.fs;
-  const path = window.electronAPI.path;
-  const { existingPaths, sizeSet } = index || (await getBookPathIndex());
-  const files = collectSupportedFiles(fs, path, folderPath);
-  let imported = 0;
-  for (const filePath of files) {
-    const fileName = path.basename(filePath);
-    try {
-      const stat = fs.statSync(filePath);
-      if (!stat.isFile) continue;
-      if (existingPaths.has(filePath)) continue;
-      if (sizeSet.has(stat.size)) {
-        continue;
-      }
-      const buffer = await fs.promises.readFile(filePath);
-      const arraybuffer = new Uint8Array(buffer).buffer;
-      const blob = new Blob([arraybuffer]);
-      const file: any = new File([blob], fileName);
-      file.path = filePath;
-      await importFile(file);
-      existingPaths.add(filePath);
-      imported++;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      toast.error(
-        i18n.t("Import failed") + ": " + fileName + " - " + errorMessage
-      );
-      console.error(`Error processing file ${filePath}:`, error);
-    }
-  }
-  return imported;
-};
-
 export const getTarEntries = async (
   filePath: string
 ): Promise<{ entryPath: string; size: number; fileName: string }[]> => {
@@ -2201,9 +1961,7 @@ export const getZipBuffer = async (
   return readArchiveBuffer("unzip-file", entryPath, filePath);
 };
 export const isReadingAidMode = (format: string, bookKey: string) => {
-  let isReadingRawPDF =
-    format === "PDF" &&
-    !ConfigService.getAllListConfig("convertPDFBooks").includes(bookKey);
+  let isReadingRawPDF = format === "PDF";
   return (
     (ConfigService.getReaderConfig("isParagraphMode") === "yes" ||
       ConfigService.getReaderConfig("isSpeedReading") === "yes" ||
@@ -2293,10 +2051,7 @@ export const clearOcrCache = (bookKey: string) => {
   }
 };
 export const isReadingRawPDF = (book: Book) => {
-  return (
-    book.format === "PDF" &&
-    !ConfigService.getAllListConfig("convertPDFBooks").includes(book.key)
-  );
+  return book.format === "PDF";
 };
 export const isFixedLayoutComic = (book: Book) => {
   return (
@@ -2308,6 +2063,13 @@ export const isFixedLayoutComic = (book: Book) => {
   );
 };
 // PDF（原始版式）、漫画（CB 系列）、PPTX/PPT、XPS、OXPS、DjVu、OFD 共用多 iframe 分页结构
+// PDF 等固定版式书籍单独记录「铺满页宽」，未设置时默认开启；可重排书籍沿用 isFitPage，默认关闭
+export const getFitPageConfigKey = (book: Book) =>
+  isPaginatedBook(book) ? "pdfFitPage" : "isFitPage";
+export const getIsFitPage = (book: Book) => {
+  const value = ConfigService.getReaderConfig(getFitPageConfigKey(book));
+  return isPaginatedBook(book) ? value !== "no" : value === "yes";
+};
 export const isPaginatedBook = (book: Book) => {
   return (
     isReadingRawPDF(book) ||

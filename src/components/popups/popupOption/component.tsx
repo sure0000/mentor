@@ -125,71 +125,12 @@ const PopupOption = (props: PopupOptionProps) => {
     openExternalUrl(url);
   };
   const handleSearchInternet = () => {
-    switch (ConfigService.getReaderConfig("searchEngine")) {
-      case "google":
-        handleJump(
-          "https://www.google.com/search?q=" +
-            getSelection(currentBook)
-        );
-        break;
-      case "baidu":
-        handleJump(
-          "https://www.baidu.com/s?wd=" +
-            getSelection(currentBook)
-        );
-        break;
-      case "bing":
-        handleJump(
-          "https://www.bing.com/search?q=" +
-            getSelection(currentBook)
-        );
-        break;
-      case "duckduckgo":
-        handleJump(
-          "https://duckduckgo.com/?q=" +
-            getSelection(currentBook)
-        );
-        break;
-      case "yandex":
-        handleJump(
-          "https://yandex.com/search/?text=" +
-            getSelection(currentBook)
-        );
-        break;
-      case "yahoo":
-        handleJump(
-          "https://search.yahoo.com/search?p=" +
-            getSelection(currentBook)
-        );
-        break;
-      case "naver":
-        handleJump(
-          "https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=1&ie=utf8&query=" +
-            getSelection(currentBook)
-        );
-        break;
-      case "baike":
-        handleJump(
-          "https://baike.baidu.com/item/" +
-            getSelection(currentBook)
-        );
-        break;
-      case "wiki":
-        handleJump(
-          "https://en.wikipedia.org/wiki/" +
-            getSelection(currentBook)
-        );
-        break;
-      default:
-        handleJump(
-          navigator.language === "zh-CN"
-            ? "https://www.baidu.com/s?wd=" +
-                getSelection(currentBook)
-            : "https://www.google.com/search?q=" +
-                getSelection(currentBook)
-        );
-        break;
-    }
+    const query = getSelection(currentBook);
+    handleJump(
+      navigator.language === "zh-CN"
+        ? "https://www.baidu.com/s?wd=" + query
+        : "https://www.google.com/search?q=" + query
+    );
   };
   const handleSearchBook = () => {
     searchInTheBook("", currentBook, true);
@@ -270,12 +211,6 @@ const PopupOption = (props: PopupOptionProps) => {
 
   const isFixedLayout = isFixedLayoutBook(currentBook);
     const popupOptionKeys = getEnabledPopupOptionKeys().filter((item) => {
-      if (
-        item === "assistant" &&
-        ConfigService.getReaderConfig("isDisableAI") === "yes"
-      ) {
-        return false;
-      }
       if (isFixedLayout && (item === "note" || item === "highlight")) {
         return false;
       }

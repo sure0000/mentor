@@ -6,7 +6,6 @@ import BookCoverFrame from "../bookCoverFrame";
 import { Trans, useTranslation } from "react-i18next";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { useBookItem } from "../bookItem/useBookItem";
-import { getFileNameWithoutExtension } from "../../utils/common";
 import {
   clampMenuPosition,
   estimateMenuHeight,
@@ -203,12 +202,7 @@ const BookCoverItem: React.FC<BookCoverProps> = (props) => {
                 {...{
                   format: props.book.format,
                   title:
-                    ConfigService.getReaderConfig("isUseOriginalName") === "yes"
-                      ? getFileNameWithoutExtension(
-                          props.book.path,
-                          props.book.name
-                        )
-                      : props.book.name,
+                    props.book.name,
                   scale: 1.14,
                 }}
               />
@@ -279,9 +273,7 @@ const BookCoverItem: React.FC<BookCoverProps> = (props) => {
               style={{ fontWeight: "bold" }}
             ></span>
           )}
-          {ConfigService.getReaderConfig("isUseOriginalName") === "yes"
-            ? getFileNameWithoutExtension(props.book.path, props.book.name)
-            : props.book.name}
+          {props.book.name}
         </p>
         <p className="book-cover-item-author">
           <Trans>Author</Trans>:&nbsp;

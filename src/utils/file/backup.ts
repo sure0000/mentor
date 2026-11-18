@@ -12,7 +12,6 @@ import { saveAs } from "file-saver";
 import JSZip from "jszip";
 import ConfigUtil from "./configUtil";
 import SyncService from "../storage/syncService";
-import BackgroundUtil from "./backgroundUtil";
 import FontUtil from "./fontUtil";
 import toast from "react-hot-toast";
 import i18n from "../../i18n";
@@ -261,7 +260,6 @@ export const backupFromStorage = async () => {
   let sync = JSON.stringify(await ConfigUtil.dumpConfig("sync"));
   await zipCover(zip);
   await zipBook(zip);
-  await zipBackground(zip);
   await zipFont(zip);
   let result = await zipConfig(
     zip,
@@ -337,23 +335,6 @@ export const zipCover = async (zip: any) => {
       }
       const result = await CoverUtil.convertCoverBase64(cover);
       coverZip.file(`${books[i].key}.${result.extension}`, result.arrayBuffer);
-    }
-  }
-};
-
-export const zipBackground = async (zip: any) => {
-  const backgroundIds = ConfigService.getAllListConfig("backgroundList") || [];
-  const bgZip = zip.folder("background");
-  for (const id of backgroundIds) {
-    const meta = BackgroundUtil.getImageMeta(id);
-    if (!meta) continue;
-    try {
-      const dataUrl = await BackgroundUtil.loadImage(id, meta.extension);
-      if (!dataUrl) continue;
-      const { arrayBuffer, extension } = BackgroundUtil.convertDataUrl(dataUrl);
-      bgZip.file(`${id}.${extension}`, arrayBuffer);
-    } catch (error) {
-      console.error(`Failed to backup background ${id}:`, error);
     }
   }
 };

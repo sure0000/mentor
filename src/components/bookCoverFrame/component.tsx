@@ -1,6 +1,5 @@
 import React from "react";
 import "./bookCoverFrame.css";
-import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 
 export interface BookCoverFrameProps {
   style?: React.CSSProperties;
@@ -8,16 +7,8 @@ export interface BookCoverFrameProps {
 }
 
 const BookCoverFrame: React.FC<BookCoverFrameProps> = ({ style, children }) => {
-  const isEnableBookSpine =
-    ConfigService.getReaderConfig("isEnableBookSpine") === "yes";
   return (
-    <div
-      className={
-        "book-cover-frame" +
-        (isEnableBookSpine ? " book-cover-frame-spine" : "")
-      }
-      style={style}
-    >
+    <div className="book-cover-frame" style={style}>
       {children}
     </div>
   );

@@ -8,7 +8,7 @@ import i18n from "../../i18n";
 import TokenService from "../storage/tokenService";
 
 /** 二开保留的同步方式 */
-export const SUPPORTED_SYNC_SERVICES = ["icloud"];
+export const SUPPORTED_SYNC_SERVICES = ["icloud", "github"];
 
 export const isSupportedSyncService = (service: string) =>
   SUPPORTED_SYNC_SERVICES.includes(service);

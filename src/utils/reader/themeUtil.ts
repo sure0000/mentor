@@ -23,8 +23,6 @@ const BG_SOLID_SELECTORS = [
   ".book-bookmark-link",
   ".message-box-container",
   ".only-local-icon",
-  ".biometric-auth-button",
-  ".pin-dot.pin-dot-filled",
 ];
 
 const TEXT_080_SELECTORS = [
@@ -41,7 +39,6 @@ const BG_010_SELECTORS = [
   "#jumpPage",
   "#jumpChapter",
   "#newTag",
-  ".pin-key",
 ];
 
 const BG_HOVER_SELECTORS = [

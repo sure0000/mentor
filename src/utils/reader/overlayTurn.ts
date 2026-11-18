@@ -151,8 +151,6 @@ const getPageSignature = (ctrl: OverlayTurnController) => {
 const schedulePreCapture = (ctrl: OverlayTurnController) => {
   if (!ctrl.active || ctrl.readerMode === "scroll") return;
   if (!isOverlayTurnEnabled()) return;
-  // 摸鱼模式窗口是透明的，截图会丢失背景
-  if (ConfigService.getReaderConfig("isMergeWord") === "yes") return;
   clearCaptureTimer(ctrl);
   ctrl.captureTimer = window.setTimeout(async () => {
     ctrl.captureTimer = null;
@@ -259,7 +257,6 @@ const performOverlayTurn = async (
     !ctrl.active ||
     !isOverlayTurnEnabled() ||
     ctrl.readerMode === "scroll" ||
-    ConfigService.getReaderConfig("isMergeWord") === "yes" ||
     isReadingAidMode(ctrl.book.format, ctrl.book.key)
   ) {
     return original.apply(ctrl.rendition, args);

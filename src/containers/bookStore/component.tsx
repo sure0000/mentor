@@ -1,50 +1,66 @@
 import { useTranslation, Trans } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Parser from "html-react-parser";
 import DOMPurify from "dompurify";
 import "./bookStore.css";
+import PaperStore from "./paperStore";
 import { bookSourceList } from "../../constants/bookSourceList";
 import type { BookSource } from "../../constants/bookSourceList";
 import { useAppStore } from "../../store/useAppStore";
 import { useLatest } from "../../utils/hooks/useLatest";
-import { calculateFileMD5, throttle } from "../../utils/common";
+import { calculateFileMD5, openInBrowser, throttle } from "../../utils/common";
 import BookUtil from "../../utils/file/bookUtil";
 import CoverUtil from "../../utils/file/coverUtil";
 import DatabaseService from "../../utils/storage/databaseService";
 import BookModel from "../../models/Book";
-import {
-  DOWNLOAD_TYPES,
-  downloadOPDSFile,
-  fetchOPDSFeed,
-} from "../../utils/request/opds";
+import { DOWNLOAD_TYPES, downloadOPDSFile } from "../../utils/request/opds";
 import type { OPDSLink } from "../../utils/request/opds";
 import {
-  buildSearchUrl,
-  getNextPageUrl,
-  toStoreBook,
-  toStoreBookDetail,
+  buildWebSearchUrl,
+  findInSource,
+  resolveDownloadLinks,
 } from "../../utils/request/bookStore";
-import type { StoreBook, StoreBookDetail } from "../../utils/request/bookStore";
+import type { StoreBook } from "../../utils/request/bookStore";
+import {
+  buildDoubanSearchUrl,
+  doubanCategories,
+  fetchDoubanDetail,
+  fetchDoubanList,
+} from "../../utils/request/douban";
+import type { DoubanBook, DoubanDetail } from "../../utils/request/douban";
 
 interface BookStoreState {
-  sourceId: string;
   // 分类下标；-1 表示当前为搜索结果
   categoryIndex: number;
   searchQuery: string;
-  books: StoreBook[];
+  books: DoubanBook[];
   nextUrl: string;
   isLoading: boolean;
   isLoadingMore: boolean;
   error: string;
 }
 
-interface DetailState {
+// 某个书源里匹配到的一个版本
+interface SourceEdition {
   book: StoreBook;
-  detail: StoreBookDetail | null;
+  // null 表示下载链接尚未解析完成
+  links: OPDSLink[] | null;
+}
+
+interface SourceMatch {
+  source: BookSource;
+  status: "searching" | "found" | "notFound" | "error";
+  editions: SourceEdition[];
+}
+
+interface DetailState {
+  book: DoubanBook;
+  detail: DoubanDetail | null;
   isLoading: boolean;
   error: string;
+  matches: SourceMatch[];
   downloadingHref: string;
 }
 
@@ -65,14 +81,64 @@ const StoreCover = ({ src, title }: { src: string; title: string }) => {
   );
 };
 
-const BookStore = () => {
+// 豆瓣式五星：10 分制换算成 0~5 颗星，按半星取整
+const RatingStars = ({ rating }: { rating: number }) => {
+  const percent = Math.round(rating) * 10;
+  return (
+    <span className="book-store-stars">
+      <span className="book-store-stars-fill" style={{ width: percent + "%" }}>
+        ★★★★★
+      </span>
+      ☆☆☆☆☆
+    </span>
+  );
+};
+
+const RatingLine = ({
+  rating,
+  votes,
+}: {
+  rating: number | null;
+  votes: number;
+}) => {
+  const { t } = useTranslation();
+  if (rating === null) {
+    return (
+      <div className="book-store-rating is-empty">{t("Not enough ratings")}</div>
+    );
+  }
+  return (
+    <div className="book-store-rating">
+      <RatingStars rating={rating} />
+      <span className="book-store-rating-value">{rating.toFixed(1)}</span>
+      {votes > 0 && (
+        <span className="book-store-rating-votes">
+          {t("{{count}} ratings", { count: votes })}
+        </span>
+      )}
+    </div>
+  );
+};
+
+// 豆瓣书名常带中文副标题，书源多为外文原版；用原作名、主标题等多个候选去搜
+const getSearchQueries = (book: DoubanBook, detail: DoubanDetail) => {
+  const candidates = [detail.originalTitle, detail.title || book.title];
+  return Array.from(
+    new Set(candidates.map((c) => c.trim()).filter(Boolean))
+  );
+};
+
+interface BookViewProps {
+  modeSwitch: ReactNode;
+  onBack: () => void;
+}
+
+const BookView = ({ modeSwitch, onBack }: BookViewProps) => {
   const importBookFunc = useAppStore((s) => s.book.importBookFunc);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleRefreshBookCover = useAppStore((s) => s.handleRefreshBookCover);
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [state, setState] = useState<BookStoreState>({
-    sourceId: bookSourceList[0].id,
     categoryIndex: 0,
     searchQuery: "",
     books: [],
@@ -86,17 +152,10 @@ const BookStore = () => {
   // 切换分类/搜索时丢弃旧请求的结果
   const requestIdRef = useRef(0);
 
-  const source: BookSource =
-    bookSourceList.find((s) => s.id === state.sourceId) || bookSourceList[0];
-
   const mergeState = (patch: Partial<BookStoreState>) =>
     setState((prev) => ({ ...prev, ...patch }));
 
-  const loadFeed = async (
-    url: string,
-    patch: Partial<BookStoreState>,
-    feedSource: BookSource
-  ) => {
+  const loadList = async (url: string, patch: Partial<BookStoreState>) => {
     const requestId = ++requestIdRef.current;
     mergeState({
       ...patch,
@@ -107,15 +166,9 @@ const BookStore = () => {
       error: "",
     });
     try {
-      const feed = await fetchOPDSFeed(url);
+      const list = await fetchDoubanList(url);
       if (requestId !== requestIdRef.current) return;
-      mergeState({
-        books: feed.entries
-          .map((e) => toStoreBook(e, feedSource))
-          .filter((b): b is StoreBook => !!b),
-        nextUrl: getNextPageUrl(feed),
-        isLoading: false,
-      });
+      mergeState({ books: list.books, nextUrl: list.nextUrl, isLoading: false });
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
       const msg = err instanceof Error ? err.message : String(err);
@@ -123,24 +176,16 @@ const BookStore = () => {
     }
   };
 
-  const loadCategory = (feedSource: BookSource, categoryIndex: number) => {
-    const category = feedSource.categories[categoryIndex];
+  const loadCategory = (categoryIndex: number) => {
+    const category = doubanCategories[categoryIndex];
     if (!category) return;
-    loadFeed(
-      category.url,
-      { sourceId: feedSource.id, categoryIndex, searchQuery: "" },
-      feedSource
-    );
+    loadList(category.url, { categoryIndex, searchQuery: "" });
   };
 
   const handleSearch = () => {
     const query = stateRef.current.searchQuery.trim();
     if (!query) return;
-    loadFeed(
-      buildSearchUrl(source, query),
-      { categoryIndex: -1 },
-      source
-    );
+    loadList(buildDoubanSearchUrl(query), { categoryIndex: -1 });
   };
 
   const loadMore = async () => {
@@ -149,17 +194,14 @@ const BookStore = () => {
     const requestId = requestIdRef.current;
     mergeState({ isLoadingMore: true });
     try {
-      const feed = await fetchOPDSFeed(nextUrl);
+      const list = await fetchDoubanList(nextUrl);
       if (requestId !== requestIdRef.current) return;
-      const more = feed.entries
-        .map((e) => toStoreBook(e, source))
-        .filter((b): b is StoreBook => !!b);
       setState((prev) => {
         const seen = new Set(prev.books.map((b) => b.id));
         return {
           ...prev,
-          books: prev.books.concat(more.filter((b) => !seen.has(b.id))),
-          nextUrl: getNextPageUrl(feed),
+          books: prev.books.concat(list.books.filter((b) => !seen.has(b.id))),
+          nextUrl: list.nextUrl,
           isLoadingMore: false,
         };
       });
@@ -184,40 +226,97 @@ const BookStore = () => {
     []
   );
 
-  const openDetail = async (book: StoreBook) => {
-    if (book.entry) {
-      setDetailState({
+  // 只更新仍在展示的那本书的详情，避免快速切换时串数据
+  const patchDetail = (
+    bookId: string,
+    patch: (prev: DetailState) => Partial<DetailState>
+  ) =>
+    setDetailState((prev) =>
+      prev && prev.book.id === bookId ? { ...prev, ...patch(prev) } : prev
+    );
+
+  const patchMatch = (
+    bookId: string,
+    sourceId: string,
+    patch: Partial<SourceMatch>
+  ) =>
+    patchDetail(bookId, (prev) => ({
+      matches: prev.matches.map((m) =>
+        m.source.id === sourceId ? { ...m, ...patch } : m
+      ),
+    }));
+
+  const searchSource = async (
+    bookId: string,
+    source: BookSource,
+    queries: string[]
+  ) => {
+    try {
+      const found = await findInSource(source, queries);
+      if (found.length === 0) {
+        patchMatch(bookId, source.id, { status: "notFound" });
+        return;
+      }
+      const editions: SourceEdition[] = found.map((book) => ({
         book,
-        detail: toStoreBookDetail([book.entry], book),
-        isLoading: false,
-        error: "",
-        downloadingHref: "",
-      });
-      return;
+        links: null,
+      }));
+      patchMatch(bookId, source.id, { status: "found", editions });
+      // 列表条目可能只有详情 feed 地址，逐个补齐下载链接
+      await Promise.all(
+        found.map(async (book, index) => {
+          let links: OPDSLink[] = [];
+          try {
+            links = await resolveDownloadLinks(book);
+          } catch (err) {
+            console.error("resolve download links failed", err);
+          }
+          editions[index] = { book, links };
+          patchMatch(bookId, source.id, { editions: [...editions] });
+        })
+      );
+    } catch (err) {
+      console.error(`search ${source.id} failed`, err);
+      patchMatch(bookId, source.id, { status: "error" });
     }
+  };
+
+  const openDetail = async (book: DoubanBook) => {
     setDetailState({
       book,
       detail: null,
       isLoading: true,
       error: "",
+      matches: bookSourceList.map((source) => ({
+        source,
+        status: "searching",
+        editions: [],
+      })),
       downloadingHref: "",
     });
+    let detail: DoubanDetail;
     try {
-      const feed = await fetchOPDSFeed(book.detailUrl);
-      const detail = toStoreBookDetail(feed.entries, book);
-      setDetailState((prev) =>
-        prev && prev.book.id === book.id
-          ? { ...prev, detail, isLoading: false }
-          : prev
-      );
+      detail = await fetchDoubanDetail(book);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setDetailState((prev) =>
-        prev && prev.book.id === book.id
-          ? { ...prev, isLoading: false, error: msg }
-          : prev
-      );
+      // 详情加载失败时仍用列表里的书名去书源查找
+      detail = {
+        title: book.title,
+        originalTitle: "",
+        authors: [],
+        publisher: "",
+        pubDate: "",
+        isbn: "",
+        summary: "",
+        coverUrl: "",
+        rating: book.rating,
+        votes: book.votes,
+      };
+      patchDetail(book.id, () => ({ error: msg }));
     }
+    patchDetail(book.id, () => ({ detail, isLoading: false }));
+    const queries = getSearchQueries(book, detail);
+    bookSourceList.forEach((source) => searchSource(book.id, source, queries));
   };
 
   // 引擎没能从文件里解析出封面时（部分 EPUB 只用 <meta name="cover"> 声明），
@@ -250,12 +349,11 @@ const BookStore = () => {
     }
   };
 
-  const handleDownload = async (link: OPDSLink) => {
-    if (!detailState?.detail || detailState.downloadingHref) return;
-    const title = detailState.detail.title;
-    setDetailState((prev) =>
-      prev ? { ...prev, downloadingHref: link.href } : prev
-    );
+  const handleDownload = async (edition: StoreBook, link: OPDSLink) => {
+    if (!detailState || detailState.downloadingHref) return;
+    const bookId = detailState.book.id;
+    const title = edition.title;
+    patchDetail(bookId, () => ({ downloadingHref: link.href }));
     toast.loading(t("Downloading") + ": " + title, {
       id: "book-store-download",
     });
@@ -263,9 +361,12 @@ const BookStore = () => {
       const file = await downloadOPDSFile(title, link);
       toast.dismiss("book-store-download");
       await importBookFunc(file);
+      // 书源封面与文件内容对应；没有时再用豆瓣封面
       await applyStoreCover(
         file,
-        detailState.detail.coverUrl || detailState.book.coverUrl
+        edition.coverUrl ||
+          detailState.detail?.coverUrl ||
+          detailState.book.coverUrl
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -273,18 +374,108 @@ const BookStore = () => {
         id: "book-store-download",
       });
     } finally {
-      setDetailState((prev) => (prev ? { ...prev, downloadingHref: "" } : prev));
+      patchDetail(bookId, () => ({ downloadingHref: "" }));
     }
   };
 
   useEffect(() => {
-    loadCategory(source, 0);
+    loadCategory(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const renderEdition = (edition: SourceEdition) => {
+    const { book, links } = edition;
+    const downloadingHref = detailState?.downloadingHref;
+    return (
+      <div key={book.id} className="book-store-edition">
+        <div className="book-store-edition-title" title={book.title}>
+          {book.title}
+          {book.author && (
+            <span className="book-store-edition-author"> · {book.author}</span>
+          )}
+        </div>
+        <div className="book-store-edition-actions">
+          {links === null && <span className="book-store-spinner is-inline" />}
+          {links?.map((link) => (
+            <span
+              key={link.href}
+              className={
+                "book-store-download-button" +
+                (downloadingHref === link.href ? " is-loading" : "")
+              }
+              title={link.title || ""}
+              onClick={() => handleDownload(book, link)}
+            >
+              <Trans>Add to bookshelf</Trans>
+              {" · "}
+              {(DOWNLOAD_TYPES[link.type] || "").toUpperCase() || link.title}
+            </span>
+          ))}
+          {links?.length === 0 && (
+            <span className="book-store-match-hint">
+              <Trans>No downloadable format</Trans>
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderMatch = (match: SourceMatch, queries: string[]) => {
+    const { source, status, editions } = match;
+    const hasDownload = editions.some((e) => e.links && e.links.length > 0);
+    const webUrl = buildWebSearchUrl(source, queries[0] || "");
+    return (
+      <div key={source.id} className="book-store-match">
+        <div className="book-store-match-head">
+          <span className="book-store-match-source">{source.name}</span>
+          {status === "searching" && (
+            <span className="book-store-match-hint">
+              <span className="book-store-spinner is-inline" />
+              <Trans>Searching</Trans>
+            </span>
+          )}
+          {status === "notFound" && (
+            <span className="book-store-match-hint">
+              <Trans>Not found in this source</Trans>
+            </span>
+          )}
+          {status === "error" && (
+            <span className="book-store-match-hint">
+              <Trans>Source unavailable</Trans>
+            </span>
+          )}
+          {/* 没有可直接下载的版本时，引导用户去书源网站自行查找 */}
+          {status !== "searching" && !hasDownload && (
+            <span
+              className="book-store-link-button"
+              onClick={() => openInBrowser(webUrl)}
+            >
+              <Trans>Find on website</Trans>
+            </span>
+          )}
+        </div>
+        {editions.map(renderEdition)}
+      </div>
+    );
+  };
+
   const renderDetail = () => {
     if (!detailState) return null;
-    const { book, detail, isLoading, error, downloadingHref } = detailState;
+    const { book, detail, isLoading, error, matches } = detailState;
+    const queries = detail ? getSearchQueries(book, detail) : [book.title];
+    const rating = detail?.rating ?? book.rating;
+    const votes = detail?.votes || book.votes;
+    // 有下载的书源排在前面
+    const sortedMatches = [...matches].sort((a, b) => {
+      const score = (m: SourceMatch) =>
+        m.editions.some((e) => e.links && e.links.length > 0)
+          ? 0
+          : m.status === "searching"
+            ? 1
+            : 2;
+      return score(a) - score(b);
+    });
     return (
       <div
         className="book-store-detail-mask"
@@ -309,63 +500,56 @@ const BookStore = () => {
               <div className="book-store-detail-title">
                 {detail?.title || book.title}
               </div>
-              <div className="book-store-detail-author">
-                {detail?.authors.join(", ") || book.author}
-              </div>
-              {detail?.language && (
+              {detail?.originalTitle && (
                 <div className="book-store-detail-sub">
-                  <Trans>Language</Trans>: {detail.language}
+                  {detail.originalTitle}
                 </div>
               )}
-              <div className="book-store-detail-sub">
-                <Trans>Source</Trans>: {source.name}
+              <div className="book-store-detail-author">
+                {detail?.authors.length
+                  ? detail.authors.join(" / ")
+                  : book.abstract}
               </div>
-              <div className="book-store-detail-actions">
-                {detail?.downloadLinks.map((link) => (
-                  <span
-                    key={link.href}
-                    className={
-                      "book-store-download-button" +
-                      (downloadingHref === link.href ? " is-loading" : "")
-                    }
-                    title={link.title || ""}
-                    onClick={() => handleDownload(link)}
-                  >
-                    <Trans>Add to bookshelf</Trans>
-                    {" · "}
-                    {link.title ||
-                      (DOWNLOAD_TYPES[link.type] || "").toUpperCase()}
-                  </span>
-                ))}
-              </div>
+              {(detail?.publisher || detail?.pubDate) && (
+                <div className="book-store-detail-sub">
+                  {[detail.publisher, detail.pubDate].filter(Boolean).join(" / ")}
+                </div>
+              )}
+              <RatingLine rating={rating} votes={votes} />
+              <span
+                className="book-store-link-button is-plain"
+                onClick={() => openInBrowser(book.url)}
+              >
+                <Trans>View on Douban</Trans>
+              </span>
             </div>
           </div>
           <div className="book-store-detail-body">
-            {isLoading && <div className="book-store-spinner"></div>}
-            {error && <div className="book-store-tip">{error}</div>}
-            {detail && !isLoading && detail.downloadLinks.length === 0 && (
-              <div className="book-store-tip">
-                <Trans>No downloadable format</Trans>
+            <div className="book-store-section-title">
+              <Trans>Get this book</Trans>
+            </div>
+            {isLoading ? (
+              <div className="book-store-spinner is-mini"></div>
+            ) : (
+              <div className="book-store-matches">
+                {sortedMatches.map((m) => renderMatch(m, queries))}
               </div>
             )}
-            {detail?.categories.length ? (
-              <div className="book-store-detail-tags">
-                {detail.categories.slice(0, 8).map((c) => (
-                  <span key={c} className="book-store-detail-tag">
-                    {c}
-                  </span>
-                ))}
-              </div>
-            ) : null}
+            {error && <div className="book-store-tip is-compact">{error}</div>}
             {detail?.summary && (
-              <div className="book-store-detail-summary">
-                {Parser(
-                  // 去掉链接，避免点击相对地址导致主窗口跳转
-                  DOMPurify.sanitize(detail.summary, {
-                    FORBID_TAGS: ["a", "img"],
-                  })
-                )}
-              </div>
+              <>
+                <div className="book-store-section-title">
+                  <Trans>Introduction</Trans>
+                </div>
+                <div className="book-store-detail-summary">
+                  {Parser(
+                    // 去掉链接，避免点击相对地址导致主窗口跳转
+                    DOMPurify.sanitize(detail.summary, {
+                      FORBID_TAGS: ["a", "img", "style"],
+                    })
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -379,38 +563,19 @@ const BookStore = () => {
   return (
     <div className="book-store-container">
       <div className="book-store-toolbar">
-        <span
-          className="book-store-back"
-          onClick={() => navigate("/manager/home")}
-        >
+        <span className="book-store-back" onClick={onBack}>
           <span className="icon-dropdown book-store-back-icon"></span>
           <Trans>Back to bookshelf</Trans>
         </span>
-        <span className="book-store-title">
-          <Trans>Open Source Book Store</Trans>
-        </span>
-        <select
-          className="book-store-source-select"
-          value={source.id}
-          onChange={(e) => {
-            const next = bookSourceList.find((s) => s.id === e.target.value);
-            if (next) loadCategory(next, 0);
-          }}
-        >
-          {bookSourceList.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        {modeSwitch}
         <div className="book-store-tabs">
-          {source.categories.map((c, i) => (
+          {doubanCategories.map((c, i) => (
             <span
               key={c.url}
               className={
                 "book-store-tab" + (categoryIndex === i ? " is-active" : "")
               }
-              onClick={() => loadCategory(source, i)}
+              onClick={() => loadCategory(i)}
             >
               <Trans>{c.title}</Trans>
             </span>
@@ -445,9 +610,7 @@ const BookStore = () => {
             <span
               className="book-store-retry"
               onClick={() =>
-                categoryIndex >= 0
-                  ? loadCategory(source, categoryIndex)
-                  : handleSearch()
+                categoryIndex >= 0 ? loadCategory(categoryIndex) : handleSearch()
               }
             >
               <Trans>Retry</Trans>
@@ -473,8 +636,22 @@ const BookStore = () => {
                 <div className="book-store-card-title" title={book.title}>
                   {book.title}
                 </div>
-                <div className="book-store-card-author" title={book.author}>
-                  {book.author}
+                <div className="book-store-card-rating">
+                  {book.rating !== null ? (
+                    <>
+                      <RatingStars rating={book.rating} />
+                      <span className="book-store-rating-value">
+                        {book.rating.toFixed(1)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="book-store-rating is-empty">
+                      {t("Not enough ratings")}
+                    </span>
+                  )}
+                </div>
+                <div className="book-store-card-author" title={book.abstract}>
+                  {book.abstract}
                 </div>
               </div>
             ))}
@@ -484,6 +661,33 @@ const BookStore = () => {
       </div>
       {renderDetail()}
     </div>
+  );
+};
+
+type StoreMode = "books" | "papers";
+
+const BookStore = () => {
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<StoreMode>("books");
+  const onBack = () => navigate("/manager/home");
+  const modeSwitch = (
+    <div className="book-store-mode-switch">
+      {(["books", "papers"] as StoreMode[]).map((m) => (
+        <span
+          key={m}
+          className={"book-store-mode" + (mode === m ? " is-active" : "")}
+          onClick={() => setMode(m)}
+        >
+          <Trans>{m === "books" ? "Store books" : "Papers"}</Trans>
+        </span>
+      ))}
+    </div>
+  );
+  // 两个视图各自维护列表状态，切换时卸载即可，不必常驻
+  return mode === "books" ? (
+    <BookView modeSwitch={modeSwitch} onBack={onBack} />
+  ) : (
+    <PaperStore modeSwitch={modeSwitch} onBack={onBack} />
   );
 };
 

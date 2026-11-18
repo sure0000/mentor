@@ -21,8 +21,6 @@ const DropdownList = (props: DropdownListProps) => {
   const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
   const currentBook = useAppStore((s) => s.book.currentBook);
   const handleTextOrientation = useAppStore((s) => s.handleTextOrientation);
-  const handleSetting = useAppStore((s) => s.handleSetting);
-  const handleSettingMode = useAppStore((s) => s.handleSettingMode);
   const { t } = useTranslation();
   const [state, setState] = useState<Record<string, any>>({
     currentFontFamilyValue:
@@ -51,17 +49,8 @@ const DropdownList = (props: DropdownListProps) => {
     setState((prev) => ({ ...prev, ...patch }));
 
   useEffect(() => {
-    const customParserLabels: string[] =
-      ConfigService.getAllListConfig("txtParserList") || [];
-    const customParserOptions = customParserLabels.map((label) => ({
-      label,
-      value: label,
-    }));
     updateState({
-      txtParserOptions: [
-        ...KookitConfig.ContentRegxConfig,
-        ...customParserOptions,
-      ],
+      txtParserOptions: [...KookitConfig.ContentRegxConfig],
     });
     loadMergedFonts();
     window.addEventListener("font-list-changed", loadMergedFonts);
@@ -276,11 +265,6 @@ const DropdownList = (props: DropdownListProps) => {
             className="general-setting-dropdown"
             value={state.currentTxtParserValue}
             onChange={(event) => {
-              if (event.target.value === "add-parser") {
-                handleSetting(true);
-                handleSettingMode("chapter");
-                return;
-              }
               handleView(event, "txtParser");
             }}
           >
@@ -293,13 +277,6 @@ const DropdownList = (props: DropdownListProps) => {
                 {t(option.label)}
               </option>
             ))}
-            <option
-              value="add-parser"
-              key="add"
-              className="general-setting-option"
-            >
-              {t("Add new parser")}
-            </option>
           </select>
         </li>
       )}

@@ -3,8 +3,6 @@ const {
   BrowserWindow,
   WebContentsView,
   Menu,
-  Tray,
-  nativeImage,
   ipcMain,
   dialog,
   powerSaveBlocker,
@@ -64,18 +62,9 @@ const {
 } = require("./src/utils/main/tar-index");
 const { runPowerShellScript } = require("./src/utils/main/powershell-util");
 const {
-  buildProxyUrl,
-  testProxyConnection,
-} = require("./src/utils/main/network-util");
-const {
   backupToPath,
   restoreFromPath,
 } = require("./src/utils/main/backup-util");
-const {
-  setDiscordActivity,
-  clearDiscordActivity,
-  destroyDiscordRPC,
-} = require("./src/utils/main/discord-rpc-util");
 const {
   resolveOcrLang,
   parseOcrImageInput,
@@ -83,12 +72,12 @@ const {
   runWindowsOcr,
   runMacosOcr,
 } = require("./src/utils/main/ocr-util");
-const {
-  getBiometricCapability,
-  promptBiometricAuth,
-} = require("./src/utils/main/biometric-util");
 const { getVoicePlugin } = require("./src/utils/plugins/main/registry");
 const claudeCode = require("./src/utils/main/claude-code-util");
+const {
+  GitHubSyncUtil,
+  verifyGitHubConfig,
+} = require("./src/utils/main/github-sync");
 const ttsCacheUtil = require("./src/utils/plugins/main/voice/ttsCache");
 let dictReaderModule = null;
 const getDictReader = () => {
@@ -171,8 +160,6 @@ const resolveCustomVoicePlugin = ({ script, scriptSHA256, pluginKey } = {}) => {
 };
 const packageJson = require("./package.json");
 let mainWin;
-let tray = null;
-let isQuitting = false;
 let readerWindow;
 let readerWindowList = [];
 let dictWindow;
@@ -466,8 +453,13 @@ const getDBConnection = (dbName, storagePath, sqlStatement) => {
 };
 const getSyncUtil = async (config, isUseCache = true) => {
   if (!isUseCache || !syncUtilCache[config.service]) {
-    const { SyncUtil } = await import("./src/assets/lib/kookit-extra.min.mjs");
-    syncUtilCache[config.service] = new SyncUtil(config.service, config);
+    if (config.service === "github") {
+      // GitHub 不在 kookit 支持的网盘里，用自研实现，接口保持一致
+      syncUtilCache[config.service] = new GitHubSyncUtil(config, net.fetch);
+    } else {
+      const { SyncUtil } = await import("./src/assets/lib/kookit-extra.min.mjs");
+      syncUtilCache[config.service] = new SyncUtil(config.service, config);
+    }
   }
   return syncUtilCache[config.service];
 };
@@ -502,54 +494,6 @@ const applyNativeThemeSource = (appSkin) => {
   return getNativeDarkColorStatus();
 };
 applyNativeThemeSource(store.get("appSkin"));
-const applyProxyToSession = async () => {
-  const { session } = require("electron");
-  const http = require("http");
-  const https = require("https");
-  const config = store.get("proxyConfig");
-  const defaultSession = session.defaultSession;
-  const isEnabled =
-    config && config.type !== "none" && config.enabled !== false && config.host;
-  if (!isEnabled) {
-    // 未启用应用内代理时，跟随操作系统代理（与浏览器行为一致）。
-    // 此前强制 direct 会绕过系统代理（如 Clash/v2rayN 等），导致 Electron 端
-    // 直连 OCR 的 wasm/模型等境外 CDN 不可达（网页端走系统代理所以正常）。
-    await defaultSession.setProxy({ mode: "system" });
-    https.globalAgent = new https.Agent();
-    http.globalAgent = new http.Agent();
-    return;
-  }
-  const proxyUrl = buildProxyUrl(config);
-  let agent = null;
-  try {
-    if (config.type === "socks5") {
-      const { SocksProxyAgent } = require("socks-proxy-agent");
-      agent = new SocksProxyAgent(proxyUrl);
-    } else {
-      const { HttpsProxyAgent } = require("https-proxy-agent");
-      agent = new HttpsProxyAgent(proxyUrl);
-    }
-  } catch (error) {
-    agent = null;
-  }
-  const authentication = config.username
-    ? `${encodeURIComponent(config.username)}:${encodeURIComponent(config.password || "")}@`
-    : "";
-  if (config.type === "http") {
-    const proxyAddress = `${authentication}${config.host}:${config.port}`;
-    await defaultSession.setProxy({
-      proxyRules: `http=${proxyAddress};https=${proxyAddress}`,
-    });
-  } else if (config.type === "socks5") {
-    await defaultSession.setProxy({
-      proxyRules: `socks5://${config.host}:${config.port}`,
-    });
-  }
-  if (agent) {
-    https.globalAgent = agent;
-    http.globalAgent = agent;
-  }
-};
 // Simple encryption function
 const encrypt = (text, key) => {
   let result = "";
@@ -589,43 +533,6 @@ const isWindowPartiallyVisible = (bounds) => {
     }
   }
   return false;
-};
-const createTray = () => {
-  let iconPath = isDev
-    ? path.join(__dirname, "./public/assets/icon.png")
-    : path.join(__dirname, "./build/assets/icon.png");
-  let trayIcon = nativeImage.createFromPath(iconPath);
-  if (os.platform() === "darwin") {
-    trayIcon = trayIcon.resize({ width: 16, height: 16, quality: "best" });
-    trayIcon.setTemplateImage(false);
-  }
-  tray = new Tray(trayIcon);
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: "Open Mentor",
-      click: () => {
-        if (mainWin) {
-          mainWin.show();
-          mainWin.focus();
-        }
-      },
-    },
-    {
-      label: "Quit",
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      },
-    },
-  ]);
-  tray.setToolTip("Mentor");
-  tray.setContextMenu(contextMenu);
-  tray.on("click", () => {
-    if (mainWin) {
-      mainWin.show();
-      mainWin.focus();
-    }
-  });
 };
 const createMainWin = () => {
   const isMainWindVisible = isWindowPartiallyVisible({
@@ -670,14 +577,6 @@ const createMainWin = () => {
     }
   });
   mainWin.on("close", (event) => {
-    if (!isQuitting && store.get("isMinimizeToTray") === "yes") {
-      event.preventDefault();
-      mainWin.hide();
-      if (!tray) {
-        createTray();
-      }
-      return;
-    }
     if (mainWin && !mainWin.isDestroyed()) {
       let bounds = mainWin.getBounds();
       const currentDisplay = screen.getDisplayMatching(bounds);
@@ -1041,19 +940,10 @@ const createMainWin = () => {
       stream.on("end", () => resolve(hash.digest("hex")));
     });
   });
-  // Discord RPC handlers
-  ipcMain.handle("discord-rpc-update", async (event, config) => {
-    await setDiscordActivity(config);
-  });
-  ipcMain.handle("discord-rpc-clear", async (event) => {
-    await clearDiscordActivity();
-  });
   ipcMain.handle("open-book", (event, config) => {
-    let { url, isMergeWord, isAutoFullscreen, isAutoMaximize, isPreventSleep } =
-      config;
+    let { url, isAutoFullscreen, isAutoMaximize, isPreventSleep } = config;
     store.set({
       url,
-      isMergeWord: isMergeWord || "no",
       isAutoFullscreen: isAutoFullscreen || "no",
       isAutoMaximize: isAutoMaximize || "no",
       isPreventSleep: isPreventSleep || "no",
@@ -1070,7 +960,7 @@ const createMainWin = () => {
       readerWindow = new BrowserWindow({
         ...options,
         ...getReaderWindowChromeOptions(),
-        backgroundColor: isMergeWord ? undefined : getAppBackgroundColor(),
+        backgroundColor: getAppBackgroundColor(),
       });
       readerWindow.webContents.on(
         "console-message",
@@ -1101,9 +991,7 @@ const createMainWin = () => {
         x: isWindowVisible ? parseInt(store.get("windowX")) : undefined,
         y: isWindowVisible ? parseInt(store.get("windowY")) : undefined,
         ...getReaderWindowChromeOptions(),
-        hasShadow: isMergeWord === "yes" ? false : true,
-        transparent: isMergeWord === "yes" ? true : false,
-        backgroundColor: isMergeWord ? undefined : getAppBackgroundColor(),
+        backgroundColor: getAppBackgroundColor(),
       });
       readerWindow.webContents.on(
         "console-message",
@@ -1165,7 +1053,6 @@ const createMainWin = () => {
       if (mainWin && !mainWin.isDestroyed()) {
         mainWin.webContents.send("reading-finished", {});
       }
-      clearDiscordActivity();
     });
     // Renderer finished flushing reading-time data — proceed with actual close
     ipcMain.once("reader-close-ready", () => {
@@ -1300,6 +1187,45 @@ const createMainWin = () => {
     let syncUtil = await getSyncUtil(config);
     let result = await syncUtil.isExist(config.fileName, config.type);
     return result;
+  });
+  // iCloud 状态：只做只读探测，渲染进程不传任何路径参数
+  ipcMain.handle("icloud-status", async () => {
+    if (process.platform !== "darwin") {
+      return { supported: false, available: false, path: "" };
+    }
+    const cloudDocs = path.join(
+      os.homedir(),
+      "Library",
+      "Mobile Documents",
+      "com~apple~CloudDocs"
+    );
+    const available = fs.existsSync(cloudDocs);
+    return {
+      supported: true,
+      available,
+      path: available ? path.join(cloudDocs, "Mentor") : "",
+    };
+  });
+  // 打开系统设置的 Apple 账户页（固定地址，不接受参数）
+  ipcMain.handle("open-icloud-settings", async () => {
+    if (process.platform !== "darwin") return false;
+    await shell.openExternal(
+      "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings"
+    );
+    return true;
+  });
+  ipcMain.handle("github-verify", async (event, config) => {
+    if (
+      !config ||
+      typeof config.token !== "string" ||
+      typeof config.repo !== "string"
+    ) {
+      return { ok: false, error: "invalid-args" };
+    }
+    return verifyGitHubConfig(
+      { token: config.token.trim(), repo: config.repo.trim() },
+      net.fetch
+    );
   });
   ipcMain.handle("cloud-close", async (event, config) => {
     removeSyncUtil(config);
@@ -1476,78 +1402,12 @@ const createMainWin = () => {
       }
     }
   });
-  ipcMain.handle("get-proxy-config", async () => {
-    const config = store.get("proxyConfig") || {
-      enabled: false,
-      type: "none",
-      host: "",
-      port: 0,
-      username: "",
-      password: "",
-    };
-    return config;
-  });
-  ipcMain.handle("set-proxy-config", async (event, config) => {
-    const { enabled, type, host, port, username, password } = config || {};
-    const validTypes = ["none", "http", "socks5"];
-    if (!validTypes.includes(type)) {
-      return { ok: false, reason: "invalid_input" };
-    }
-    if (type !== "none") {
-      if (!host || typeof host !== "string" || host.includes("://")) {
-        return { ok: false, reason: "invalid_input" };
-      }
-      const portNumber = parseInt(port);
-      if (isNaN(portNumber) || portNumber < 1 || portNumber > 65535) {
-        return { ok: false, reason: "invalid_input" };
-      }
-    }
-    const finalEnabled = type === "none" ? false : !!enabled;
-    const configToStore = {
-      enabled: finalEnabled,
-      type,
-      host: type === "none" ? "" : host,
-      port: type === "none" ? 0 : parseInt(port),
-      username: type === "none" ? "" : username || "",
-      password: type === "none" ? "" : password || "",
-    };
-    store.set("proxyConfig", configToStore);
-    await applyProxyToSession();
-    return { ok: true };
-  });
-  ipcMain.handle("test-proxy-connection", async (event, config) => {
-    return testProxyConnection(config);
-  });
   ipcMain.handle("get-mac", async (event, config) => {
     const { machineIdSync } = require("node-machine-id");
     return machineIdSync();
   });
   ipcMain.handle("get-device-name", async () => {
     return os.hostname() || "";
-  });
-  ipcMain.handle("get-biometric-capability", async () => {
-    return await getBiometricCapability();
-  });
-  ipcMain.handle("prompt-biometric-auth", async (event, config) => {
-    const senderWindow =
-      BrowserWindow.fromWebContents(event.sender) ||
-      BrowserWindow.getFocusedWindow() ||
-      mainWin ||
-      null;
-    return await promptBiometricAuth(config?.message, senderWindow);
-  });
-
-  ipcMain.handle("reset-reader-position", async (event) => {
-    store.delete("windowX");
-    store.delete("windowY");
-    return "success";
-  });
-  ipcMain.handle("reset-main-position", async (event) => {
-    store.delete("mainWinX");
-    store.delete("mainWinY");
-    app.relaunch();
-    app.exit();
-    return "success";
   });
 
   ipcMain.handle("select-import-file", async (event) => {
@@ -1956,20 +1816,6 @@ const createMainWin = () => {
     }
     return "pong";
   });
-  ipcMain.handle("toggle-auto-launch", async (event, config) => {
-    app.setLoginItemSettings({
-      openAtLogin: config.isAutoLaunch === "yes",
-    });
-    return "pong";
-  });
-  ipcMain.handle("toggle-minimize-to-tray", async (event, config) => {
-    store.set("isMinimizeToTray", config.isMinimizeToTray);
-    if (config.isMinimizeToTray === "no" && tray) {
-      tray.destroy();
-      tray = null;
-    }
-    return "pong";
-  });
   ipcMain.handle("open-explorer-folder", async (event, config) => {
     const { shell } = require("electron");
     if (config.isFolder) {
@@ -1989,21 +1835,6 @@ const createMainWin = () => {
 
   ipcMain.on("user-data", (event, arg) => {
     event.returnValue = dirPath;
-  });
-  ipcMain.handle("hide-reader", (event, arg) => {
-    if (
-      readerWindow &&
-      !readerWindow.isDestroyed() &&
-      readerWindow.isFocused()
-    ) {
-      readerWindow.minimize();
-      event.returnvalue = true;
-    } else if (mainWin && mainWin.isFocused()) {
-      mainWin.minimize();
-      event.returnvalue = true;
-    } else {
-      event.returnvalue = false;
-    }
   });
   const getReaderWindowFromEvent = (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -2158,7 +1989,6 @@ const createMainWin = () => {
           mainWin.webContents.send("reading-finished", {});
           mainWin.contentView.removeChildView(mainView);
         }
-        clearDiscordActivity();
         resolve(undefined);
       };
 
@@ -2231,103 +2061,6 @@ const createMainWin = () => {
     }
 
     event.returnvalue = true;
-  });
-  ipcMain.handle("switch-moyu", (event, arg) => {
-    let id;
-    if (store.get("isPreventSleep") === "yes") {
-      id = powerSaveBlocker.start("prevent-display-sleep");
-      console.info(powerSaveBlocker.isStarted(id));
-    }
-    if (readerWindow && !readerWindow.isDestroyed()) {
-      readerWindowReadyToClose = true;
-      readerWindow.close();
-      const currentIsMergeWord = store.get("isMergeWord") === "yes";
-      const nextIsMergeWord = currentIsMergeWord ? "no" : "yes";
-      const scaleRatio = store.get("windowDisplayScale") || 1;
-      Object.assign(options, {
-        width: parseInt(store.get("windowWidth") || 1050) / scaleRatio,
-        height: parseInt(store.get("windowHeight") || 660) / scaleRatio,
-        x: parseInt(store.get("windowX")),
-        y: parseInt(store.get("windowY")),
-        ...getReaderWindowChromeOptions(),
-        hasShadow: nextIsMergeWord === "yes" ? false : true,
-        transparent: nextIsMergeWord === "yes" ? true : false,
-        backgroundColor:
-          nextIsMergeWord === "yes" ? undefined : getAppBackgroundColor(),
-      });
-
-      store.set("isMergeWord", nextIsMergeWord);
-      if (readerWindow) {
-        readerWindowList.push(readerWindow);
-      }
-      readerWindow = new BrowserWindow(options);
-      hardenAppContents(readerWindow.webContents);
-      bindReaderWindowState(readerWindow);
-      if (store.get("isAlwaysOnTop") === "yes") {
-        readerWindow.setAlwaysOnTop(true);
-      }
-      readerWindow.webContents.on(
-        "console-message",
-        (_event, level, message) => {
-          const lvl =
-            { 0: "info", 1: "info", 2: "warn", 3: "error" }[level] || "info";
-          log[lvl](`[Renderer] ${message}`);
-        }
-      );
-      readerWindow.loadURL(store.get("url"));
-      readerWindowReadyToClose = false;
-      readerWindow.on("close", (event) => {
-        // --- Step 1: ask renderer to flush reading-time data first ---
-        if (
-          !readerWindowReadyToClose &&
-          readerWindow &&
-          !readerWindow.isDestroyed()
-        ) {
-          event.preventDefault();
-          readerWindow.webContents.send("before-reader-close");
-          return;
-        }
-        // --- Step 2: actual close logic (reached after renderer replied) ---
-        if (!readerWindow.isDestroyed()) {
-          let bounds = readerWindow.getBounds();
-          const currentDisplay = screen.getDisplayMatching(bounds);
-          const primaryDisplay = screen.getPrimaryDisplay();
-          if (bounds.width > 300 && bounds.height > 100) {
-            store.set({
-              windowWidth: bounds.width,
-              windowHeight: bounds.height,
-              windowX:
-                readerWindow.isMaximized() &&
-                currentDisplay.id === primaryDisplay.id
-                  ? 0
-                  : bounds.x,
-              windowY:
-                readerWindow.isMaximized() &&
-                currentDisplay.id === primaryDisplay.id
-                  ? 0
-                  : bounds.y < 0
-                    ? 0
-                    : bounds.y,
-            });
-          }
-        }
-        if (store.get("isPreventSleep") && !readerWindow.isDestroyed()) {
-          id && powerSaveBlocker.stop(id);
-        }
-        if (mainWin && !mainWin.isDestroyed()) {
-          mainWin.webContents.send("reading-finished", {});
-        }
-        clearDiscordActivity();
-      });
-      // Renderer finished flushing reading-time data — proceed with actual close
-      ipcMain.once("reader-close-ready", () => {
-        if (readerWindow && !readerWindow.isDestroyed()) {
-          readerWindowReadyToClose = true;
-          readerWindow.close();
-        }
-      });
-    }
-    event.returnvalue = false;
   });
   ipcMain.on("storage-location", (event, config) => {
     event.returnValue = path.join(dirPath, "data");
@@ -2455,19 +2188,32 @@ const applyCorsToRendererRequests = () => {
   );
 };
 
+// 豆瓣图片有防盗链，非豆瓣 Referer 会返回 403/418，书城封面需要补上 Referer
+const applyDoubanImageReferer = () => {
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ["https://*.doubanio.com/*"] },
+    (details, callback) => {
+      callback({
+        requestHeaders: {
+          ...details.requestHeaders,
+          Referer: "https://book.douban.com/",
+        },
+      });
+    }
+  );
+};
+
 app.on("ready", async () => {
   // 开发模式下 Dock 默认显示 Electron 图标；打包后由 icon.icns 提供
   if (isDev && process.platform === "darwin" && app.dock) {
     app.dock.setIcon(path.join(__dirname, "./public/assets/icon.png"));
   }
   applyCorsToRendererRequests();
-  await applyProxyToSession();
+  applyDoubanImageReferer();
   applyNativeThemeSource(store.get("appSkin"));
   createMainWin();
 });
 app.on("before-quit", () => {
-  isQuitting = true;
-  destroyDiscordRPC();
   claudeCode.cancelAll();
 });
 app.on("window-all-closed", () => {

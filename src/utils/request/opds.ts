@@ -99,6 +99,8 @@ export const ACQUISITION_RELS = [
   "http://opds-spec.org/acquisition/buy",
   "http://opds-spec.org/acquisition/borrow",
   "http://opds-spec.org/acquisition/sample",
+  // 普通 Atom feed（如 Standard Ebooks）用 enclosure 表示可下载文件
+  "enclosure",
 ];
 
 function encodeBasicAuth(username: string, password: string): string {
@@ -335,6 +337,13 @@ export function parseOPDSFeed(xmlText: string, feedUrl: string): OPDSFeed {
             l.rel === "http://opds-spec.org/image/thumbnail" ||
             l.rel === "http://opds-spec.org/thumbnail"
         ) || coverLink;
+      // 普通 Atom feed 用 Media RSS 的 <media:thumbnail url="..."> 提供封面
+      const mediaThumbnail = resolveUrl(
+        entry
+          .getElementsByTagNameNS("http://search.yahoo.com/mrss/", "thumbnail")[0]
+          ?.getAttribute("url") || "",
+        feedUrl
+      );
 
       const authors = Array.from(entry.querySelectorAll("author"))
         .map((a) => a.querySelector("name")?.textContent || "")
@@ -359,8 +368,8 @@ export function parseOPDSFeed(xmlText: string, feedUrl: string): OPDSFeed {
         title: entry.querySelector("title")?.textContent || "",
         authors,
         summary,
-        coverUrl: coverLink?.href || "",
-        thumbnailUrl: thumbnailLink?.href || "",
+        coverUrl: coverLink?.href || mediaThumbnail,
+        thumbnailUrl: thumbnailLink?.href || mediaThumbnail,
         links: entryLinks,
         updated: entry.querySelector("updated")?.textContent || "",
         isNavigation,

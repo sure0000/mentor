@@ -10,12 +10,7 @@ import AppearanceSetting from "../../../containers/settings/appearanceSetting";
 import AboutSetting from "../../../containers/settings/aboutSetting";
 import DataSetting from "../../../containers/settings/dataSetting";
 import AISetting from "../../../containers/settings/aiSetting";
-import BackgroundSetting from "../../../containers/settings/backgroundSetting";
-import FontSetting from "../../../containers/settings/fontSetting";
-import ChapterSetting from "../../../containers/settings/chapterSetting";
-import TextSetting from "../../../containers/settings/textSetting";
 import DictSetting from "../../../containers/settings/dictSetting";
-import MoreSetting from "../../../containers/settings/moreSetting";
 import ShortcutSetting from "../../../containers/settings/shortcutSetting";
 import { isElectron } from "react-device-detect";
 const SettingDialog = () => {
@@ -82,18 +77,8 @@ const SettingDialog = () => {
         return "About";
       case "ai":
         return "AI service";
-      case "background":
-        return "Background";
-      case "font":
-        return "Font management";
-      case "chapter":
-        return "TXT parser";
-      case "text":
-        return "Text rules";
       case "dict":
         return "Local dictionary";
-      case "more":
-        return "More settings";
       default:
         return "Setting";
     }
@@ -131,12 +116,6 @@ const SettingDialog = () => {
             )}
 
             {renderSidebarItem("sync", "icon-sync", "Sync and backup", "")}
-            {renderSidebarItem(
-              "more",
-              "icon-more",
-              "More settings",
-              "13px"
-            )}
             {renderSidebarItem("about", "icon-detail", "About", "18px")}
           </div>
 
@@ -149,30 +128,6 @@ const SettingDialog = () => {
               "ai",
               "icon-idea-line",
               "AI service",
-              "18px"
-            )}
-            {renderSidebarItem(
-              "background",
-              "icon-image",
-              "Background",
-              "18px"
-            )}
-            {renderSidebarItem(
-              "font",
-              "icon-font",
-              "Font management",
-              "18px"
-            )}
-            {renderSidebarItem(
-              "chapter",
-              "icon-convert-text",
-              "TXT parser",
-              "19px"
-            )}
-            {renderSidebarItem(
-              "text",
-              "icon-edit-line",
-              "Text rules",
               "18px"
             )}
             {isElectron &&
@@ -218,18 +173,8 @@ const SettingDialog = () => {
               <AboutSetting />
             ) : settingMode === "ai" ? (
               <AISetting />
-            ) : settingMode === "background" ? (
-              <BackgroundSetting />
-            ) : settingMode === "font" ? (
-              <FontSetting />
-            ) : settingMode === "chapter" ? (
-              <ChapterSetting />
-            ) : settingMode === "text" ? (
-              <TextSetting />
             ) : settingMode === "dict" ? (
               <DictSetting />
-            ) : settingMode === "more" ? (
-              <MoreSetting />
             ) : (
               <PluginSetting />
             )}

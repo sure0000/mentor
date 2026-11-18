@@ -2,14 +2,13 @@
 
 Mentor 是一个跨平台电子书阅读器（Electron + Vite + React 19 + Zustand）。
 
-### 四层架构
+### 三层架构
 
 | 层              | 位置                                  | 职责                                                    |
 | --------------- | ------------------------------------- | ------------------------------------------------------- |
 | Electron 主进程 | `main.js`                             | IPC handlers, SQLite (better-sqlite3), 云同步, 原生集成 |
 | React 渲染进程  | `src/`                                | UI, Zustand 状态管理, 书籍渲染                          |
 | 阅读引擎        | `src/assets/lib/kookit-extra.min.mjs` | 闭源 ESM — 书籍解析、SQL 语句、同步工具                 |
-| Go HTTP 服务    | `httpserver/`                         | 可选的 KOReader / OPDS 集成                             |
 
 ## 重要提醒
 
@@ -139,7 +138,6 @@ yarn rebuild
 ```
 .
 ├── main.js                 # Electron 主进程
-├── httpserver/             # Go HTTP 服务 (KOReader/OPDS)
 ├── public/                 # 静态资源 + WASM 库 (7z, unrar, pdfjs)
 ├── index.html              # Vite HTML 入口
 ├── vite.config.mts         # Vite 配置

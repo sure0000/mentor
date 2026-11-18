@@ -40,6 +40,27 @@ import BookUtil from "../../../utils/file/bookUtil";
 import Book from "../../../models/Book";
 import TokenService from "../../../utils/storage/tokenService";
 import { useAppStore } from "../../../store/useAppStore";
+import ICloudStatus from "./iCloudStatus";
+
+interface GitHubVerifyResult {
+  ok: boolean;
+  login?: string;
+  isPrivate?: boolean;
+  error?: string;
+}
+
+const GITHUB_TOKEN_URL =
+  "https://github.com/settings/personal-access-tokens/new";
+
+// 主进程 github-verify 返回的错误码 → i18n key
+const GITHUB_VERIFY_ERRORS: Record<string, string> = {
+  "invalid-repo": "Repository format should be owner/name",
+  "missing-token": "Missing parameters",
+  "bad-token": "Token is invalid or expired",
+  "repo-not-found": "Repository not found, or the token has no access to it",
+  "no-write-permission": "The token has no write permission for this repository",
+  network: "Unable to connect to GitHub, check your network or proxy",
+};
 
 export interface SettingInfoState {
   isKeepLocal: boolean;
@@ -410,6 +431,37 @@ const SyncSetting = () => {
     return true;
   };
 
+  // 校验令牌和仓库后再做一次真实的上传/删除测试，确保同步可用
+  const verifyGitHub = async (): Promise<boolean> => {
+    const { repo, token } = state.driveConfig;
+    if (!repo || !token) {
+      toast.error(t("Missing parameters"));
+      return false;
+    }
+    toast.loading(t("Testing connection..."), { id: "testing-connection-id" });
+    const result: GitHubVerifyResult = await window.electronAPI.invoke(
+      "github-verify",
+      { repo, token }
+    );
+    if (!result.ok) {
+      toast.error(
+        t(GITHUB_VERIFY_ERRORS[result.error || ""] || "Connection failed"),
+        { id: "testing-connection-id", duration: 6000 }
+      );
+      return false;
+    }
+    if (!result.isPrivate) {
+      const isConfirmed = await vexComfirmAsync(
+        "This repository is public. Your books, notes and reading data will be visible to everyone. Continue anyway?"
+      );
+      if (!isConfirmed) {
+        toast.dismiss("testing-connection-id");
+        return false;
+      }
+    }
+    return testConnection("github", state.driveConfig);
+  };
+
   const handleConfirmDrive = async () => {
     let flag = true;
     for (let item of driveInputConfig[settingDrive]) {
@@ -428,6 +480,7 @@ const SyncSetting = () => {
       settingDrive === "ftp" ||
       settingDrive === "sftp" ||
       settingDrive === "mega" ||
+      settingDrive === "github" ||
       settingDrive === "s3compatible"
     ) {
       toast.loading(i18n.t("Adding"), { id: "adding-sync-id" });
@@ -522,6 +575,10 @@ const SyncSetting = () => {
   const { showDefaultSyncAddGrid } = state;
   return (
     <>
+      <ICloudStatus
+        isBound={dataSourceList.includes("icloud")}
+        isDefault={defaultSyncOption === "icloud"}
+      />
       <div
         className="add-source-card"
         onClick={() => {
@@ -558,7 +615,7 @@ const SyncSetting = () => {
       {state.showDefaultSyncAddGrid &&
         !(isElectron && window.electronAPI?.runtime?.platform === "darwin") && (
           <p className="setting-option-subtitle" style={{ margin: "0 25px 20px" }}>
-            {t("Cloud sync is only available via iCloud Drive in the macOS desktop app")}
+            {t("Cloud sync is available via GitHub on desktop, and via iCloud Drive on macOS")}
           </p>
         )}
       {state.showDefaultSyncAddGrid && (
@@ -622,6 +679,7 @@ const SyncSetting = () => {
           settingDrive === "ftp" ||
           settingDrive === "sftp" ||
           settingDrive === "mega" ||
+          settingDrive === "github" ||
           settingDrive === "s3compatible" ? (
             <>
               {driveInputConfig[settingDrive].map((item) => {
@@ -775,6 +833,13 @@ const SyncSetting = () => {
             <div
               className="voice-add-confirm"
               onClick={async () => {
+                if (settingDrive === "github") {
+                  if (!(await verifyGitHub())) {
+                    return;
+                  }
+                  handleConfirmDrive();
+                  return;
+                }
                 if (settingDrive === "webdav") {
                   if (!(await checkCorsForDrive())) {
                     return;
@@ -840,6 +905,24 @@ const SyncSetting = () => {
                   }}
                 >
                   <Trans>Authorize</Trans>
+                </div>
+              )}
+              {settingDrive === "github" && (
+                <div
+                  className="voice-add-confirm"
+                  style={{ marginRight: "10px" }}
+                  onClick={() => handleJump(GITHUB_TOKEN_URL)}
+                >
+                  <Trans>Create token</Trans>
+                </div>
+              )}
+              {settingDrive === "github" && (
+                <div
+                  className="voice-add-confirm"
+                  style={{ marginRight: "10px" }}
+                  onClick={() => verifyGitHub()}
+                >
+                  <Trans>Test</Trans>
                 </div>
               )}
               {(settingDrive === "webdav" ||

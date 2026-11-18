@@ -34,7 +34,6 @@ import {
   getServerRegion,
   getTarBuffer,
   getTarEntries,
-  getTextRules,
   getZipBuffer,
   getZipEntries,
   isFixedLayoutComic,
@@ -78,7 +77,6 @@ export interface ViewerProps {
 }
 
 export interface ViewerState {
-  isTouch: boolean;
 
   isDisablePopup: boolean;
   chapter: string;
@@ -113,13 +111,9 @@ const Viewer = (props: ViewerProps) => {
   const isFitPage = useAppStore((s) => s.reader.isFitPage);
   const margin = useAppStore((s) => s.reader.margin);
   const isHideBackground = useAppStore((s) => s.reader.isHideBackground);
-  const readerBackgroundImage = useAppStore(
-    (s) => s.reader.readerBackgroundImage
-  );
   const isParagraphMode = useAppStore((s) => s.reader.isParagraphMode);
   const isReadingRuler = useAppStore((s) => s.reader.isReadingRuler);
   const isSpeedReading = useAppStore((s) => s.reader.isSpeedReading);
-  const isMergeWord = useAppStore((s) => s.reader.isMergeWord);
   const backgroundColor = useAppStore((s) => s.reader.backgroundColor);
   const isShowPageBorder = useAppStore((s) => s.reader.isShowPageBorder);
   const textOrientation = useAppStore((s) => s.reader.textOrientation);
@@ -157,7 +151,6 @@ const Viewer = (props: ViewerProps) => {
     isParagraphMode,
     isReadingRuler,
     isSpeedReading,
-    isMergeWord,
     isShowPageBorder,
     textOrientation,
     renderBookFunc,
@@ -181,7 +174,6 @@ const Viewer = (props: ViewerProps) => {
   const [state, setState] = useState<ViewerState>({
     rect: null,
     isDisablePopup: ConfigService.getReaderConfig("isDisablePopup") === "yes",
-    isTouch: ConfigService.getReaderConfig("isTouch") === "yes",
     chapterDocIndex: parseInt(
       ConfigService.getObjectConfig(currentBook.key, "recordLocation", {})
         .chapterDocIndex || 0
@@ -320,21 +312,6 @@ const Viewer = (props: ViewerProps) => {
       );
     }
 
-    const crop = ConfigService.getObjectConfig(
-      propsRef.current.currentBook.key,
-      "pdfCrop",
-      null
-    );
-    let pdfCrop;
-    if (crop) {
-      const top = Number(crop.top) || 0;
-      const bottom = Number(crop.bottom) || 0;
-      const left = Number(crop.left) || 0;
-      const right = Number(crop.right) || 0;
-      if (top !== 0 || bottom !== 0 || left !== 0 || right !== 0) {
-        pdfCrop = { top, bottom, left, right };
-      }
-    }
     const isScannedBook =
       propsRef.current.currentBook.description.indexOf("scanned") > -1;
     const rawOcrEngine = getDefaultOcrEngine(propsRef.current.currentBook);
@@ -416,7 +393,7 @@ const Viewer = (props: ViewerProps) => {
         animation: ConfigService.getReaderConfig("animation") || "none",
         convertChinese: ConfigService.getReaderConfig("convertChinese"),
         bookLayout: ConfigService.getReaderConfig("bookLayout") || "",
-        textRules: getTextRules(propsRef.current.currentBook.key),
+        textRules: [],
         contentColor: {
           enabled: ConfigService.getReaderConfig("isTextColor") === "yes",
         },
@@ -461,16 +438,8 @@ const Viewer = (props: ViewerProps) => {
             "0.6"
         ),
         pageGap: ConfigService.getReaderConfig("pageGap"),
-        isEnableKoReaderSync:
-          ConfigService.getReaderConfig("isEnableKoReaderSync") === "yes",
         password: getPdfPassword(propsRef.current.currentBook),
-        pdfCrop,
         scale: parseFloat(propsRef.current.scale),
-        isConvertPDF: ConfigService.getAllListConfig(
-          "convertPDFBooks"
-        ).includes(propsRef.current.currentBook.key)
-          ? "yes"
-          : "no",
         ocrLang,
         externalWorker,
         ocrEngine,
@@ -639,28 +608,21 @@ const Viewer = (props: ViewerProps) => {
       {}
     );
     if (chapterDocs.length > 0) {
-      if (
-        ConfigService.getReaderConfig("isEnableKoReaderSync") === "yes" &&
-        bookLocation.xpath
-      ) {
-        await rendition.goToXpath(bookLocation.xpath);
-      } else {
-        await rendition.goToPosition(
-          JSON.stringify({
-            text: bookLocation.text || "",
-            chapterTitle: bookLocation.chapterTitle || "",
-            page: bookLocation.page || "",
-            chapterDocIndex: bookLocation.chapterDocIndex || 0,
-            chapterHref: bookLocation.chapterHref || "",
-            count: bookLocation.hasOwnProperty("cfi")
-              ? "ignore"
-              : bookLocation.count || 0,
-            percentage: bookLocation.percentage,
-            cfi: bookLocation.cfi,
-            isFirst: true,
-          })
-        );
-      }
+      await rendition.goToPosition(
+        JSON.stringify({
+          text: bookLocation.text || "",
+          chapterTitle: bookLocation.chapterTitle || "",
+          page: bookLocation.page || "",
+          chapterDocIndex: bookLocation.chapterDocIndex || 0,
+          chapterHref: bookLocation.chapterHref || "",
+          count: bookLocation.hasOwnProperty("cfi")
+            ? "ignore"
+            : bookLocation.count || 0,
+          percentage: bookLocation.percentage,
+          cfi: bookLocation.cfi,
+          isFirst: true,
+        })
+      );
     }
     rendition.on("rendered", async () => {
       handleLocation();
@@ -813,7 +775,7 @@ const Viewer = (props: ViewerProps) => {
           event.preventDefault();
         }
 
-        if (!stateRef.current.isDisablePopup && !stateRef.current.isTouch)
+        if (!stateRef.current.isDisablePopup)
           return;
 
         if (
@@ -1048,14 +1010,12 @@ const Viewer = (props: ViewerProps) => {
           </>
         )}
       <PageWidget />
-      {((isHideBackground ||
-        isPaperLayout(readerMode, currentBook, isFitPage)) &&
-        !readerBackgroundImage) ||
+      {isHideBackground ||
+      isPaperLayout(readerMode, currentBook, isFitPage) ||
       textOrientation === "vertical" ||
       isShowPageBorder ||
       ((isParagraphMode || isReadingRuler || isSpeedReading) &&
-        !isReadingRawPDF(currentBook)) ||
-      isMergeWord ? null : currentBook.key ? (
+        !isReadingRawPDF(currentBook)) ? null : currentBook.key ? (
         <Background />
       ) : null}
     </>

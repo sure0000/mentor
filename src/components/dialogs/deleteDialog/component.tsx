@@ -90,19 +90,6 @@ const DeleteDialog = (props: DeleteDialogProps) => {
         resolve();
         return;
       }
-      if (
-        ConfigService.getReaderConfig("isDeleteOriginal") === "yes" &&
-        isElectron
-      ) {
-        let fullBook = await DatabaseService.getRecord(key, "books");
-        if (fullBook) {
-          const fs = window.electronAPI.fs;
-          let bookPath = fullBook.path;
-          if (fs.existsSync(bookPath)) {
-            fs.unlinkSync(bookPath);
-          }
-        }
-      }
       DatabaseService.deleteRecord(key, "books")
         .then(async () => {
           await BookUtil.deleteBook(key, format);

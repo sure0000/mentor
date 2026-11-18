@@ -10,18 +10,14 @@ import * as Kookit from "../../assets/lib/kookit.min";
 import { isElectron } from "react-device-detect";
 import BookUtil from "../../utils/file/bookUtil";
 import toast from "react-hot-toast";
-import DOMPurify from "dompurify";
 import {
   CommonTool,
   ConfigService,
 } from "../../assets/lib/kookit-extra-browser.min";
 import CoverUtil from "../../utils/file/coverUtil";
-import { Readability } from "@mozilla/readability";
 import {
   calculateFileMD5,
   clearComicTemp,
-  getTextRules,
-  isFixedLayoutBook,
   supportedFormats,
   throttle,
   vexComfirmAsync,
@@ -29,8 +25,6 @@ import {
 } from "../../utils/common";
 import DatabaseService from "../../utils/storage/databaseService";
 import { BookHelper } from "../../assets/lib/kookit.min";
-import { analyzeBookTitle } from "../../utils/request/reader";
-import { isAiAvailable } from "../../utils/aiReading/aiGateway";
 import { convertCajToPdf, isCajFormat } from "../../utils/file/cajUtil";
 import { buildImportRecords, importNoteRecords } from "../../utils/file/import";
 import { moveBooksToCategory } from "../../utils/reader/shelfUtil";
@@ -99,8 +93,6 @@ const ImportLocal = (props: ImportLocalProps) => {
   const shelfTitle = useAppStore((s) => s.sidebar.shelfTitle);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleReadingBook = useAppStore((s) => s.handleReadingBook);
-  const handleOPDSDialog = useAppStore((s) => s.handleOPDSDialog);
-  const handleAutoImportDialog = useAppStore((s) => s.handleAutoImportDialog);
   const handleImportBookFunc = useAppStore((s) => s.handleImportBookFunc);
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -248,8 +240,7 @@ const ImportLocal = (props: ImportLocalProps) => {
   const handleAddBook = (
     book: BookModel,
     buffer: ArrayBuffer,
-    sourcePath?: string,
-    isConverted = false
+    sourcePath?: string
   ) => {
     return new Promise<void>(async (resolve) => {
       toast.loading(
@@ -258,59 +249,13 @@ const ImportLocal = (props: ImportLocalProps) => {
           id: "add-book",
         }
       );
-      let isImportPath =
-        ConfigService.getReaderConfig("isImportPath") === "yes";
-      // A converted book has no readable source file, so its PDF always has to
-      // be written into the library; opening it in place is not an option.
-      const isPreventAdd =
-        !isConverted && ConfigService.getReaderConfig("isPreventAdd") === "yes";
-      if (isElectron && isImportPath) {
-        const fs = window.electronAPI.fs;
-        if (!book.path || !fs.existsSync(book.path)) {
-          isImportPath = false;
-        }
-      }
-      if (stateRef.current.isOpenFile) {
-        if (isPreventAdd) {
-          //ignore
-        } else if (ConfigService.getItem("defaultSyncOption")) {
-          await BookUtil.addBook(
-            book.key,
-            book.format.toLowerCase(),
-            buffer,
-            sourcePath
-          );
-          await CoverUtil.addCover(book);
-        } else if (isImportPath) {
-          await CoverUtil.addCover(book);
-          //ignore
-        } else {
-          await BookUtil.addBook(
-            book.key,
-            book.format.toLowerCase(),
-            buffer,
-            sourcePath
-          );
-          await CoverUtil.addCover(book);
-        }
-        if (isPreventAdd) {
-          handleJump(book);
-          setState({ isOpenFile: false });
-          toast.dismiss("add-book");
-          return resolve();
-        }
-      } else {
-        if (!isImportPath || ConfigService.getItem("defaultSyncOption")) {
-          await BookUtil.addBook(
-            book.key,
-            book.format.toLowerCase(),
-            buffer,
-            sourcePath
-          );
-        }
-
-        await CoverUtil.addCover(book);
-      }
+      await BookUtil.addBook(
+        book.key,
+        book.format.toLowerCase(),
+        buffer,
+        sourcePath
+      );
+      await CoverUtil.addCover(book);
 
       handleReadingBook(book);
       ConfigService.setListConfig(book.key, "recentBooks");
@@ -353,25 +298,6 @@ const ImportLocal = (props: ImportLocalProps) => {
           return resolve();
         });
     });
-  };
-
-  const analyzeBookMetadata = async (book: BookModel, bookName: string) => {
-    if (
-      ConfigService.getReaderConfig("isAIAnalyzeTitle") !== "yes" ||
-      !isAiAvailable() ||
-      book.name !== bookName
-    ) {
-      return;
-    }
-    try {
-      const response = await analyzeBookTitle(book.name);
-      if (response && response.code === 200 && response.data?.name) {
-        book.name = response.data.name;
-        book.author = response.data.author || book.author;
-      }
-    } catch (error) {
-      console.error(error, bookName);
-    }
   };
 
   const getMd5WithBrowser = async (file: File) => {
@@ -592,7 +518,6 @@ const ImportLocal = (props: ImportLocalProps) => {
         sourcePath,
         ""
       );
-      await analyzeBookMetadata(book, bookName);
       await handleAddBook(book, new ArrayBuffer(0), sourcePath);
       return resolve();
     } catch (error) {
@@ -629,8 +554,7 @@ const ImportLocal = (props: ImportLocalProps) => {
       file_content,
       fileSize,
       filePath,
-      recordPath,
-      false
+      recordPath
     );
     return resolve();
   };
@@ -684,8 +608,7 @@ const ImportLocal = (props: ImportLocalProps) => {
         // 书籍源文件在包内，磁盘上无可引用的原始路径，
         // 处理方式与 CAJ 转换后的 PDF 一致，必须写入书库
         "",
-        "",
-        false
+        ""
       );
       if (!innerBook || !innerBook.key) {
         return resolve();
@@ -752,8 +675,7 @@ const ImportLocal = (props: ImportLocalProps) => {
     file_content: ArrayBuffer,
     fileSize: number,
     filePath: string,
-    recordPath: string,
-    isConverted = false
+    recordPath: string
   ): Promise<BookModel | null> => {
     let result: BookModel;
     try {
@@ -780,7 +702,6 @@ const ImportLocal = (props: ImportLocalProps) => {
         fileSize = file_content.byteLength;
         filePath = "";
         recordPath = "";
-        isConverted = true;
       }
       let rendition = BookHelper.getRendition(
         file_content,
@@ -791,7 +712,7 @@ const ImportLocal = (props: ImportLocalProps) => {
           animation: ConfigService.getReaderConfig("animation") || "none",
           convertChinese: ConfigService.getReaderConfig("convertChinese"),
           bookLayout: ConfigService.getReaderConfig("bookLayout"),
-          textRules: getTextRules(),
+          textRules: [],
           codeHighlight: ConfigService.getReaderConfig("codeHighlight") || "",
           fullTranslationMode: "no",
           textOrientation: ConfigService.getReaderConfig("textOrientation"),
@@ -813,17 +734,6 @@ const ImportLocal = (props: ImportLocalProps) => {
         file_content,
         rendition
       );
-
-      if (
-        ConfigService.getReaderConfig("isPrecacheBook") === "yes" &&
-        extension !== "pdf" &&
-        !isFixedLayoutBook(result)
-      ) {
-        let cache = await rendition.preCache(file_content);
-        if (cache !== "err" || cache) {
-          await BookUtil.addBook("cache-" + result.key, "zip", cache);
-        }
-      }
     } catch (error) {
       console.error(error, bookName);
       toast.error(t("Import failed") + ": " + bookName, {
@@ -842,247 +752,21 @@ const ImportLocal = (props: ImportLocalProps) => {
       });
       return null;
     }
-    await analyzeBookMetadata(result as BookModel, bookName);
     await handleAddBook(
       result as BookModel,
       file_content as ArrayBuffer,
-      filePath,
-      isConverted
+      filePath
     );
 
     return result as BookModel;
   };
 
-  const decodeHtmlEntities = (value: string) => {
-    if (!value) return "";
-    const doc = new DOMParser().parseFromString(value, "text/html");
-    return doc.documentElement.textContent || value;
-  };
-
-  const escapeHtmlValue = (value: string) => {
-    return (value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  };
-
-  const makeUrlsAbsolute = (rootDoc: Document, baseUrl: string) => {
-    const toAbs = (value: string | null) => {
-      if (!value) return value;
-      if (value.startsWith("data:")) return value;
-      try {
-        return new URL(value, baseUrl).toString();
-      } catch {
-        return value;
-      }
-    };
-
-    rootDoc.querySelectorAll("a[href]").forEach((a) => {
-      const href = a.getAttribute("href");
-      const next = toAbs(href);
-      if (next) a.setAttribute("href", next);
-    });
-    rootDoc.querySelectorAll("img[src]").forEach((img) => {
-      const src = img.getAttribute("src");
-      const next = toAbs(src);
-      if (next) img.setAttribute("src", next);
-    });
-    ["data-src", "data-original", "data-lazy-src"].forEach((attr) => {
-      rootDoc.querySelectorAll(`img[${attr}]`).forEach((img) => {
-        const value = img.getAttribute(attr);
-        const next = toAbs(value);
-        if (next) img.setAttribute(attr, next);
-      });
-    });
-    rootDoc.querySelectorAll("link[href]").forEach((l) => {
-      const href = l.getAttribute("href");
-      const next = toAbs(href);
-      if (next) l.setAttribute("href", next);
-    });
-  };
-
-  const fetchImageAsDataUrl = async (imageUrl: string): Promise<string | null> => {
-    if (!imageUrl || imageUrl.startsWith("data:")) {
-      return imageUrl || null;
-    }
-    if (imageUrl.startsWith("blob:")) {
-      return null;
-    }
-    try {
-      const response = await fetch(imageUrl);
-      if (!response.ok) return null;
-      const blob = await response.blob();
-      const contentType = (
-        response.headers.get("content-type") ||
-        blob.type ||
-        ""
-      ).toLowerCase();
-      if (contentType && !contentType.startsWith("image/")) {
-        return null;
-      }
-      return await CoverUtil.blobToBase64(blob);
-    } catch {
-      return null;
-    }
-  };
-
-  const resolveImageUrl = (img: Element): string | null => {
-    const candidates = [
-      img.getAttribute("src"),
-      img.getAttribute("data-src"),
-      img.getAttribute("data-original"),
-      img.getAttribute("data-lazy-src"),
-    ].filter(Boolean) as string[];
-
-    for (const value of candidates) {
-      if (value.startsWith("data:")) {
-        if (value.length > 200) return value;
-        continue;
-      }
-      if (!value.startsWith("blob:")) return value;
-    }
-    return null;
-  };
-
-  const embedImagesAsBase64 = async (rootDoc: Document, toastId: string) => {
-    const images = Array.from(rootDoc.querySelectorAll("img"));
-    const total = images.length;
-    if (total === 0) return;
-
-    for (let i = 0; i < images.length; i++) {
-      const img = images[i];
-      const imageUrl = resolveImageUrl(img);
-      if (!imageUrl) continue;
-
-      if (imageUrl.startsWith("data:")) {
-        img.setAttribute("src", imageUrl);
-        continue;
-      }
-
-      const dataUrl = await fetchImageAsDataUrl(imageUrl);
-      if (dataUrl) {
-        img.setAttribute("src", dataUrl);
-        img.removeAttribute("data-src");
-        img.removeAttribute("data-original");
-        img.removeAttribute("data-lazy-src");
-        img.removeAttribute("srcset");
-      }
-
-      const pct = Math.round(((i + 1) / total) * 100);
-      toast.loading(t("Downloading") + ": " + pct + "%", {
-        id: toastId,
-        position: "bottom-center",
-      });
-    }
-  };
-
-  const importHtmlFromURL = async (
-    url: string,
-    urlFileName: string,
-    toastId: string
-  ) => {
-    toast.loading(t("Downloading") + ": 0%", {
-      id: toastId,
-      position: "bottom-center",
-    });
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const contentType = (
-      response.headers.get("content-type") || ""
-    ).toLowerCase();
-    const looksLikeHtml =
-      contentType.includes("text/html") ||
-      contentType.includes("application/xhtml+xml") ||
-      contentType.includes("text/plain") ||
-      contentType.includes("application/xml") ||
-      contentType.includes("text/xml") ||
-      !contentType;
-
-    if (!looksLikeHtml) {
-      throw new Error(
-        t("Unsupported file format") +
-          ": " +
-          (contentType || "unknown")
-      );
-    }
-
-    const htmlText = await response.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlText, "text/html");
-
-    // 1) Try better main-content extraction (more aggressive clipping).
-    let extracted: any = null;
-    try {
-      const reader = new Readability(doc);
-      extracted = reader.parse();
-    } catch (e) {
-      extracted = null;
-    }
-
-    const rawTitle =
-      extracted?.title ||
-      doc.title ||
-      (urlFileName || "book").replace(/\.[^/.]+$/, "") ||
-      "book";
-    const decodedTitle = decodeHtmlEntities(rawTitle).trim() || "book";
-
-    // 2) Prefer extracted content; fallback to body html.
-    const extractedContent = extracted?.content || doc.body?.innerHTML || "";
-
-    // 3) Resolve relative links/images to absolute using the original URL.
-    const contentDoc = parser.parseFromString(extractedContent, "text/html");
-    if (contentDoc?.body) {
-      makeUrlsAbsolute(contentDoc, url);
-      await embedImagesAsBase64(contentDoc, toastId);
-    }
-
-    // 4) Sanitize & rebuild as a standalone html "book" file.
-    const sanitizedBody = DOMPurify.sanitize(
-      contentDoc.body?.innerHTML || extractedContent,
-      {
-        USE_PROFILES: { html: true },
-      }
-    );
-
-    const safeTitle = escapeHtmlValue(decodedTitle);
-    const finalHtmlFileName = `${decodedTitle.replace(/[/\\?%*:|"<>]/g, "-")}.html`;
-    const finalHtml = `<!doctype html><html><head><meta charset="utf-8"/><title>${safeTitle}</title></head><body>${sanitizedBody}</body></html>`;
-
-    const blob = new Blob([new TextEncoder().encode(finalHtml)], {
-      type: "text/html",
-    });
-    const file = new File([blob], finalHtmlFileName);
-    file.path = url; // Helps bookkeeping; works in Electron, no harm in browser.
-
-    toast.dismiss(toastId);
-    await getMd5WithBrowser(file);
-  };
   const toggleMoreOptions = () => {
     setState((prevState) => ({
       isMoreOptionsVisible: !prevState.isMoreOptionsVisible,
     }));
   };
 
-  // Handle OPDS import
-  const handleOPDSImport = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent triggering the Dropzone
-    setState({ isMoreOptionsVisible: false });
-    handleOPDSDialog(true);
-  };
-
-  // Handle auto import folder
-  const handleAutoImport = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent triggering the Dropzone
-    setState({ isMoreOptionsVisible: false });
-    handleAutoImportDialog(true);
-  };
-
-  // Handle URL import
   const handleURLImport = async (e?: React.MouseEvent, externalUrl?: string) => {
     e?.stopPropagation();
     setState({ isMoreOptionsVisible: false });
@@ -1107,21 +791,8 @@ const ImportLocal = (props: ImportLocalProps) => {
     );
     const ext = "." + fileName.split(".").pop()?.toLowerCase();
     const toastId = "url-download";
-    if (
-      !supportedFormats
-        .filter((item) => item !== ".html" && item !== ".htm")
-        .includes(ext)
-    ) {
-      try {
-        await importHtmlFromURL(trimmedUrl, fileName, toastId);
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        toast.error(t("Import failed") + ": " + errorMessage, {
-          id: toastId,
-        });
-        console.error("URL import error:", error);
-      }
+    if (!supportedFormats.includes(ext)) {
+      toast.error(t("Unsupported file format") + ": " + ext);
       return;
     }
 
@@ -1370,30 +1041,12 @@ const ImportLocal = (props: ImportLocalProps) => {
                   </div>
                   <div
                     className="more-option-item"
-                    onClick={handleOPDSImport}
-                  >
-                    <span className="more-option-text">
-                      <Trans>From OPDS</Trans>
-                    </span>
-                  </div>
-                  <div
-                    className="more-option-item"
                     onClick={handleURLImport}
                   >
                     <span className="more-option-text">
                       <Trans>From URL</Trans>
                     </span>
                   </div>
-                  {isElectron && (
-                    <div
-                      className="more-option-item"
-                      onClick={handleAutoImport}
-                    >
-                      <span className="more-option-text">
-                        <Trans>Auto import folder</Trans>
-                      </span>
-                    </div>
-                  )}
                 </div>
               )}
             </div>

@@ -10,8 +10,6 @@ export type ShortcutBinding = {
 export type ShortcutAction =
   | "nextPage"
   | "prevPage"
-  | "bossKey"
-  | "toggleFishMode"
   | "toggleFullscreen"
   | "exitReader"
   | "searchInBook"
@@ -36,8 +34,6 @@ export type ShortcutConfig = Record<ShortcutAction, ShortcutBinding[]>;
 export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   "nextPage",
   "prevPage",
-  "bossKey",
-  "toggleFishMode",
   "toggleFullscreen",
   "exitReader",
   "searchInBook",
@@ -166,8 +162,6 @@ export const DEFAULT_SHORTCUT_CONFIG: ShortcutConfig = {
     { keyCode: 34 },
   ],
   prevPage: [{ keyCode: 38 }, { keyCode: 37 }, { keyCode: 33 }],
-  bossKey: [{ keyCode: 9 }],
-  toggleFishMode: [{ keyCode: 123 }],
   toggleFullscreen: [{ keyCode: 122 }],
   exitReader: [{ keyCode: 27 }],
   searchInBook: [{ keyCode: 70, ctrl: true }],

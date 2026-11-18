@@ -160,12 +160,6 @@ export const exportBooks = async (
   }
 };
 export const getBookName = (item: Book) => {
-  if (ConfigService.getReaderConfig("isExportOriginalName") === "yes") {
-    let filename =
-      item.path.replace(/\\/g, "/").split("/").pop() ||
-      item.name + `.${item.format.toLowerCase()}`;
-    return filename;
-  }
   return item.name + `.${item.format.toLocaleLowerCase()}`;
 };
 

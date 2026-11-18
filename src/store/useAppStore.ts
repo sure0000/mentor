@@ -109,16 +109,13 @@ const initialReader = {
   currentChapter: "",
   currentChapterIndex: 0,
   highlight: highlightUtil.getNoteHighlightValue() as HighlightValue,
-  backgroundColor:
-    ConfigService.getReaderConfig("isMergeWord") === "yes"
-      ? "rgba(0,0,0,0)"
-      : ConfigService.getReaderConfig("backgroundColor")
-        ? ConfigService.getReaderConfig("backgroundColor")
-        : ConfigService.getReaderConfig("appSkin") === "night" ||
-            (ConfigService.getReaderConfig("appSkin") === "system" &&
-              ConfigService.getReaderConfig("isOSNight") === "yes")
-          ? "rgba(44,47,49,1)"
-          : "rgba(255,255,255,1)",
+  backgroundColor: ConfigService.getReaderConfig("backgroundColor")
+    ? ConfigService.getReaderConfig("backgroundColor")
+    : ConfigService.getReaderConfig("appSkin") === "night" ||
+        (ConfigService.getReaderConfig("appSkin") === "system" &&
+          ConfigService.getReaderConfig("isOSNight") === "yes")
+      ? "rgba(44,47,49,1)"
+      : "rgba(255,255,255,1)",
   noteKey: "",
   originalText: "",
   originalSentence: "",
@@ -129,9 +126,7 @@ const initialReader = {
   margin: ConfigService.getReaderConfig("margin") || "0",
   section: null as any,
   readerMode: "double",
-  isConvertOpen: false,
   isScaleOpen: false,
-  isPdfCropOpen: false,
   isStudyLangOpen: false,
   isAssistReadOpen: false,
   isSpeechOpen: false,
@@ -149,12 +144,9 @@ const initialReader = {
   isReadingRuler: ConfigService.getReaderConfig("isReadingRuler") === "yes",
   isSpeedReading: ConfigService.getReaderConfig("isSpeedReading") === "yes",
   isAutoReading: ConfigService.getReaderConfig("isAutoReading") === "yes",
-  isMergeWord: ConfigService.getReaderConfig("isMergeWord") === "yes",
   isShowPageBorder: ConfigService.getReaderConfig("isShowPageBorder") === "yes",
   textOrientation: ConfigService.getReaderConfig("textOrientation") || "",
   jumpPosition: null as object | null,
-  readerBackgroundImage:
-    ConfigService.getReaderConfig("readerBackgroundImage") || "",
 };
 
 const initialProgressPanel = {
@@ -175,11 +167,8 @@ const initialSidebar = {
 
 const initialBackupPage = {
   isBackup: false,
-  isOpenLocalFileDialog: false,
   isOpenTokenDialog: false,
   isOpenImportDialog: false,
-  isOpenOPDSDialog: false,
-  isOpenAutoImportDialog: false,
   isOpenPopupOptionDialog: false,
   popupOptionUpdateIndex: 0,
   dataSourceList: [] as string[],
@@ -213,7 +202,6 @@ export type AppActionName =
   | "handleAddDialog"
   | "handleAnnotationDialog"
   | "handleAssistReadDialog"
-  | "handleAutoImportDialog"
   | "handleAutoReading"
   | "handleBackgroundColor"
   | "handleBookSortCode"
@@ -226,7 +214,6 @@ export type AppActionName =
   | "handleCollectionDialog"
   | "handleCollectionDialogBooks"
   | "handleCollectionDialogKey"
-  | "handleConvertDialog"
   | "handleCurrentChapter"
   | "handleCurrentChapterIndex"
   | "handleCurrentCollectionKey"
@@ -260,29 +247,24 @@ export type AppActionName =
   | "handleJumpPosition"
   | "handleLoadMore"
   | "handleLoadingDialog"
-  | "handleLocalFileDialog"
   | "handleMargin"
   | "handleMenuMode"
-  | "handleMergeWord"
   | "handleMode"
   | "handleNavLock"
   | "handleNewWarning"
   | "handleNoteKey"
   | "handleNoteSortCode"
   | "handleNotes"
-  | "handleOPDSDialog"
   | "handleOpenMenu"
   | "handleOriginalSentence"
   | "handleOriginalText"
   | "handleParagraphMode"
-  | "handlePdfCropDialog"
   | "handlePercentage"
   | "handlePluginSettingTab"
   | "handlePlugins"
   | "handlePopupOptionDialog"
   | "handlePopupOptionUpdate"
   | "handleQuoteText"
-  | "handleReaderBackgroundImage"
   | "handleReaderMode"
   | "handleReadingBook"
   | "handleReadingRuler"
@@ -690,7 +672,7 @@ export const useAppStore = create<AppState>()((set, get) => {
               )
             );
           }
-          if (ConfigService.getReaderConfig("isDisableAI") !== "yes") {
+          {
             // 二开：原「官方 AI」插件改为走统一 AI 网关（Claude Code / 自定义接口），
             // 沿用原 key 以兼容用户已保存的服务选择。
             pluginList.push(
@@ -829,11 +811,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     handleOriginalSentence: (originalSentence: string) =>
       setReader({ originalSentence }),
     handleHighlight: (highlight: HighlightValue) => setReader({ highlight }),
-    handleConvertDialog: (isConvertOpen: boolean) =>
-      setReader({ isConvertOpen }),
     handleScalePageDialog: (isScaleOpen: boolean) => setReader({ isScaleOpen }),
-    handlePdfCropDialog: (isPdfCropOpen: boolean) =>
-      setReader({ isPdfCropOpen }),
     handleStudyLangDialog: (isStudyLangOpen: boolean) =>
       setReader({ isStudyLangOpen }),
     handleAssistReadDialog: (isAssistReadOpen: boolean) =>
@@ -872,13 +850,10 @@ export const useAppStore = create<AppState>()((set, get) => {
     handleSpeedReading: (isSpeedReading: boolean) =>
       setReader({ isSpeedReading }),
     handleAutoReading: (isAutoReading: boolean) => setReader({ isAutoReading }),
-    handleMergeWord: (isMergeWord: boolean) => setReader({ isMergeWord }),
     handleShowBorder: (isShowPageBorder: boolean) =>
       setReader({ isShowPageBorder }),
     handleFitPage: (isFitPage: boolean) => setReader({ isFitPage }),
     handleMargin: (margin: string) => setReader({ margin }),
-    handleReaderBackgroundImage: (readerBackgroundImage: string) =>
-      setReader({ readerBackgroundImage }),
     handleSettingLock: (isSettingLocked: boolean) =>
       setReader({ isSettingLocked }),
     handleHideFooter: (isHideFooter: boolean) => setReader({ isHideFooter }),
@@ -946,14 +921,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     handleMode: (mode: string) => setSidebar({ mode }),
 
     // backupPage
-    handleLocalFileDialog: (isOpen: boolean) =>
-      setBackupPage({ isOpenLocalFileDialog: isOpen }),
     handleImportDialog: (mode: boolean) =>
       setBackupPage({ isOpenImportDialog: mode }),
-    handleOPDSDialog: (mode: boolean) =>
-      setBackupPage({ isOpenOPDSDialog: mode }),
-    handleAutoImportDialog: (mode: boolean) =>
-      setBackupPage({ isOpenAutoImportDialog: mode }),
     handlePopupOptionDialog: (isOpen: boolean) =>
       setBackupPage({ isOpenPopupOptionDialog: isOpen }),
     handlePopupOptionUpdate: (popupOptionUpdateIndex: number) =>

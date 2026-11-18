@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 // utils/common 依赖浏览器环境的库，这里只需要 supportedFormats
 vi.mock("../common", () => ({ supportedFormats: [".epub", ".mobi"] }));
 import { bookSourceList } from "../../constants/bookSourceList";
-import { buildSearchUrl, toStoreBook, toStoreBookDetail } from "./bookStore";
+import {
+  buildSearchUrl,
+  isTitleMatch,
+  toStoreBook,
+  toStoreBookDetail,
+} from "./bookStore";
 import type { OPDSEntry, OPDSLink } from "./opds";
 
 const gutenberg = bookSourceList.find((s) => s.id === "gutenberg")!;
@@ -117,5 +122,45 @@ describe("bookStore", () => {
     expect(buildSearchUrl(gutenberg, " 紅樓 ")).toBe(
       "https://www.gutenberg.org/ebooks/search.opds/?query=%E7%B4%85%E6%A8%93"
     );
+  });
+
+  it("Atom enclosure 下载链接视为可下载书籍", () => {
+    const source = bookSourceList.find((s) => s.id === "standardebooks")!;
+    const book = toStoreBook(
+      entry([
+        {
+          href: "https://se/a.epub",
+          type: "application/epub+zip",
+          rel: "enclosure",
+        },
+      ]),
+      source
+    );
+    expect(book?.entry).not.toBeNull();
+    expect(book?.detailUrl).toBe("");
+  });
+
+  it("所有书源 id 唯一且至少有一个分类", () => {
+    const ids = bookSourceList.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const s of bookSourceList) {
+      expect(s.categories.length).toBeGreaterThan(0);
+      expect(s.searchTemplate).toContain("{searchTerms}");
+    }
+  });
+
+  it("书名匹配忽略大小写、标点和副标题", () => {
+    expect(isTitleMatch("Frankenstein; Or, The Modern Prometheus", ["Frankenstein"])).toBe(true);
+    expect(isTitleMatch("The Adventures of Sherlock Holmes", ["the adventures of sherlock holmes"])).toBe(true);
+    expect(isTitleMatch("红楼梦（全二册）", ["红楼梦"])).toBe(true);
+    expect(isTitleMatch("Pride and Prejudice", ["Frankenstein"])).toBe(false);
+    // 单字书名容易误匹配，不参与比对
+    expect(isTitleMatch("It", ["I"])).toBe(false);
+  });
+
+  it("每个书源都配置了网站搜索页", () => {
+    for (const s of bookSourceList) {
+      expect(s.webSearchTemplate).toMatch(/^https:\/\/.*\{searchTerms\}/);
+    }
   });
 });

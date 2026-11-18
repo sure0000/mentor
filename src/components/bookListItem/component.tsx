@@ -6,7 +6,6 @@ import BookCoverFrame from "../bookCoverFrame";
 import ActionDialog from "../dialogs/actionDialog";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { useBookItem } from "../bookItem/useBookItem";
-import { getFileNameWithoutExtension } from "../../utils/common";
 import {
   clampMenuPosition,
   estimateMenuHeight,
@@ -147,12 +146,7 @@ const BookListItem: React.FC<BookItemProps> = (props) => {
                 {...{
                   format: props.book.format,
                   title:
-                    ConfigService.getReaderConfig("isUseOriginalName") === "yes"
-                      ? getFileNameWithoutExtension(
-                          props.book.path,
-                          props.book.name
-                        )
-                      : props.book.name,
+                    props.book.name,
                   scale: 0.43,
                 }}
               />
@@ -226,9 +220,7 @@ const BookListItem: React.FC<BookItemProps> = (props) => {
                   )}
                 </span>
               )}
-              {ConfigService.getReaderConfig("isUseOriginalName") === "yes"
-                ? getFileNameWithoutExtension(props.book.path, props.book.name)
-                : props.book.name}
+              {props.book.name}
             </div>
           </div>
 

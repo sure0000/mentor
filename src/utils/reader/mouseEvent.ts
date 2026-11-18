@@ -10,7 +10,6 @@ import {
   sleep,
 } from "../common";
 import { useAppStore } from "../../store/useAppStore";
-import Hammer from "hammerjs";
 import TTSUtil from "./ttsUtil";
 import {
   getShortcutConfig,
@@ -297,12 +296,6 @@ const mouseChrome = async (
 
 const handleShortcut = (event: any, book: Book, rendition?: any) => {
   const shortcuts = getShortcutConfig();
-  if (matchShortcut(event, shortcuts.bossKey)) {
-    if (isElectron) {
-      event.preventDefault();
-      window.electronAPI.invoke("hide-reader", "ping");
-    }
-  }
   if (matchShortcut(event, shortcuts.exitReader)) {
     if (ConfigService.getReaderConfig("isFullscreen") === "yes") {
       ConfigService.setReaderConfig("isFullscreen", "no");
@@ -328,16 +321,6 @@ const handleShortcut = (event: any, book: Book, rendition?: any) => {
     const entering = ConfigService.getReaderConfig("isFullscreen") !== "yes";
     entering ? handleFullScreen() : handleExitFullScreen();
     ConfigService.setReaderConfig("isFullscreen", entering ? "yes" : "no");
-  }
-  if (matchShortcut(event, shortcuts.toggleFishMode)) {
-    if (isElectron && ConfigService.getReaderConfig("isMergeWord")) {
-      event.preventDefault();
-      ConfigService.setReaderConfig(
-        "isMergeWord",
-        ConfigService.getReaderConfig("isMergeWord") === "yes" ? "no" : "yes"
-      );
-      window.electronAPI.invoke("switch-moyu", "ping");
-    }
   }
   if (matchShortcut(event, shortcuts.searchInBook)) {
     event.preventDefault();
@@ -378,20 +361,6 @@ const handleShortcut = (event: any, book: Book, rendition?: any) => {
       }
       break;
     }
-  }
-};
-
-const gesture = async (rendition: any, type: string) => {
-  const revertDirection = isRevertDirectionReading(rendition);
-  if (type === "panup") {
-    await rendition.next();
-  } else if (type === "pandown") {
-    await rendition.prev();
-  } else if (type === "panleft") {
-    // RTL 下水平手势整体镜像：左滑上一页，右滑下一页
-    await (revertDirection ? rendition.prev() : rendition.next());
-  } else if (type === "panright") {
-    await (revertDirection ? rendition.next() : rendition.prev());
   }
 };
 
@@ -527,20 +496,6 @@ export const bindHtmlEvent = (
     },
     { passive: false }
   );
-
-  if (ConfigService.getReaderConfig("isTouch") === "yes") {
-    const mc = new Hammer(doc);
-    mc.on("panleft panright panup pandown", async (event: any) => {
-      if (readerMode === "scroll") {
-        return;
-      }
-      if (lock || event.pointerType === "mouse") return;
-      lock = true;
-      await gesture(rendition, event.type);
-      handleLocation(key, rendition);
-      setTimeout(() => (lock = false), getThrottleTime());
-    });
-  }
 
   doc.addEventListener(
     "touchend",

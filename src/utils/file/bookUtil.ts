@@ -347,7 +347,6 @@ class BookUtil {
           url: `${window.location.href.split("#")[0]}#/${ref}/${
             book.key
           }?title=${book.name}&file=${book.key}`,
-          isMergeWord: ConfigService.getReaderConfig("isMergeWord"),
           isAutoFullscreen: ConfigService.getReaderConfig("isAutoFullscreen"),
           isAutoMaximize: ConfigService.getReaderConfig("isAutoMaximize"),
           isPreventSleep: ConfigService.getReaderConfig("isPreventSleep"),

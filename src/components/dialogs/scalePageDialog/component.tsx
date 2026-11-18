@@ -9,11 +9,13 @@ import {
 import SliderList from "../../readerSettings/sliderList";
 import SwitchRow from "../../readerSettings/switchRow";
 import { useAppStore } from "../../../store/useAppStore";
+import { getFitPageConfigKey } from "../../../utils/common";
 import "./scalePageDialog.css";
 
 const ScalePageDialog = () => {
   const scale = useAppStore((s) => s.reader.scale);
   const isFitPage = useAppStore((s) => s.reader.isFitPage);
+  const currentBook = useAppStore((s) => s.book.currentBook);
   const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
   const handleScale = useAppStore((s) => s.handleScale);
   const handleFitPage = useAppStore((s) => s.handleFitPage);
@@ -76,7 +78,10 @@ const ScalePageDialog = () => {
           isEnabled={isFitPage}
           onClick={() => {
             const next = !isFitPage;
-            ConfigService.setReaderConfig("isFitPage", next ? "yes" : "no");
+            ConfigService.setReaderConfig(
+              getFitPageConfigKey(currentBook),
+              next ? "yes" : "no"
+            );
             handleFitPage(next);
             toast(t("Change successful"));
             setTimeout(() => {

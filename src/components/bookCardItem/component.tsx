@@ -6,7 +6,6 @@ import BookCoverFrame from "../bookCoverFrame";
 import { useTranslation } from "react-i18next";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { useBookItem } from "../bookItem/useBookItem";
-import { getFileNameWithoutExtension } from "../../utils/common";
 import {
   clampMenuPosition,
   estimateMenuHeight,
@@ -181,12 +180,7 @@ const BookCardItem: React.FC<BookCardProps> = (props) => {
                 {...{
                   format: props.book.format,
                   title:
-                    ConfigService.getReaderConfig("isUseOriginalName") === "yes"
-                      ? getFileNameWithoutExtension(
-                          props.book.path,
-                          props.book.name
-                        )
-                      : props.book.name,
+                    props.book.name,
                   viewMode: "card",
                   scale:
                     1 *
@@ -254,9 +248,7 @@ const BookCardItem: React.FC<BookCardProps> = (props) => {
           {!isBookOffline && (
             <span className="icon-cloud book-download-action"></span>
           )}
-          {ConfigService.getReaderConfig("isUseOriginalName") === "yes"
-            ? getFileNameWithoutExtension(props.book.path, props.book.name)
-            : props.book.name}
+          {props.book.name}
         </p>
         <div className="reading-progress-icon">
           <div style={{ position: "relative", left: "4px" }}>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import "./background.css";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import {
@@ -6,7 +6,6 @@ import {
   getRightPanelInset,
   throttle,
 } from "../../utils/common";
-import BackgroundUtil from "../../utils/file/backgroundUtil";
 import { useAppStore } from "../../store/useAppStore";
 import { useLatest } from "../../utils/hooks/useLatest";
 
@@ -20,15 +19,11 @@ const Background = () => {
   const scale = useAppStore((s) => s.reader.scale);
   const isFitPage = useAppStore((s) => s.reader.isFitPage);
   const margin = useAppStore((s) => s.reader.margin);
-  const readerBackgroundImage = useAppStore(
-    (s) => s.reader.readerBackgroundImage
-  );
   const [isSingle, setIsSingle] = useState(readerMode !== "double");
   const [pageSize, setPageSize] = useState<{
     pageOffset: string;
     pageWidth: string;
   }>({ pageOffset: "", pageWidth: "" });
-  const [readerBackgroundUrl, setReaderBackgroundUrl] = useState("");
   const currentProps = {
     readerMode,
     scale,
@@ -39,19 +34,6 @@ const Background = () => {
     isFitPage,
   };
   const propsRef = useLatest(currentProps);
-  const isFirstBackgroundEffect = useRef(true);
-
-  const loadReaderBackground = async (imageId?: string) => {
-    const id =
-      imageId ?? ConfigService.getReaderConfig("readerBackgroundImage") ?? "";
-    if (!id) {
-      setReaderBackgroundUrl("");
-      return;
-    }
-    const meta = BackgroundUtil.getImageMeta(id);
-    const url = await BackgroundUtil.loadImage(id, meta?.extension);
-    setReaderBackgroundUrl(url || "");
-  };
 
   useEffect(() => {
     const current = propsRef.current;
@@ -65,7 +47,6 @@ const Background = () => {
         current.isFitPage
       )
     );
-    loadReaderBackground();
     const resizeHandler = throttle(() => {
       const latest = propsRef.current;
       setPageSize(
@@ -110,23 +91,8 @@ const Background = () => {
     setIsSingle(readerMode !== "double");
   }, [readerMode]);
 
-  useEffect(() => {
-    if (isFirstBackgroundEffect.current) {
-      isFirstBackgroundEffect.current = false;
-      return;
-    }
-    loadReaderBackground(readerBackgroundImage ?? "");
-  }, [readerBackgroundImage]);
-
   return (
     <>
-      {readerBackgroundUrl && (
-        <div
-          className="reader-background-image"
-          style={{ backgroundImage: `url("${readerBackgroundUrl}")` }}
-        ></div>
-      )}
-
       {!isHideBackground && (
         <>
           <div

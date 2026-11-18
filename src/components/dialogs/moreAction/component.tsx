@@ -21,7 +21,6 @@ import * as Kookit from "../../../assets/lib/kookit.min";
 import {
   getPdfPassword,
   getStorageLocation,
-  getTextRules,
   isFixedLayoutBook,
 } from "../../../utils/common";
 import { BookHelper } from "../../../assets/lib/kookit.min";
@@ -409,7 +408,7 @@ const MoreAction = (
                     convertChinese:
                       ConfigService.getReaderConfig("convertChinese"),
                     bookLayout: ConfigService.getReaderConfig("bookLayout"),
-                    textRules: getTextRules(currentBook.key),
+                    textRules: [],
                     codeHighlight:
                       ConfigService.getReaderConfig("codeHighlight") || "",
                     fullTranslationMode: "no",

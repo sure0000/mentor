@@ -7,7 +7,6 @@ import ImportLocal from "../../components/importLocal";
 import {
   ConfigService,
   KookitConfig,
-  KOReaderUtil,
   CollectionUtil,
 } from "../../assets/lib/kookit-extra-browser.min";
 import { generateSnapshot } from "../../utils/file/backup";
@@ -27,14 +26,10 @@ import BookUtil from "../../utils/file/bookUtil";
 import {
   checkBrokenDatabase,
   checkMissingBook,
-  getBookPartialMd5,
   getTaskStats,
-  scanFolderForNewBooks,
   showTaskProgress,
-  AUTO_IMPORT_FOLDERS_KEY,
 } from "../../utils/common";
 import { driveList } from "../../constants/driveList";
-import { LocalFileManager } from "../../utils/file/localFile";
 import TokenService from "../../utils/storage/tokenService";
 import { removeUnsupportedSyncSources } from "../../utils/request/thirdparty";
 import { useAppStore } from "../../store/useAppStore";
@@ -56,7 +51,6 @@ const Header = (props: HeaderProps) => {
   const currentBook = useAppStore((s) => s.book.currentBook);
   const isSortDisplay = useAppStore((s) => s.manager.isSortDisplay);
   const handleSortDisplay = useAppStore((s) => s.handleSortDisplay);
-  const handleLocalFileDialog = useAppStore((s) => s.handleLocalFileDialog);
   const handleSetting = useAppStore((s) => s.handleSetting);
   const handleSettingMode = useAppStore((s) => s.handleSettingMode);
   const handleAbout = useAppStore((s) => s.handleAbout);
@@ -87,7 +81,6 @@ const Header = (props: HeaderProps) => {
   const scheduledSyncTimerRef = useRef<any>(null);
   const isSyncingRef = useRef<boolean>(false);
   const isSyncRef = useRef<boolean>(false);
-  const hasRunAutoImportRef = useRef<boolean>(false);
   const readingFinishedHandlerRef = useRef<((config?: any) => void) | null>(
     null
   );
@@ -134,28 +127,6 @@ const Header = (props: HeaderProps) => {
         await handleCloudSyncRef.current();
       }
     }, intervalMs);
-  };
-
-  const autoScanFoldersOnStart = async () => {
-    if (!isElectron || hasRunAutoImportRef.current) return;
-    hasRunAutoImportRef.current = true;
-    try {
-      const folders =
-        ConfigService.getAllListConfig(AUTO_IMPORT_FOLDERS_KEY) || [];
-      if (folders.length === 0) return;
-      if (!useAppStore.getState().book.importBookFunc) {
-        console.error("Auto import: no import function available");
-        return;
-      }
-      for (const folderPath of folders) {
-        await scanFolderForNewBooks(
-          folderPath,
-          useAppStore.getState().book.importBookFunc
-        );
-      }
-    } catch (error) {
-      console.error("Auto import folder scan error:", error);
-    }
   };
 
   const handleOpenLastReadBook = async () => {
@@ -218,43 +189,6 @@ const Header = (props: HeaderProps) => {
         navigate("/manager/home");
       }
     }, 2000);
-  };
-
-  const handleKOReaderSync = async () => {
-    if (ConfigService.getReaderConfig("isEnableKoReaderSync") !== "yes") {
-      return;
-    }
-
-    toast.loading(t("Start syncing") + " (KOReader)", {
-      id: "koreader-sync",
-      position: "bottom-center",
-    });
-    try {
-      const koReaderUtil = new KOReaderUtil(
-        ConfigService,
-        TokenService,
-        DatabaseService
-      );
-      const summary =
-        await koReaderUtil.syncKOReaderProgress(getBookPartialMd5);
-      if (summary.pulledBooks > 0 || summary.pushedBooks > 0) {
-        handleFetchBooks();
-      }
-      toast.success(t("Synchronisation successful") + " (KOReader)", {
-        id: "koreader-sync",
-      });
-    } catch (error) {
-      console.error(error);
-      toast.error(
-        t("Sync failed") +
-          " (KOReader): " +
-          (error instanceof Error ? error.message : String(error)),
-        {
-          id: "koreader-sync",
-          duration: 6000,
-        }
-      );
-    }
   };
 
   const beforeSync = async () => {
@@ -330,7 +264,6 @@ const Header = (props: HeaderProps) => {
       timerRef.current = await showTaskProgress(handleSyncStateChange);
       if (!timerRef.current) {
         setIsSync(false);
-        handleKOReaderSync();
         return false;
       }
 
@@ -338,14 +271,12 @@ const Header = (props: HeaderProps) => {
       if (!res) {
         clearInterval(timerRef.current);
         setIsSync(false);
-        handleKOReaderSync();
         return false;
       }
       let compareResult = await getCompareResult();
       await handleSync(compareResult);
       clearInterval(timerRef.current);
       setIsSync(false);
-      handleKOReaderSync();
     } catch (error) {
       console.error(error);
       toast.error(
@@ -355,7 +286,6 @@ const Header = (props: HeaderProps) => {
       );
       clearInterval(timerRef.current);
       setIsSync(false);
-      handleKOReaderSync();
       return false;
     } finally {
       isSyncingRef.current = false;
@@ -542,23 +472,6 @@ const Header = (props: HeaderProps) => {
         }
       } else {
         await upgradeConfig();
-        const status = await LocalFileManager.getPermissionStatus();
-        if (
-          !ConfigService.getItem("isUseLocal") &&
-          LocalFileManager.isSupported()
-        ) {
-          handleLocalFileDialog(true);
-        } else if (
-          ConfigService.getItem("isUseLocal") === "yes" &&
-          !status.directoryName
-        ) {
-          handleLocalFileDialog(true);
-        } else if (
-          ConfigService.getItem("isUseLocal") === "yes" &&
-          (status.needsReauthorization || !status.hasAccess)
-        ) {
-          handleLocalFileDialog(true);
-        }
       }
       handleCloudSyncFunc(async () => {
         await handleCloudSyncRef.current();
@@ -583,7 +496,6 @@ const Header = (props: HeaderProps) => {
         await handleCloudSyncRef.current();
       }
       await handleOpenLastReadBook();
-      await autoScanFoldersOnStart();
       startScheduledSync();
     };
     init();
@@ -708,9 +620,7 @@ const Header = (props: HeaderProps) => {
           className="setting-icon-container"
           onClick={async () => {
             const hasCloud = !!ConfigService.getItem("defaultSyncOption");
-            const hasKOReader =
-              ConfigService.getReaderConfig("isEnableKoReaderSync") === "yes";
-            if (!hasCloud && !hasKOReader) {
+            if (!hasCloud) {
               toast(
                 t("Please add data source in the setting-Sync and backup first")
               );
@@ -719,13 +629,7 @@ const Header = (props: HeaderProps) => {
               return;
             }
             setIsSync(true);
-            if (hasCloud) {
-              // handleCloudSync 结束时会顺带执行 KOReader 同步
-              await handleCloudSync();
-            } else {
-              await handleKOReaderSync();
-              setIsSync(false);
-            }
+            await handleCloudSync();
           }}
           style={{ marginTop: "2px" }}
         >

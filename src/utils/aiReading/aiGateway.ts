@@ -65,7 +65,6 @@ const toCustom = (config: Record<string, string>): AiBackend => ({
 export const resolveAiBackend = (
   purpose: "translate" | "dict" | "assistance" = "assistance"
 ): AiBackend | null => {
-  if (ConfigService.getReaderConfig("isDisableAI") === "yes") return null;
   const purposeKey =
     purpose === "translate"
       ? "aiTranslateModel"

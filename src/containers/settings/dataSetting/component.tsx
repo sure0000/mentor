@@ -4,24 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { Trans } from "react-i18next";
 import {
   clearAllData,
-  confirmBrowserExtensionAsync,
   generateSyncRecord,
   getStorageLocation,
   reloadManager,
   vexComfirmAsync,
-  vexOpenAsync,
   vexPromptAsync,
 } from "../../../utils/common";
 
 import toast from "react-hot-toast";
 import { isElectron } from "react-device-detect";
 import { LocalFileManager } from "../../../utils/file/localFile";
-import {
-  ConfigService,
-  KOReaderUtil,
-} from "../../../assets/lib/kookit-extra-browser.min";
+import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
 import { changeLibrary, changePath } from "../../../utils/file/common";
-import SwitchRow from "../../../components/readerSettings/switchRow";
 import { getSnapshots } from "../../../utils/file/backup";
 import { restoreFromSnapshot } from "../../../utils/file/restore";
 import {
@@ -32,12 +26,6 @@ import {
 } from "../../../utils/file/export";
 import { importNotesData } from "../../../utils/file/import";
 import DatabaseService from "../../../utils/storage/databaseService";
-import {
-  dataSettingList,
-  noteSyncSettingList,
-  wordSyncSettingList,
-} from "../../../constants/settingList";
-import TokenService from "../../../utils/storage/tokenService";
 import { useAppStore } from "../../../store/useAppStore";
 
 export interface SettingInfoState {
@@ -49,16 +37,6 @@ export interface SettingInfoState {
   exportNotesFormat: string;
   exportHighlightsFormat: string;
   exportWordsFormat: string;
-  isEnableDiscordRPC: boolean;
-  isEnableKoReaderSync: boolean;
-  isEnableNotionSync: boolean;
-  isEnableYuqueSync: boolean;
-  isEnableReadwiseSync: boolean;
-  isEnableMarkdownSync: boolean;
-  isEnableEudicSync: boolean;
-  isEnableAnkiSync: boolean;
-
-  isEnableSiYuanSync: boolean;
   [key: string]: any;
 }
 
@@ -76,24 +54,6 @@ const DataSetting = () => {
     exportNotesFormat: "",
     exportHighlightsFormat: "",
     exportWordsFormat: "",
-    isEnableDiscordRPC:
-      ConfigService.getReaderConfig("isEnableDiscordRPC") === "yes",
-    isEnableKoReaderSync:
-      ConfigService.getReaderConfig("isEnableKoReaderSync") === "yes",
-    isEnableNotionSync:
-      ConfigService.getReaderConfig("isEnableNotionSync") === "yes",
-    isEnableYuqueSync:
-      ConfigService.getReaderConfig("isEnableYuqueSync") === "yes",
-    isEnableReadwiseSync:
-      ConfigService.getReaderConfig("isEnableReadwiseSync") === "yes",
-    isEnableMarkdownSync:
-      ConfigService.getReaderConfig("isEnableMarkdownSync") === "yes",
-    isEnableEudicSync:
-      ConfigService.getReaderConfig("isEnableEudicSync") === "yes",
-    isEnableAnkiSync:
-      ConfigService.getReaderConfig("isEnableAnkiSync") === "yes",
-    isEnableSiYuanSync:
-      ConfigService.getReaderConfig("isEnableSiYuanSync") === "yes",
   }));
   const stateRef = useRef<SettingInfoState>(state);
   const setState = (
@@ -181,298 +141,6 @@ const DataSetting = () => {
     }
     loadCacheSizes();
   };
-  const handleSetting = (stateName: string) => {
-    const currentValue = stateRef.current[stateName];
-    setState({ [stateName]: !currentValue } as any);
-    ConfigService.setReaderConfig(stateName, currentValue ? "no" : "yes");
-    toast.success(t("Change successful"));
-  };
-
-  const handleKOReaderSyncSetting = async () => {
-    const currentlyEnabled = stateRef.current.isEnableKoReaderSync;
-    if (currentlyEnabled) {
-      setState({ isEnableKoReaderSync: false });
-      ConfigService.setReaderConfig("isEnableKoReaderSync", "no");
-      toast.success(t("Change successful"));
-      return;
-    }
-
-    if (!isElectron) {
-      if (!(await confirmBrowserExtensionAsync())) {
-        return;
-      }
-    }
-
-    const savedConfig =
-      ConfigService.getObjectConfig(
-        "koReaderSyncConfig",
-        "thirdpartyToken",
-        {}
-      ) || {};
-    const labels = {
-      serverUrl: t("Server address"),
-      username: t("Username"),
-      password: t("Password"),
-    };
-    const result = await vexOpenAsync(
-      {
-        serverUrl: {
-          value: savedConfig.serverUrl || "",
-          placeholder: "https://sync.koreader.rocks",
-          type: "text",
-        },
-        username: {
-          value: savedConfig.username || "",
-          placeholder: t("Enter username"),
-          type: "text",
-        },
-        password: {
-          value: "",
-          placeholder:
-            savedConfig.passwordHash && savedConfig.username
-              ? t("Leave blank to keep the current password")
-              : t("Enter password"),
-          type: "password",
-        },
-      },
-      "",
-      labels
-    );
-
-    if (!result) {
-      return;
-    }
-
-    if (!result.serverUrl || !result.username) {
-      toast.error(t("Please fill in all fields"));
-      return;
-    }
-    if (!result.password && !savedConfig.passwordHash) {
-      toast.error(t("Please fill in all fields"));
-      return;
-    }
-
-    try {
-      toast.loading(t("Validating server info..."), {
-        id: "ko-reader-sync",
-      });
-      const koReaderUtil = new KOReaderUtil(
-        ConfigService,
-        TokenService,
-        DatabaseService
-      );
-      const verifiedConfig =
-        await koReaderUtil.verifyAndBuildKOReaderSyncConfig({
-          serverUrl: result.serverUrl,
-          username: result.username,
-          password: result.password,
-          passwordHash:
-            !result.password && savedConfig.username === result.username
-              ? savedConfig.passwordHash
-              : "",
-        });
-      ConfigService.setObjectConfig(
-        "koReaderSyncConfig",
-        verifiedConfig,
-        "thirdpartyToken"
-      );
-      setState({ isEnableKoReaderSync: true });
-      ConfigService.setReaderConfig("isEnableKoReaderSync", "yes");
-      toast.success(t("Validation successful"), {
-        id: "ko-reader-sync",
-      });
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t("Validation failed"),
-        {
-          id: "ko-reader-sync",
-        }
-      );
-    }
-  };
-
-  const handleDataSetting = async (item: any) => {
-    if (item.propName === "isEnableKoReaderSync") {
-      await handleKOReaderSyncSetting();
-      return;
-    }
-    handleSetting(item.propName);
-  };
-
-  const handleNoteSyncSetting = async (item: any) => {
-    const currentlyEnabled = stateRef.current[item.propName];
-
-    if (!currentlyEnabled && item.requiresAuth) {
-      if (!isElectron) {
-        if (!(await confirmBrowserExtensionAsync())) {
-          return;
-        }
-      }
-
-      // Special case: Markdown sync uses a folder picker in Electron
-      if (item.propName === "isEnableMarkdownSync" && isElectron) {
-        const ipcRenderer = window.electronAPI;
-        const folder = await ipcRenderer.invoke("select-path");
-        if (!folder) return;
-        ConfigService.setObjectConfig(
-          item.authConfigKey,
-          { folder: folder },
-          "thirdpartyToken"
-        );
-        setState({ [item.propName]: true } as any);
-        ConfigService.setReaderConfig(item.propName, "yes");
-        toast.success(t("Change successful"));
-        return;
-      }
-
-      // Enabling: prompt for auth credentials
-      const existingConfig = ConfigService.getObjectConfig(
-        item.authConfigKey,
-        "thirdpartyToken",
-        {}
-      );
-      let savedValues: Record<string, any> = {};
-      if (existingConfig && Object.keys(existingConfig).length > 0) {
-        savedValues = existingConfig;
-      }
-      // Build defaultValues record: key -> saved value or placeholder
-      const defaultValues: Record<string, any> = {};
-      const labelsMap: Record<string, string> = {};
-      for (const field of item.authFields as Array<{
-        key: string;
-        label: string;
-        placeholder: string;
-      }>) {
-        defaultValues[field.key] =
-          savedValues[field.key] ?? "[" + t(field.placeholder) + "]";
-        labelsMap[field.key] = t(field.label);
-      }
-
-      const result = await vexOpenAsync(
-        defaultValues,
-        "",
-        labelsMap
-      );
-
-      if (!result) {
-        // User cancelled
-        return;
-      }
-
-      // Validate that all fields are filled
-      const allFilled = Object.values(result).every(
-        (v) => v && String(v).trim().length > 0
-      );
-      if (!allFilled) {
-        toast.error(t("Please fill in all fields"));
-        return;
-      }
-
-      // Save auth config
-      ConfigService.setObjectConfig(
-        item.authConfigKey,
-        result,
-        "thirdpartyToken"
-      );
-
-      // Enable the setting
-      setState({ [item.propName]: true } as any);
-      ConfigService.setReaderConfig(item.propName, "yes");
-      toast.success(t("Change successful"));
-    } else {
-      // Disabling: just toggle off
-      setState({ [item.propName]: false } as any);
-      ConfigService.setReaderConfig(item.propName, "no");
-      toast.success(t("Change successful"));
-    }
-  };
-
-  const renderNoteSyncOptions = () => {
-    return noteSyncSettingList.map((item) => {
-      return (
-        <div
-          style={item.isElectron ? (isElectron ? {} : { display: "none" }) : {}}
-          key={item.propName}
-        >
-          <SwitchRow
-            variant="setting"
-            title={<Trans>{item.title}</Trans>}
-            isEnabled={stateRef.current[item.propName]}
-            onClick={() => {
-              handleNoteSyncSetting(item);
-            }}
-          />
-          <p className="setting-option-subtitle">
-            <Trans>{item.desc}</Trans>
-          </p>
-          {item.propName === "isEnableMarkdownSync" &&
-            stateRef.current[item.propName] &&
-            isElectron &&
-            (() => {
-              let folder = "";
-
-              const config = ConfigService.getObjectConfig(
-                item.authConfigKey,
-                "thirdpartyToken",
-                {}
-              );
-              if (config && Object.keys(config).length > 0) {
-                const parsed = config;
-                folder = parsed["folder"] || "";
-              }
-
-              return folder ? (
-                <div className="setting-dialog-location-title">{folder}</div>
-              ) : null;
-            })()}
-        </div>
-      );
-    });
-  };
-
-  const renderWordSyncOptions = () => {
-    return wordSyncSettingList.map((item) => {
-      return (
-        <div key={item.propName}>
-          <SwitchRow
-            variant="setting"
-            title={<Trans>{item.title}</Trans>}
-            isEnabled={stateRef.current[item.propName]}
-            onClick={() => {
-              handleNoteSyncSetting(item);
-            }}
-          />
-          <p className="setting-option-subtitle">
-            <Trans>{item.desc}</Trans>
-          </p>
-        </div>
-      );
-    });
-  };
-
-  const renderSwitchOption = (optionList: any[]) => {
-    return optionList.map((item) => {
-      return (
-        <div
-          style={item.isElectron ? (isElectron ? {} : { display: "none" }) : {}}
-          key={item.propName}
-        >
-          <SwitchRow
-            variant="setting"
-            title={<Trans>{item.title}</Trans>}
-            isEnabled={stateRef.current[item.propName]}
-            onClick={() => {
-              handleDataSetting(item);
-            }}
-          />
-          <p className="setting-option-subtitle">
-            <Trans>{item.desc}</Trans>
-          </p>
-        </div>
-      );
-    });
-  };
-
   const handleChangeLocation = async () => {
     const ipcRenderer = window.electronAPI;
     const newPath = await ipcRenderer.invoke("select-path");
@@ -604,9 +272,6 @@ const DataSetting = () => {
   const render = () => {
     return (
       <>
-        {renderSwitchOption(dataSettingList)}
-        {renderNoteSyncOptions()}
-        {renderWordSyncOptions()}
         {isElectron && (
           <>
             <div className="setting-dialog-new-title">

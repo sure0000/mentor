@@ -51,6 +51,7 @@
 }
 .book-store-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .book-store-tab {
@@ -153,6 +154,13 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
+}
+.book-store-card-rating {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
 }
 .book-store-card-author {
   margin-top: 2px;
@@ -317,6 +325,232 @@
 }
 .book-store-detail-summary a {
   color: var(--brand);
+}
+
+/* 豆瓣式评分 */
+.book-store-stars {
+  position: relative;
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 1px;
+  color: var(--shelf-input-bg);
+  white-space: nowrap;
+}
+.book-store-stars-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  color: #f5a623;
+}
+.book-store-rating {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 13px;
+}
+.book-store-rating.is-empty {
+  font-size: 12px;
+  color: var(--shelf-meta);
+}
+.book-store-rating-value {
+  font-weight: 600;
+  color: #e09015;
+}
+.book-store-rating-votes {
+  font-size: 12px;
+  color: var(--shelf-meta);
+}
+
+.book-store-link-button {
+  align-self: flex-start;
+  padding: 3px 12px;
+  border: 1px solid var(--brand);
+  border-radius: 14px;
+  font-size: 12px;
+  color: var(--brand);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s;
+}
+.book-store-link-button:hover {
+  background: var(--brand-soft);
+}
+.book-store-link-button.is-plain {
+  margin-top: 6px;
+  border-color: transparent;
+  padding-left: 0;
+}
+.book-store-link-button.is-plain:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+
+.book-store-section-title {
+  margin: 4px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.book-store-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.book-store-match {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--shelf-input-bg);
+}
+.book-store-match-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.book-store-match-source {
+  font-weight: 500;
+}
+.book-store-match-head .book-store-link-button {
+  margin-left: auto;
+}
+.book-store-match-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--shelf-meta);
+}
+.book-store-edition {
+  margin-top: 8px;
+}
+.book-store-edition-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.book-store-edition-author {
+  color: var(--shelf-meta);
+}
+.book-store-edition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.book-store-edition-actions .book-store-download-button {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.book-store-spinner.is-inline {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border-width: 2px;
+}
+.book-store-tip.is-compact {
+  padding: 8px 0;
+  text-align: left;
+}
+
+/* 书籍 / 论文切换 */
+.book-store-mode-switch {
+  display: flex;
+  padding: 2px;
+  border-radius: 16px;
+  background: var(--shelf-input-bg);
+}
+.book-store-mode {
+  padding: 4px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--shelf-meta);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.book-store-mode.is-active {
+  background: var(--panel-bg);
+  color: var(--shelf-title);
+  box-shadow: var(--shelf-cover-shadow);
+}
+
+/* 论文列表 */
+.paper-store-list {
+  display: flex;
+  flex-direction: column;
+}
+.paper-store-item {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--sidebar-divider);
+}
+.paper-store-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  cursor: pointer;
+  word-break: break-word;
+}
+.paper-store-title:hover {
+  color: var(--brand);
+}
+.paper-store-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--shelf-meta);
+}
+.paper-store-citations {
+  font-weight: 600;
+  color: #e09015;
+}
+.paper-store-summary {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-weak);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+  word-break: break-word;
+}
+.paper-store-summary.is-expanded {
+  display: block;
+}
+.paper-store-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.paper-store-actions .book-store-download-button {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.paper-store-actions .book-store-link-button {
+  align-self: center;
+}
+.paper-store-search-source {
+  margin-right: 6px;
+  border: none;
+  background: transparent;
+  color: var(--shelf-meta);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.book-store-search:has(.paper-store-search-source) {
+  width: 300px;
 }
 
 @media screen and (max-width: 600px) {

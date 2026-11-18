@@ -9,16 +9,12 @@ import StyleUtil from "./utils/reader/styleUtil";
 import {
   initSystemFont,
   initTheme,
-  applyCustomSystemCSS,
-  applyAppBackgroundImage,
 } from "./utils/reader/launchUtil";
 import { initExternalLinkGuard, migrateConfig } from "./utils/common";
 initTheme();
 initSystemFont();
 migrateConfig();
 initExternalLinkGuard();
-applyCustomSystemCSS();
-applyAppBackgroundImage();
 const container = document.getElementById("root")!;
 createRoot(container).render(<Router />);
 StyleUtil.applyTheme();
