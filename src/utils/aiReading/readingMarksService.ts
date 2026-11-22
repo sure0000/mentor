@@ -3,14 +3,12 @@
 import Book from "../../models/Book";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { getStorageLocation } from "../common";
-import { chatStream } from "../request/common";
-import { useAppStore } from "../../store/useAppStore";
-import { cancelClaudeCode, formatUsage, startClaudeCodeChat } from "./claudeCode";
 import {
   AiTaskError,
   RunningTask,
-  getPointsBackend,
+  hasAiBackend,
   runStructured,
+  runText,
 } from "./chapterPointsService";
 import { MAX_CHAPTER_CHARS } from "./chapterPoints";
 import { GuideEstimate, analyzableChapters, estimateGuideCost } from "./bookGuide";
@@ -92,7 +90,7 @@ export const generateChapterMarks = async (
   chapter: IndexChapter,
   onRunning: (task: RunningTask) => void = () => {}
 ): Promise<ChapterMarks> => {
-  if (!getPointsBackend()) throw new AiTaskError("no-service");
+  if (!hasAiBackend()) throw new AiTaskError("no-service");
   const { paragraphs, truncated } = splitParagraphs(chapter.text, MAX_CHAPTER_CHARS);
   if (paragraphs.length === 0) throw new AiTaskError("bad-output");
   const pos = index.chapters.findIndex((c) => c.docIndex === chapter.docIndex);
@@ -153,8 +151,7 @@ export const runCompanionAction = async (params: {
   onText: (delta: string) => void;
   onRunning?: (task: RunningTask) => void;
 }): Promise<ActionResult> => {
-  const backend = getPointsBackend();
-  if (!backend) throw new AiTaskError("no-service");
+  if (!hasAiBackend()) throw new AiTaskError("no-service");
   const selection = segmentText(params.segment, chapterParagraphs(params.chapter)).slice(0, 3000);
   const qa = prepareQa({
     book: params.book,
@@ -164,41 +161,13 @@ export const runCompanionAction = async (params: {
     currentDocIndex: params.chapter.docIndex,
     fallbackChapterText: params.chapter.text,
   });
-  let raw = "";
-  const onText = (d: string) => {
-    raw += d;
-    params.onText(d);
-  };
-  let usage = "";
-  if (backend === "claude-code") {
-    const { requestId, promise } = startClaudeCodeChat({ system: qa.system, prompt: qa.prompt, onText });
-    params.onRunning?.({ cancel: () => cancelClaudeCode(requestId) });
-    const result = await promise;
-    if (!result.ok) throw new AiTaskError(result.code, result.message || "", result.costUsd);
-    if (!raw) raw = result.text;
-    usage = formatUsage(result.costUsd, result.durationMs);
-  } else {
-    const plugin = useAppStore
-      .getState()
-      .manager.plugins.find((p) => p.key === "custom-ai-assistant-plugin");
-    const config = (plugin?.config || {}) as Record<string, string>;
-    let cancelled = false;
-    params.onRunning?.({ cancel: () => (cancelled = true) });
-    const started = Date.now();
-    await chatStream(
-      config.endpoint,
-      config.providerId,
-      config.apiKey,
-      config.modelId,
-      qa.system + "\n\n" + qa.prompt,
-      [],
-      (r: { text?: string }) => {
-        if (!cancelled && r && r.text) onText(r.text);
-      }
-    );
-    if (cancelled) throw new AiTaskError("cancelled");
-    usage = `${((Date.now() - started) / 1000).toFixed(1)}s`;
-  }
+  const { text: raw, durationMs } = await runText({
+    system: qa.system,
+    prompt: qa.prompt,
+    onText: params.onText,
+    onRunning: params.onRunning,
+  });
+  const usage = `${(durationMs / 1000).toFixed(1)}s`;
   const result: ActionResult = {
     content: stripRefMarkers(stripSources(raw)),
     sources: parseSources(raw, qa.context),

@@ -1,15 +1,7 @@
 // AI 伴读：本章要点的生成与缓存（渲染进程）。
 // 缓存：<数据目录>/ai-reading/<bookKey>/points/<docIndex>.json（FR-SUM-06）
-import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { getStorageLocation } from "../common";
-import { chatStream } from "../request/common";
-import { useAppStore } from "../../store/useAppStore";
-import {
-  CLAUDE_CODE_PLUGIN_KEY,
-  ClaudeCodeErrorCode,
-  cancelClaudeCode,
-  startClaudeCodeChat,
-} from "./claudeCode";
+import { aiStreamText, isAiAvailable } from "./aiGateway";
 import {
   CHAPTER_POINTS_SCHEMA,
   CHAPTER_POINTS_SYSTEM,
@@ -26,8 +18,22 @@ import {
   languageInstruction,
 } from "./indexText";
 
+export type AiTaskErrorCode =
+  | "no-service"
+  | "bad-output"
+  | "cancelled"
+  | "failed";
+
+/** 错误码 → 用户可见提示的 i18n key */
+export const AI_TASK_ERROR_KEYS: Record<AiTaskErrorCode, string> = {
+  "no-service": "AI_GUIDE_NO_SERVICE",
+  "bad-output": "AI_GUIDE_BAD_OUTPUT",
+  cancelled: "Stopped",
+  failed: "AI request failed",
+};
+
 export class AiTaskError extends Error {
-  code: ClaudeCodeErrorCode | "no-service" | "bad-output";
+  code: AiTaskErrorCode;
   costUsd: number;
   constructor(code: AiTaskError["code"], message = "", costUsd = 0) {
     super(message || code);
@@ -73,81 +79,73 @@ const saveChapterPoints = (bookKey: string, points: ChapterPoints) => {
   );
 };
 
-/** 当前选中的 AI 服务能否用于本章要点（Claude Code 或自定义 OpenAI 兼容服务） */
-export const getPointsBackend = (): "claude-code" | "custom" | null => {
-  const service = ConfigService.getReaderConfig("aiService");
-  if (service === CLAUDE_CODE_PLUGIN_KEY) return "claude-code";
-  if (service === "custom-ai-assistant-plugin") {
-    const plugin = useAppStore
-      .getState()
-      .manager.plugins.find((p) => p.key === "custom-ai-assistant-plugin");
-    if (plugin) return "custom";
-  }
-  return null;
-};
+/** 是否已在「设置 > AI」中配置可用的 LLM */
+export const hasAiBackend = (): boolean => isAiAvailable("assistance");
 
 export type RunningTask = { cancel: () => void };
 
-/** 一次结构化 AI 调用：Claude Code 用 --json-schema，自定义服务把 Schema 写进提示词 */
+/**
+ * 流式调用 LLM，返回完整文本。取消时抛 cancelled，请求失败抛 failed。
+ */
+export const runText = async (params: {
+  system: string;
+  prompt: string;
+  onText?: (delta: string) => void;
+  onRunning?: (task: RunningTask) => void;
+}): Promise<{ text: string; durationMs: number }> => {
+  if (!hasAiBackend()) throw new AiTaskError("no-service");
+  const started = Date.now();
+  let text = "";
+  let cancelled = false;
+  const handle = aiStreamText({
+    system: params.system,
+    prompt: params.prompt,
+    onText: (d) => {
+      text += d;
+      params.onText?.(d);
+    },
+  });
+  params.onRunning?.({
+    cancel: () => {
+      cancelled = true;
+      handle.cancel();
+    },
+  });
+  try {
+    await handle.done;
+  } catch (e) {
+    throw new AiTaskError(
+      "failed",
+      e instanceof Error ? e.message : String((e as { data?: unknown })?.data ?? "")
+    );
+  }
+  if (cancelled) throw new AiTaskError("cancelled");
+  return { text, durationMs: Date.now() - started };
+};
+
+/** 一次结构化 AI 调用：把 Schema 写进提示词，再从输出中解析 JSON */
 export const runStructured = async (params: {
   system: string;
   prompt: string;
   schema: object;
   onRunning?: (task: RunningTask) => void;
 }): Promise<{ raw: unknown; costUsd: number; durationMs: number }> => {
-  const backend = getPointsBackend();
-  if (!backend) throw new AiTaskError("no-service");
-  if (backend === "claude-code") {
-    const { requestId, promise } = startClaudeCodeChat({
-      system: params.system,
-      prompt: params.prompt,
-      schema: params.schema,
-      onText: () => {},
-    });
-    params.onRunning?.({ cancel: () => cancelClaudeCode(requestId) });
-    const result = await promise;
-    if (!result.ok) {
-      throw new AiTaskError(result.code, result.message || "", result.costUsd);
-    }
-    return {
-      raw: result.structured,
-      costUsd: result.costUsd,
-      durationMs: result.durationMs,
-    };
-  }
-  const plugin = useAppStore
-    .getState()
-    .manager.plugins.find((p) => p.key === "custom-ai-assistant-plugin");
-  if (!plugin) throw new AiTaskError("no-service");
-  const config = (plugin.config || {}) as Record<string, string>;
-  const started = Date.now();
-  let text = "";
-  let cancelled = false;
-  params.onRunning?.({ cancel: () => (cancelled = true) });
-  await chatStream(
-    config.endpoint,
-    config.providerId,
-    config.apiKey,
-    config.modelId,
-    params.system +
+  const { text, durationMs } = await runText({
+    system:
+      params.system +
       "\n\n只输出一个 JSON 对象，不要输出其他文字。JSON Schema：\n" +
-      JSON.stringify(params.schema) +
-      "\n\n" +
-      params.prompt,
-    [],
-    (r: { text?: string }) => {
-      if (r && r.text) text += r.text;
-    }
-  );
-  if (cancelled) throw new AiTaskError("cancelled");
+      JSON.stringify(params.schema),
+    prompt: params.prompt,
+    onRunning: params.onRunning,
+  });
   let raw: unknown;
   try {
     raw = extractJson(text);
   } catch (e) {
     throw new AiTaskError("bad-output", text.slice(0, 200));
   }
-  // 自定义服务拿不到花费，记为 -1（界面显示 $?）
-  return { raw, costUsd: -1, durationMs: Date.now() - started };
+  // 通用接口拿不到花费，记为 -1（界面显示 $?）
+  return { raw, costUsd: -1, durationMs };
 };
 
 /** 生成本章要点（只调用一次 AI，FR-SUM-02），成功后写缓存 */
@@ -157,7 +155,7 @@ export const generateChapterPoints = async (
   chapter: IndexChapter,
   onRunning: (task: RunningTask) => void = () => {}
 ): Promise<ChapterPoints> => {
-  if (!getPointsBackend()) throw new AiTaskError("no-service");
+  if (!hasAiBackend()) throw new AiTaskError("no-service");
   const pos = index.chapters.findIndex((c) => c.docIndex === chapter.docIndex);
   const previousTitles = index.chapters
     .slice(0, Math.max(0, pos))

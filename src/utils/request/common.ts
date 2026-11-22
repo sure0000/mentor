@@ -48,7 +48,8 @@ export const chatStream = async (
   model: string,
   prompt: string,
   chat: any[],
-  onMessage: (result) => void
+  onMessage: (result) => void,
+  signal?: AbortSignal
 ) => {
   const messages = [...chat, { role: "user", content: prompt }].slice(-5);
   const chatUrl = url + "/chat/completions";
@@ -79,6 +80,13 @@ export const chatStream = async (
       source.close();
       resolve({ done: true });
     };
+    if (signal) {
+      if (signal.aborted) {
+        finish();
+        return;
+      }
+      signal.addEventListener("abort", finish, { once: true });
+    }
 
     // 流式剔除 <think>...</think> 思考内容，只透传最终回答
     const OPEN_TAG = "<think>";

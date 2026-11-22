@@ -6,6 +6,7 @@ import { bookSourceList } from "../../constants/bookSourceList";
 import {
   buildSearchUrl,
   isTitleMatch,
+  matchOpenStax,
   toStoreBook,
   toStoreBookDetail,
 } from "./bookStore";
@@ -162,5 +163,19 @@ describe("bookStore", () => {
     for (const s of bookSourceList) {
       expect(s.webSearchTemplate).toMatch(/^https:\/\/.*\{searchTerms\}/);
     }
+  });
+
+  it("OpenStax 按书名匹配，在售版本优先，没有 PDF 的跳过", () => {
+    const catalog = [
+      { id: 1, title: "Calculus Volume 1", book_state: "retired", high_resolution_pdf_url: "https://a/old.pdf" },
+      { id: 2, title: "Calculus Volume 1", book_state: "live", high_resolution_pdf_url: "https://a/new.pdf",
+        authors: [{ value: { name: "Gilbert Strang", senior_author: true } }, { value: { name: "X", senior_author: false } }] },
+      { id: 3, title: "Calculus Volume 1", book_state: "live" },
+      { id: 4, title: "Biology 2e", book_state: "live", high_resolution_pdf_url: "https://a/bio.pdf" },
+    ];
+    const found = matchOpenStax(catalog, ["Calculus Volume 1"]);
+    expect(found.map((b) => b.id)).toEqual(["openstax-2", "openstax-1"]);
+    expect(found[0].author).toBe("Gilbert Strang");
+    expect(found[0].entry?.links[0]).toMatchObject({ href: "https://a/new.pdf", type: "application/pdf" });
   });
 });

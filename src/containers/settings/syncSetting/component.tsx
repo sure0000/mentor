@@ -1,88 +1,55 @@
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Trans } from "react-i18next";
 import i18n from "../../../i18n";
-import { removeCloudConfig } from "../../../utils/file/common";
 import { isElectron } from "react-device-detect";
-import _ from "underscore";
 import { syncSettingList } from "../../../constants/settingList";
 import SwitchRow from "../../../components/readerSettings/switchRow";
-
 import toast from "react-hot-toast";
 import {
-  confirmBrowserExtensionAsync,
-  detectKoodoExtension,
   generateSyncRecord,
-  getICloudDrivePath,
-  getServerRegion,
-  handleContextMenu,
-  openExternalUrl,
-  openInBrowser,
   showTaskProgress,
-  testConnection,
-  testCORS,
   vexComfirmAsync,
 } from "../../../utils/common";
-
-import { driveInputConfig, driveList } from "../../../constants/driveList";
 import { backup } from "../../../utils/file/backup";
 import { restore } from "../../../utils/file/restore";
 import {
   ConfigService,
-  KookitConfig,
   SyncHelper,
-  SyncUtil,
 } from "../../../assets/lib/kookit-extra-browser.min";
-import { encryptToken } from "../../../utils/request/thirdparty";
-import SyncService from "../../../utils/storage/syncService";
 import BookUtil from "../../../utils/file/bookUtil";
-import Book from "../../../models/Book";
-import TokenService from "../../../utils/storage/tokenService";
 import { useAppStore } from "../../../store/useAppStore";
-import ICloudStatus from "./iCloudStatus";
+import {
+  AccountInfo,
+  getAccount,
+  logout,
+  subscribeAccount,
+} from "../../../utils/storage/accountService";
+import "./iCloudStatus.css";
 
-interface GitHubVerifyResult {
-  ok: boolean;
-  login?: string;
-  isPrivate?: boolean;
-  error?: string;
-}
-
-const GITHUB_TOKEN_URL =
-  "https://github.com/settings/personal-access-tokens/new";
-
-// 主进程 github-verify 返回的错误码 → i18n key
-const GITHUB_VERIFY_ERRORS: Record<string, string> = {
-  "invalid-repo": "Repository format should be owner/name",
-  "missing-token": "Missing parameters",
-  "bad-token": "Token is invalid or expired",
-  "repo-not-found": "Repository not found, or the token has no access to it",
-  "no-write-permission": "The token has no write permission for this repository",
-  network: "Unable to connect to GitHub, check your network or proxy",
-};
-
-export interface SettingInfoState {
+interface SyncSettingState {
   isKeepLocal: boolean;
   isDisableAutoSync: boolean;
   autoOffline: boolean;
   hideSyncProgress: boolean;
-  driveConfig: any;
   scheduledSyncInterval: string;
-  backupDrive: string;
-  restoreDrive: string;
-  showDefaultSyncAddGrid: boolean;
 }
 
-declare var window: any;
+const SYNC_INTERVALS: { value: string; minutes?: number; hours?: number }[] = [
+  { value: "" },
+  { value: "5", minutes: 5 },
+  { value: "15", minutes: 15 },
+  { value: "30", minutes: 30 },
+  { value: "60", hours: 1 },
+  { value: "360", hours: 6 },
+  { value: "1440", hours: 24 },
+];
 
+/**
+ * 同步设置：同步方式由登录账号决定（iCloud 或 GitHub），这里只展示账号与同步选项。
+ */
 const SyncSetting = () => {
-  const books = useAppStore((s) => s.manager.books);
-  const settingDrive = useAppStore((s) => s.manager.settingDrive);
-  const dataSourceList = useAppStore((s) => s.backupPage.dataSourceList);
-  const defaultSyncOption = useAppStore(
-    (s) => s.backupPage.defaultSyncOption
-  );
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleFetchDataSourceList = useAppStore(
     (s) => s.handleFetchDataSourceList
@@ -90,1066 +57,199 @@ const SyncSetting = () => {
   const handleFetchDefaultSyncOption = useAppStore(
     (s) => s.handleFetchDefaultSyncOption
   );
-  const handleTokenDialog = useAppStore((s) => s.handleTokenDialog);
-  const handleSettingDrive = useAppStore((s) => s.handleSettingDrive);
   const handleLoadingDialog = useAppStore((s) => s.handleLoadingDialog);
+  const handleLoginDialog = useAppStore((s) => s.handleLoginDialog);
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [state, setState] = useState<SettingInfoState>(() => ({
+  const [account, setAccount] = useState<AccountInfo | null>(getAccount());
+  const [state, setState] = useState<SyncSettingState>(() => ({
     isKeepLocal: ConfigService.getReaderConfig("isKeepLocal") === "yes",
     autoOffline: ConfigService.getReaderConfig("autoOffline") === "yes",
     isDisableAutoSync:
       ConfigService.getReaderConfig("isDisableAutoSync") === "yes",
     hideSyncProgress:
       ConfigService.getReaderConfig("hideSyncProgress") === "yes",
-    driveConfig: {},
     scheduledSyncInterval:
       ConfigService.getReaderConfig("scheduledSyncInterval") || "",
-    backupDrive: "",
-    restoreDrive: "",
-    showDefaultSyncAddGrid: false,
   }));
 
-  const setPartialState = (partial: Partial<SettingInfoState>) => {
-    setState((prevState) => ({ ...prevState, ...partial }));
-  };
+  useEffect(() => subscribeAccount(setAccount), []);
 
-  const handleRest = (_bool: boolean) => {
+  const toggle = (name: keyof SyncSettingState) => {
+    const next = !state[name];
+    setState((prev) => ({ ...prev, [name]: next }));
+    ConfigService.setReaderConfig(name, next ? "yes" : "no");
     toast.success(t("Change successful"));
+    return next;
   };
 
-  const handleJump = (url: string) => {
-    openInBrowser(url);
-  };
-
-  const handleToggleSetting = (stateName: string) => {
-    const currentValue = (state as any)[stateName];
-    setState(
-      (prevState) =>
-        ({
-          ...prevState,
-          [stateName]: !(prevState as any)[stateName],
-        }) as any
+  const downloadAllBooks = async () => {
+    const tasks = await SyncHelper.syncBook(ConfigService, BookUtil);
+    const timer = await showTaskProgress(() => {});
+    if (!timer) return;
+    await SyncHelper.runTasksWithLimit(
+      tasks,
+      99,
+      ConfigService.getItem("defaultSyncOption")
     );
-    ConfigService.setReaderConfig(stateName, currentValue ? "no" : "yes");
-    handleRest(currentValue);
+    clearInterval(timer);
+    toast.success(t("Download completed"), { id: "autoOffline" });
+    setTimeout(() => toast.dismiss("syncing"), 3000);
   };
 
-  const handleAddDataSourceFromGrid = async (targetDrive: string) => {
-    await handleAddDataSource({ target: { value: targetDrive } });
-    if (useAppStore.getState().manager.settingDrive) {
-      setPartialState({ showDefaultSyncAddGrid: false });
+  // service 为 "local" 时导出/导入本地压缩包，否则备份到当前账号
+  const runBackup = async (service: string) => {
+    const isLocal = service === "local";
+    if (!isLocal) {
+      handleLoadingDialog(true);
+      toast(t("Uploading, please wait"), { id: "backup" });
     }
-  };
-
-  const handleAddDataSource = async (event: any) => {
-    let targetDrive = event.target.value;
-    if (!targetDrive) {
-      return;
-    }
-    if (
-      !driveList
-        .find((item) => item.value === targetDrive)
-        ?.support.includes("browser") &&
-      !isElectron
-    ) {
-      toast(
-        t(
-          "Koodo Reader's web version are limited by the browser, for more powerful features, please download the desktop version."
-        )
-      );
-      return;
-    }
-    if (
-      !isElectron &&
-      driveList.find((item) => item.value === targetDrive)?.needExtension
-    ) {
-      if (!(await confirmBrowserExtensionAsync())) {
-        return;
-      }
-    }
-    handleSettingDrive(targetDrive);
-    let settingDrive = targetDrive;
-    if (settingDrive === "icloud" || settingDrive === "folder") {
-      let drivePath = "";
-      if (settingDrive === "icloud") {
-        drivePath = getICloudDrivePath();
-        if (!drivePath) {
-          toast.error(
-            t(
-              "iCloud Drive is not available. Please sign in to iCloud and turn on iCloud Drive in System Settings"
-            ),
-            {
-              duration: 6000,
-            }
-          );
-          handleSettingDrive("");
-          return;
-        }
-      } else if (settingDrive === "folder") {
-        const ipcRenderer = window.electronAPI;
-        drivePath = await ipcRenderer.invoke("select-path");
-        if (!drivePath) {
-          toast.error(i18n.t("Please select a folder"));
-          handleSettingDrive("");
-          return;
-        }
-      }
-      toast.loading(i18n.t("Adding"), { id: "adding-sync-id" });
-      let res = await encryptToken(settingDrive, {
-        drivePath: drivePath,
-      });
-      if (res.code === 200) {
-        toast.success(i18n.t("Binding successful"), { id: "adding-sync-id" });
-      } else {
-        toast.error(i18n.t("Binding failed"), { id: "adding-sync-id" });
-        handleSettingDrive("");
-        return;
-      }
-      SyncService.removeSyncUtil(settingDrive);
-      removeCloudConfig(settingDrive);
-      if (isElectron) {
-        const ipcRenderer = window.electronAPI;
-        await ipcRenderer.invoke("cloud-close", {
-          service: settingDrive,
-        });
-      }
-      ConfigService.setListConfig(settingDrive, "dataSourceList");
-      toast.success(i18n.t("Binding successful"), { id: "adding-sync-id" });
-      if (!ConfigService.getItem("defaultSyncOption")) {
-        ConfigService.setItem("defaultSyncOption", settingDrive);
-        handleFetchDefaultSyncOption();
-      }
-      handleFetchDataSourceList();
-      handleSettingDrive("");
-      return;
-    }
-  };
-
-  const handleDeleteDataSource = async (event: any) => {
-    let targetDrive = event.target.value;
-    if (!targetDrive) {
-      return;
-    }
-    await TokenService.setToken(targetDrive + "_token", "");
-    SyncService.removeSyncUtil(targetDrive);
-    removeCloudConfig(targetDrive);
-    if (isElectron) {
-      const ipcRenderer = window.electronAPI;
-      await ipcRenderer.invoke("cloud-close", {
-        service: targetDrive,
-      });
-    }
-    ConfigService.deleteListConfig(targetDrive, "dataSourceList");
-    handleFetchDataSourceList();
-    if (targetDrive === ConfigService.getItem("defaultSyncOption")) {
-      ConfigService.removeItem("defaultSyncOption");
-      handleFetchDefaultSyncOption();
-    }
-    toast.success(t("Deletion successful"));
-  };
-
-  const handleSetDefaultSyncOption = async (newValue: string) => {
-    if (!newValue) {
-      return;
-    }
-    ConfigService.setItem("defaultSyncOption", newValue);
-    handleFetchDefaultSyncOption();
-    toast.success(t("Change successful"));
-  };
-
-  const handleSelectBackupOrRestoreSource = async (
-    event: any,
-    mode: "backup" | "restore"
-  ) => {
-    let targetDrive = event.target.value;
-    if (!targetDrive) {
-      setState((prevState) => ({
-        ...prevState,
-        backupDrive: mode === "backup" ? "" : prevState.backupDrive,
-        restoreDrive: mode === "restore" ? "" : prevState.restoreDrive,
-      }));
-      return;
-    }
-    if (targetDrive === "add") {
-      setPartialState({ showDefaultSyncAddGrid: true });
-      return;
-    }
-    if (
-      targetDrive !== "local" &&
-      !driveList
-        .find((item) => item.value === targetDrive)
-        ?.support.includes("browser") &&
-      !isElectron
-    ) {
-      toast(
-        t(
-          "Koodo Reader's web version are limited by the browser, for more powerful features, please download the desktop version."
-        )
-      );
-      return;
-    }
-    setState((prevState) => ({
-      ...prevState,
-      backupDrive: mode === "backup" ? targetDrive : prevState.backupDrive,
-      restoreDrive: mode === "restore" ? targetDrive : prevState.restoreDrive,
-    }));
-    if (mode === "backup") {
-      handleBackupLibrary(targetDrive);
-    } else {
-      handleRestoreLibrary(targetDrive);
-    }
-  };
-
-  const handleBackupLibrary = async (name: string) => {
-    if (!name) {
-      return;
-    }
-    if (name === "local") {
-      let result = await backup(name);
-      if (result === "cancel") {
-        toast.dismiss("backup");
-        return;
-      }
-      if (result === "success") {
-        toast.dismiss("backup");
-        toast.success(t("Execute successful"));
-        handleFetchBooks();
-        await generateSyncRecord();
-      } else {
-        toast.dismiss("backup");
-        toast.error(t("Backup failed"));
-      }
-      return;
-    }
-    if (!(await TokenService.getToken(name + "_token"))) {
-      handleTokenDialog(true);
-      return;
-    }
+    const result = await backup(service);
+    handleLoadingDialog(false);
     toast.dismiss("backup");
-    toast(t("Uploading, please wait"), {
-      position: "bottom-center",
-      id: "backup",
-    });
-    handleLoadingDialog(true);
-    let result = await backup(name);
-    if (result === "cancel") {
-      handleLoadingDialog(false);
-      toast.dismiss("backup");
-      return;
-    }
+    if (result === "cancel") return;
     if (result === "success") {
-      handleLoadingDialog(false);
-      toast.dismiss("backup");
       toast.success(t("Execute successful"));
       handleFetchBooks();
       await generateSyncRecord();
     } else {
-      handleLoadingDialog(false);
-      toast.dismiss("backup");
-      toast.error(t("Upload failed, check your connection"));
+      toast.error(
+        t(isLocal ? "Backup failed" : "Upload failed, check your connection")
+      );
     }
   };
 
-  const handleRestoreLibrary = async (name: string) => {
-    if (!name) {
-      return;
+  const runRestore = async (service: string) => {
+    if (service !== "local") {
+      const ok = await vexComfirmAsync(
+        "Restoring will replace the data on this device with the backup. Continue?"
+      );
+      if (!ok) return;
+      handleLoadingDialog(true);
+      toast(t("Downloading, please wait"), { id: "backup" });
     }
-    if (name === "local") {
-      let result = await restore(name);
-      if (result === "cancel") {
-        toast.dismiss("backup");
-        return;
-      }
-      if (result === "success") {
-        toast.dismiss("backup");
-        toast.success(t("Execute successful"));
-        handleFetchBooks();
-        await generateSyncRecord();
-        setTimeout(() => {
-          navigate("/manager/home");
-        }, 2000);
-      } else {
-        toast.dismiss("backup");
-        toast.error(t("Download failed,network problem or no backup"));
-      }
-      return;
-    }
-    if (!(await TokenService.getToken(name + "_token"))) {
-      handleTokenDialog(true);
-      return;
-    }
-    handleLoadingDialog(true);
+    const result = await restore(service);
+    handleLoadingDialog(false);
     toast.dismiss("backup");
-    toast(t("Downloading, please wait"));
-    let result = await restore(name);
-    if (result === "cancel") {
-      handleLoadingDialog(false);
-      toast.dismiss("backup");
-      return;
-    }
+    if (result === "cancel") return;
     if (result === "success") {
-      handleLoadingDialog(false);
-      toast.dismiss("backup");
       toast.success(t("Execute successful"));
       handleFetchBooks();
       await generateSyncRecord();
-      setTimeout(() => {
-        navigate("/manager/home");
-      }, 2000);
+      setTimeout(() => navigate("/manager/home"), 2000);
     } else {
-      handleLoadingDialog(false);
-      toast.dismiss("backup");
       toast.error(t("Download failed,network problem or no backup"));
     }
   };
 
-  const handleCancelDrive = () => {
-    handleSettingDrive("");
-  };
-
-  const checkCorsForDrive = async (): Promise<boolean> => {
-    toast.loading(i18n.t("Testing connection..."), {
-      id: "testing-connection-id",
-    });
-    let corsResult = await testCORS(state.driveConfig.url);
-    if (!corsResult && !isElectron) {
-      const extensionInfo = await detectKoodoExtension();
-      if (extensionInfo.installed) {
-        vexComfirmAsync(
-          t(
-            "Please click the Koodo Reader extension icon in the upper right corner of the browser, authorize the request to this endpoint, and try again"
-          )
-        );
-      }
-    }
-    if (!corsResult) {
-      toast.dismiss("testing-connection-id");
-      return false;
-    }
-    toast.dismiss("testing-connection-id");
-    return true;
-  };
-
-  // 校验令牌和仓库后再做一次真实的上传/删除测试，确保同步可用
-  const verifyGitHub = async (): Promise<boolean> => {
-    const { repo, token } = state.driveConfig;
-    if (!repo || !token) {
-      toast.error(t("Missing parameters"));
-      return false;
-    }
-    toast.loading(t("Testing connection..."), { id: "testing-connection-id" });
-    const result: GitHubVerifyResult = await window.electronAPI.invoke(
-      "github-verify",
-      { repo, token }
-    );
-    if (!result.ok) {
-      toast.error(
-        t(GITHUB_VERIFY_ERRORS[result.error || ""] || "Connection failed"),
-        { id: "testing-connection-id", duration: 6000 }
-      );
-      return false;
-    }
-    if (!result.isPrivate) {
-      const isConfirmed = await vexComfirmAsync(
-        "This repository is public. Your books, notes and reading data will be visible to everyone. Continue anyway?"
-      );
-      if (!isConfirmed) {
-        toast.dismiss("testing-connection-id");
-        return false;
-      }
-    }
-    return testConnection("github", state.driveConfig);
-  };
-
-  const handleConfirmDrive = async () => {
-    let flag = true;
-    for (let item of driveInputConfig[settingDrive]) {
-      if (!state.driveConfig[item.value] && item.required) {
-        toast.error(t("Missing parameters") + ": " + t(item.label));
-        flag = false;
-        break;
-      }
-    }
-    if (!flag) {
-      return;
-    }
-    if (
-      settingDrive === "webdav" ||
-      settingDrive === "docker" ||
-      settingDrive === "ftp" ||
-      settingDrive === "sftp" ||
-      settingDrive === "mega" ||
-      settingDrive === "github" ||
-      settingDrive === "s3compatible"
-    ) {
-      toast.loading(i18n.t("Adding"), { id: "adding-sync-id" });
-      let res = await encryptToken(settingDrive, state.driveConfig);
-      if (res.code === 200) {
-        ConfigService.setListConfig(settingDrive, "dataSourceList");
-        toast.success(i18n.t("Binding successful"), { id: "adding-sync-id" });
-      } else {
-        toast.error(i18n.t("Binding failed"), { id: "adding-sync-id" });
-      }
-    }
-    SyncService.removeSyncUtil(settingDrive);
-    removeCloudConfig(settingDrive);
-    if (isElectron) {
-      const ipcRenderer = window.electronAPI;
-      await ipcRenderer.invoke("cloud-close", {
-        service: settingDrive,
-      });
-    }
-    if (!ConfigService.getItem("defaultSyncOption")) {
-      ConfigService.setItem("defaultSyncOption", settingDrive);
-      handleFetchDefaultSyncOption();
-    }
-    handleFetchDataSourceList();
-    handleSettingDrive("");
-  };
-
-  const renderSwitchOption = (optionList: any[]) => {
-    return optionList.map((item) => {
+  const renderAccount = () => {
+    if (!account) {
       return (
-        <div
-          style={item.isElectron ? (isElectron ? {} : { display: "none" }) : {}}
-          key={item.propName}
-        >
-          <SwitchRow
-            variant="setting"
-            title={<Trans>{item.title}</Trans>}
-            isEnabled={(state as any)[item.propName]}
-            onClick={async () => {
-              switch (item.propName) {
-                case "autoOffline":
-                  handleToggleSetting(item.propName);
-                  if (!state.autoOffline) {
-                    if (defaultSyncOption === "adrive") {
-                      toast.error(
-                        t(
-                          "Due to Aliyun Drive's stringent concurrency restrictions, we have bypassed the synchronization of books and covers. Please manually download the books by clicking on them"
-                        ),
-                        { id: "autoOffline" }
-                      );
-                      return;
-                    }
-                    let downloadTasks = await SyncHelper.syncBook(
-                      ConfigService,
-                      BookUtil
-                    );
-                    let timer = await showTaskProgress((_: boolean) => {});
-                    if (!timer) {
-                      return;
-                    }
-                    await SyncHelper.runTasksWithLimit(
-                      downloadTasks,
-                      99,
-                      ConfigService.getItem("defaultSyncOption")
-                    );
-                    clearInterval(timer);
-
-                    toast.success(t("Download completed"), {
-                      id: "autoOffline",
-                    });
-
-                    setTimeout(() => {
-                      toast.dismiss("syncing");
-                    }, 3000);
-                  }
-
-                  break;
-                default:
-                  handleToggleSetting(item.propName);
-                  break;
-              }
-            }}
-          />
-          <p className="setting-option-subtitle">
-            <Trans>{item.desc}</Trans>
-          </p>
-        </div>
-      );
-    });
-  };
-
-  const { showDefaultSyncAddGrid } = state;
-  return (
-    <>
-      <ICloudStatus
-        isBound={dataSourceList.includes("icloud")}
-        isDefault={defaultSyncOption === "icloud"}
-      />
-      <div
-        className="add-source-card"
-        onClick={() => {
-          setState((prevState) => ({
-            ...prevState,
-            showDefaultSyncAddGrid: !prevState.showDefaultSyncAddGrid,
-          }));
-        }}
-      >
-        <svg
-          className="add-source-card-icon"
-          viewBox="0 0 24 24"
-          width="20"
-          height="20"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{
-            transform: showDefaultSyncAddGrid
-              ? "rotate(45deg)"
-              : "rotate(0deg)",
-            transition: "transform 0.25s ease",
-          }}
-        >
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-        <span className="add-source-card-label">
-          <Trans>Add data source</Trans>
-        </span>
-      </div>
-      {state.showDefaultSyncAddGrid &&
-        !(isElectron && window.electronAPI?.runtime?.platform === "darwin") && (
-          <p className="setting-option-subtitle" style={{ margin: "0 25px 20px" }}>
-            {t("Cloud sync is available via GitHub on desktop, and via iCloud Drive on macOS")}
-          </p>
-        )}
-      {state.showDefaultSyncAddGrid && (
-        <div
-          className="account-login-grid"
-          style={{
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-            marginLeft: "25px",
-            marginRight: "25px",
-            fontWeight: 500,
-            marginBottom: "20px",
-          }}
-        >
-          {driveList
-            .filter((item) => !dataSourceList.includes(item.value))
-            .filter((item) => {
-              if (item.value === "microsoft_exp") {
-                return false;
-              }
-              if (!isElectron) {
-                return item.support.includes("browser");
-              }
-              return true;
-            })
-            .filter((item) => {
-              if (
-                isElectron &&
-                window.electronAPI?.runtime?.platform !== "darwin" &&
-                item.value === "icloud"
-              ) {
-                return false;
-              }
-              return true;
-            })
-            .map((item) => (
-              <div
-                className="account-login-option"
-                key={item.value}
-                onClick={() => {
-                  handleAddDataSourceFromGrid(item.value);
-                }}
-              >
-                <span className="account-login-option-label">
-                  {t(item.label)}
-                </span>
-              </div>
-            ))}
-        </div>
-      )}
-      {settingDrive && (
-        <div
-          className="voice-add-new-container"
-          style={{
-            marginLeft: "25px",
-            width: "calc(100% - 50px)",
-            fontWeight: 500,
-          }}
-        >
-          {settingDrive === "webdav" ||
-          settingDrive === "docker" ||
-          settingDrive === "ftp" ||
-          settingDrive === "sftp" ||
-          settingDrive === "mega" ||
-          settingDrive === "github" ||
-          settingDrive === "s3compatible" ? (
-            <>
-              {driveInputConfig[settingDrive].map((item) => {
-                return (
-                  <div key={item.value}>
-                    <input
-                      type={item.type}
-                      name={item.value}
-                      key={item.value}
-                      placeholder={
-                        t(item.label) +
-                        (item.required ? "" : " (" + t("Optional") + ")")
-                      }
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          setState((prevState) => ({
-                            ...prevState,
-                            driveConfig: {
-                              ...prevState.driveConfig,
-                              [item.value]: e.target.value.trim(),
-                            },
-                          }));
-                        }
-                      }}
-                      onContextMenu={() => {
-                        handleContextMenu(
-                          "token-dialog-" + item.value + "-box",
-                          true
-                        );
-                      }}
-                      id={"token-dialog-" + item.value + "-box"}
-                      className="token-dialog-username-box"
-                    />
-                    {item.value === "endpoint" ? (
-                      <div
-                        style={{
-                          marginTop: "5px",
-                          marginLeft: "2px",
-                          fontSize: "12px",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        {t(
-                          "This endpoint usually don't contain bucket name"
-                        )}
-                      </div>
-                    ) : (
-                      ""
-                    )}
-                    {item.example && (
-                      <div
-                        style={{
-                          marginTop: "5px",
-                          marginBottom: "2px",
-                          marginLeft: "2px",
-                          fontSize: "12px",
-                          opacity: 0.8,
-                        }}
-                      >
-                        {t("Example")}: {item.example}
-                      </div>
-                    )}
-                    {item.note && (
-                      <div
-                        style={{
-                          marginTop: "5px",
-                          marginBottom: "2px",
-                          marginLeft: "2px",
-                          fontSize: "12px",
-                          opacity: 0.8,
-                        }}
-                      >
-                        {t(item.note)}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </>
-          ) : (
-            <>
-              <textarea
-                className="token-dialog-token-box"
-                id="token-dialog-token-box"
-                placeholder={t(
-                  "Please click the authorize button below to authorize your account, enter the obtained credentials here, and then click the bind button below"
-                )}
-                onChange={(e) => {
-                  if (e.target.value) {
-                    setState((prevState) => ({
-                      ...prevState,
-                      driveConfig: {
-                        ...prevState.driveConfig,
-                        token: e.target.value.trim(),
-                      },
-                    }));
-                  }
-                }}
-                onContextMenu={() => {
-                  handleContextMenu("token-dialog-token-box");
-                }}
-              />
-            </>
-          )}
-          {settingDrive === "webdav" && !isElectron && (
-            <div
-              className="token-dialog-tip"
-              style={{
-                marginTop: "10px",
-                fontSize: "13px",
-                lineHeight: "16px",
-                color: "rgba(231, 69, 69, 0.8)",
-              }}
+        <div className="icloud-status-card">
+          <div className="icloud-status-head">
+            <span className="icloud-status-title">{t("Not signed in")}</span>
+            <span className="icloud-status-dot is-off"></span>
+          </div>
+          <div className="icloud-status-actions">
+            <span
+              className="icloud-status-button"
+              onClick={() => handleLoginDialog(true)}
             >
+              {t("Sign in")}
+            </span>
+            <span className="icloud-status-hint">
               {t(
-                "Only WebDAV service provided by Alist is directly supported in Browser, Other WebDAV services need to enable CORS to work properly. Also due to browser's security restrictions, the WebDAV service must be accessed via HTTPS protocol when you're visiting Koodo Reader via HTTPS protocol."
+                "Sign in with iCloud or GitHub, your library will sync through that account"
               )}
-            </div>
-          )}
-          {settingDrive === "docker" && !isElectron && (
-            <div
-              className="token-dialog-tip"
-              style={{
-                marginTop: "10px",
-                fontSize: "13px",
-                lineHeight: "16px",
-                color: "rgba(231, 69, 69, 0.8)",
-              }}
-            >
-              {t(
-                "The Koodo Reader Docker version does not support the data source feature by default. You need to modify the configuration parameters during deployment to manually enable it. Also due to browser's security restrictions, the Docker service must be accessed via HTTPS protocol when you're visiting Koodo Reader via HTTPS protocol."
-              )}
-            </div>
-          )}
-          {settingDrive === "s3compatible" && !isElectron && (
-            <div
-              className="token-dialog-tip"
-              style={{
-                marginTop: "10px",
-                fontSize: "13px",
-                lineHeight: "16px",
-                color: "rgba(231, 69, 69, 0.8)",
-              }}
-            >
-              {t(
-                "Some S3 services are not compatible with browser environments. If you encounter connection issues, please refer to the service provider's official documentation for instructions on enabling CORS. Also due to browser's security restrictions, the S3 service must be accessed via HTTPS protocol when you're visiting Koodo Reader via HTTPS protocol."
-              )}
-            </div>
-          )}
-          <div className="token-dialog-button-container">
-            <div
-              className="voice-add-confirm"
-              onClick={async () => {
-                if (settingDrive === "github") {
-                  if (!(await verifyGitHub())) {
-                    return;
-                  }
-                  handleConfirmDrive();
-                  return;
-                }
-                if (settingDrive === "webdav") {
-                  if (!(await checkCorsForDrive())) {
-                    return;
-                  }
-                }
-                if (
-                  settingDrive === "webdav" ||
-                  settingDrive === "docker" ||
-                  settingDrive === "ftp" ||
-                  settingDrive === "sftp" ||
-                  settingDrive === "mega" ||
-                  settingDrive === "s3compatible"
-                ) {
-                  let connectionResult = await testConnection(
-                    settingDrive,
-                    state.driveConfig
-                  );
-                  if (!connectionResult) {
-                    return;
-                  }
-                }
-                handleConfirmDrive();
-              }}
-            >
-              <Trans>Bind</Trans>
-            </div>
-
-            <div className="voice-add-button-container">
-              <div
-                className="voice-add-cancel"
-                onClick={() => {
-                  handleCancelDrive();
-                }}
-              >
-                <Trans>Cancel</Trans>
-              </div>
-              {(settingDrive === "dropbox" ||
-                settingDrive === "dubox" ||
-                settingDrive === "yandex" ||
-                settingDrive === "yiyiwu" ||
-                settingDrive === "google" ||
-                settingDrive === "boxnet" ||
-                settingDrive === "pcloud" ||
-                settingDrive === "adrive" ||
-                settingDrive === "microsoft_exp" ||
-                settingDrive === "microsoft") && (
-                <div
-                  className="voice-add-confirm"
-                  style={{ marginRight: "10px" }}
-                  onClick={async () => {
-                    handleJump(
-                      new SyncUtil(settingDrive, {}).getAuthUrl(
-                        getServerRegion() === "china" &&
-                          (settingDrive === "microsoft" ||
-                            settingDrive === "microsoft_exp" ||
-                            settingDrive === "dubox" ||
-                            settingDrive === "yiyiwu" ||
-                            settingDrive === "adrive")
-                          ? KookitConfig.ThirdpartyConfig.cnCallbackUrl
-                          : KookitConfig.ThirdpartyConfig.callbackUrl
-                      )
-                    );
-                  }}
-                >
-                  <Trans>Authorize</Trans>
-                </div>
-              )}
-              {settingDrive === "github" && (
-                <div
-                  className="voice-add-confirm"
-                  style={{ marginRight: "10px" }}
-                  onClick={() => handleJump(GITHUB_TOKEN_URL)}
-                >
-                  <Trans>Create token</Trans>
-                </div>
-              )}
-              {settingDrive === "github" && (
-                <div
-                  className="voice-add-confirm"
-                  style={{ marginRight: "10px" }}
-                  onClick={() => verifyGitHub()}
-                >
-                  <Trans>Test</Trans>
-                </div>
-              )}
-              {(settingDrive === "webdav" ||
-                settingDrive === "docker" ||
-                settingDrive === "ftp" ||
-                settingDrive === "sftp" ||
-                settingDrive === "mega" ||
-                settingDrive === "s3compatible") && (
-                <div
-                  className="voice-add-confirm"
-                  style={{ marginRight: "10px" }}
-                  onClick={async () => {
-                    if (settingDrive === "webdav") {
-                      if (!(await checkCorsForDrive())) {
-                        return;
-                      }
-                    }
-                    testConnection(settingDrive, state.driveConfig);
-                  }}
-                >
-                  <Trans>Test</Trans>
-                </div>
-              )}
-            </div>
+            </span>
           </div>
         </div>
-      )}
-      <div className="setting-dialog-new-title">
-        <Trans>Set default sync option</Trans>
-        <select
-          name=""
-          className="lang-setting-dropdown"
-          value={defaultSyncOption}
-          onChange={async (event) => {
-            event.preventDefault();
-            const newValue = event.target.value;
-            if (newValue === "add") {
-              setState((prevState) => ({
-                ...prevState,
-                showDefaultSyncAddGrid: !prevState.showDefaultSyncAddGrid,
-              }));
-              event.target.value = defaultSyncOption;
-              return;
-            }
-            const currentValue = defaultSyncOption;
-            let onlineBooks: Book[] = [];
-            for (let i = 0; i < books.length; i++) {
-              if (!(await BookUtil.isBookOffline(books[i].key))) {
-                onlineBooks.push(books[i]);
-              }
-            }
-            if (
-              onlineBooks.length > 0 &&
-              defaultSyncOption &&
-              newValue !== defaultSyncOption
-            ) {
-              let result = await vexComfirmAsync(
-                "Some of your books are currently not downloaded to the local. Changing the default sync option may lead to data loss. We recommend downloading all books to the local by turn on Auto download cloud books in the setting before changing the default sync option. Click 'OK' to proceed without downloading."
+      );
+    }
+    const providerName = account.provider === "github" ? "GitHub" : "iCloud";
+    return (
+      <div className="icloud-status-card">
+        <div className="icloud-status-head">
+          <span className="icloud-status-title">
+            {account.name || account.login || providerName}
+          </span>
+          <span className="icloud-status-dot is-on"></span>
+          <span className="icloud-status-text">
+            {t("Syncing via {{name}}", { name: providerName })}
+          </span>
+        </div>
+        {account.location && (
+          <div className="icloud-status-path" title={account.location}>
+            {account.provider === "github"
+              ? t("Repository")
+              : t("Sync folder")}
+            : {account.location}
+          </div>
+        )}
+        <div className="icloud-status-actions">
+          <span
+            className="icloud-status-button is-plain"
+            onClick={async () => {
+              const ok = await vexComfirmAsync(
+                "After signing out, sync stops. Books and notes on this device are kept. Continue?"
               );
-              if (result) {
-                handleSetDefaultSyncOption(newValue);
-              } else {
-                event.target.value = currentValue;
-              }
-            } else {
-              handleSetDefaultSyncOption(newValue);
-            }
-          }}
-        >
-          {[
-            {
-              label: "Please select",
-              value: "",
-              isPro: false,
-              support: ["desktop", "browser", "phone"],
-            },
-            ...driveList,
-            {
-              label: "Add data source",
-              value: "add",
-              isPro: false,
-              support: ["desktop", "browser", "phone"],
-            },
-          ]
-            .filter(
-              (item) =>
-                item.value === "add" ||
-                item.value === "" ||
-                dataSourceList.includes(item.value)
-            )
-            .filter((item) => {
-              if (item.value === "add" || item.value === "") {
-                return true;
-              }
-              if (!isElectron) {
-                return item.support.includes("browser");
-              }
-              return true;
-            })
-            .filter((item) => {
-              if (
-                isElectron &&
-                window.electronAPI?.runtime?.platform !== "darwin" &&
-                item.value === "icloud"
-              ) {
-                return false;
-              }
-              return true;
-            })
-            .map((item) => (
-              <option
-                value={item.value}
-                key={item.value}
-                className="lang-setting-option"
-              >
-                {t(item.label)}
-              </option>
-            ))}
-        </select>
+              if (!ok) return;
+              await logout();
+              handleFetchDataSourceList();
+              handleFetchDefaultSyncOption();
+              toast.success(t("Signed out"));
+            }}
+          >
+            {t("Sign out")}
+          </span>
+        </div>
       </div>
-      <div className="setting-dialog-new-title">
-        <Trans>Delete data source</Trans>
-        <select
-          name=""
-          className="lang-setting-dropdown"
-          onChange={handleDeleteDataSource}
-        >
-          {[{ label: "Please select", value: "", isPro: false }, ...driveList]
-            .filter(
-              (item) =>
-                dataSourceList.includes(item.value) || item.value === ""
-            )
-            .map((item) => (
-              <option
-                value={item.value}
-                key={item.value}
-                className="lang-setting-option"
-              >
-                {t(item.label)}
-              </option>
-            ))}
-        </select>
-      </div>
-      <div className="setting-dialog-new-title">
-        <Trans>Backup library</Trans>
-        <select
-          name=""
-          className="lang-setting-dropdown"
-          value={state.backupDrive}
-          onChange={(event) =>
-            handleSelectBackupOrRestoreSource(event, "backup")
-          }
-        >
-          <option value="" className="lang-setting-option">
-            {t("Please select")}
-          </option>
-          {[
-            { label: "Local", value: "local", isPro: false },
-            ...driveList,
-            { label: "Add data source", value: "add", isPro: false },
-          ]
-            .filter(
-              (item) =>
-                dataSourceList.includes(item.value) ||
-                item.value === "local" ||
-                item.value === "add"
-            )
-            .map((item) => (
-              <option
-                value={item.value}
-                key={item.value}
-                className="lang-setting-option"
-              >
-                {t(item.label)}
-              </option>
-            ))}
-        </select>
-      </div>
-      <div className="setting-dialog-new-title">
-        <Trans>Restore library</Trans>
-        <select
-          name=""
-          className="lang-setting-dropdown"
-          value={state.restoreDrive}
-          onChange={(event) =>
-            handleSelectBackupOrRestoreSource(event, "restore")
-          }
-        >
-          <option value="" className="lang-setting-option">
-            {t("Please select")}
-          </option>
-          {[
-            { label: "Local", value: "local", isPro: false },
-            ...driveList,
-            { label: "Add data source", value: "add", isPro: false },
-          ]
-            .filter(
-              (item) =>
-                dataSourceList.includes(item.value) ||
-                item.value === "local" ||
-                item.value === "add"
-            )
-            .map((item) => (
-              <option
-                value={item.value}
-                key={item.value}
-                className="lang-setting-option"
-              >
-                {t(item.label)}
-              </option>
-            ))}
-        </select>
-      </div>
+    );
+  };
 
-      {renderSwitchOption(syncSettingList)}
-      {(
+  return (
+    <>
+      {isElectron ? (
+        renderAccount()
+      ) : (
+        <p className="setting-option-subtitle">
+          {t("Sign in is available in the desktop app")}
+        </p>
+      )}
+
+      {account &&
+        syncSettingList.map((item) => (
+          <div key={item.propName}>
+            <SwitchRow
+              variant="setting"
+              title={<Trans>{item.title}</Trans>}
+              isEnabled={state[item.propName as keyof SyncSettingState] as boolean}
+              onClick={async () => {
+                const next = toggle(item.propName as keyof SyncSettingState);
+                if (item.propName === "autoOffline" && next) {
+                  await downloadAllBooks();
+                }
+              }}
+            />
+            {item.desc && (
+              <p className="setting-option-subtitle">
+                <Trans>{item.desc}</Trans>
+              </p>
+            )}
+          </div>
+        ))}
+
+      {account && (
         <>
           <div className="setting-dialog-new-title">
             <Trans>Scheduled sync interval</Trans>
             <select
-              name=""
               className="lang-setting-dropdown"
               value={state.scheduledSyncInterval}
               onChange={(event) => {
                 const value = event.target.value;
                 ConfigService.setReaderConfig("scheduledSyncInterval", value);
-                setPartialState({ scheduledSyncInterval: value });
+                setState((prev) => ({ ...prev, scheduledSyncInterval: value }));
                 toast.success(t("Change successful"));
                 toast(
                   t(
@@ -1158,59 +258,19 @@ const SyncSetting = () => {
                 );
               }}
             >
-              <option value="" className="lang-setting-option">
-                {t("Disabled")}
-              </option>
-              <option value="1" className="lang-setting-option">
-                {i18n.t("Minute duration", {
-                  tts: 1,
-                })}
-              </option>
-              <option value="5" className="lang-setting-option">
-                {i18n.t("Minute duration", {
-                  tts: 5,
-                })}
-              </option>
-              <option value="10" className="lang-setting-option">
-                {i18n.t("Minute duration", {
-                  tts: 10,
-                })}
-              </option>
-              <option value="15" className="lang-setting-option">
-                {i18n.t("Minute duration", {
-                  tts: 15,
-                })}
-              </option>
-              <option value="30" className="lang-setting-option">
-                {i18n.t("Minute duration", {
-                  tts: 30,
-                })}
-              </option>
-              <option value="60" className="lang-setting-option">
-                {i18n.t("Hour duration", {
-                  tts: 1,
-                })}
-              </option>
-              <option value="120" className="lang-setting-option">
-                {i18n.t("Hour duration", {
-                  tts: 2,
-                })}
-              </option>
-              <option value="360" className="lang-setting-option">
-                {i18n.t("Hour duration", {
-                  tts: 6,
-                })}
-              </option>
-              <option value="720" className="lang-setting-option">
-                {i18n.t("Hour duration", {
-                  tts: 12,
-                })}
-              </option>
-              <option value="1440" className="lang-setting-option">
-                {i18n.t("Hour duration", {
-                  tts: 24,
-                })}
-              </option>
+              {SYNC_INTERVALS.map((item) => (
+                <option
+                  key={item.value}
+                  value={item.value}
+                  className="lang-setting-option"
+                >
+                  {!item.value
+                    ? t("Disabled")
+                    : item.minutes
+                      ? i18n.t("Minute duration", { tts: item.minutes })
+                      : i18n.t("Hour duration", { tts: item.hours })}
+                </option>
+              ))}
             </select>
           </div>
           <p className="setting-option-subtitle">
@@ -1220,9 +280,48 @@ const SyncSetting = () => {
               }
             </Trans>
           </p>
+
+          <div className="setting-dialog-new-title">
+            <Trans>Back up to cloud</Trans>
+            <span
+              className="change-location-button"
+              onClick={() => runBackup(account.provider)}
+            >
+              <Trans>Backup</Trans>
+            </span>
+          </div>
+          <div className="setting-dialog-new-title">
+            <Trans>Restore from cloud</Trans>
+            <span
+              className="change-location-button"
+              onClick={() => runRestore(account.provider)}
+            >
+              <Trans>Restore</Trans>
+            </span>
+          </div>
+        </>
+      )}
+
+      <div className="setting-dialog-new-title">
+        <Trans>Export backup file</Trans>
+        <span className="change-location-button" onClick={() => runBackup("local")}>
+          <Trans>Export</Trans>
+        </span>
+      </div>
+      <div className="setting-dialog-new-title">
+        <Trans>Import backup file</Trans>
+        <span
+          className="change-location-button"
+          onClick={() => runRestore("local")}
+        >
+          <Trans>Import backup</Trans>
+        </span>
+      </div>
+
+      {account && (
+        <>
           <div className="setting-dialog-new-title">
             <Trans>Reset sync records</Trans>
-
             <span
               className="change-location-button"
               onClick={async () => {
@@ -1234,11 +333,9 @@ const SyncSetting = () => {
             </span>
           </div>
           <p className="setting-option-subtitle">
-            <Trans>
-              {
-                "Data in other devices is messed up, but the data in this device is normal. You can reset the sync record in this device, delete the KoodoReader/config folder in the data source(Turn off Koodo Sync if necessary), and sync again. This should resolve the issue"
-              }
-            </Trans>
+            {t(
+              "Use this when data on other devices is wrong but this device is correct: reset here, then sync again"
+            )}
           </p>
         </>
       )}

@@ -162,6 +162,90 @@ export const buildWebSearchUrl = (source: BookSource, query: string): string =>
 
 const MAX_MATCHES_PER_SOURCE = 3;
 
+const OPENSTAX_API =
+  "https://openstax.org/apps/cms/api/v2/pages/?type=books.Book&fields=title,authors,cover_url,high_resolution_pdf_url,book_state&limit=250";
+
+interface OpenStaxBook {
+  id?: number;
+  title?: string;
+  book_state?: string;
+  cover_url?: string;
+  high_resolution_pdf_url?: string;
+  authors?: { value?: { name?: string; senior_author?: boolean } }[];
+  meta?: { html_url?: string };
+}
+
+/** 把 OpenStax 书目条目转成带 PDF 下载链接的书城条目；没有 PDF 的返回 null */
+export const toOpenStaxStoreBook = (book: OpenStaxBook): StoreBook | null => {
+  if (!book.title || !book.high_resolution_pdf_url) return null;
+  const authors = (book.authors || [])
+    .filter((a) => a.value?.senior_author)
+    .map((a) => a.value?.name || "")
+    .filter(Boolean);
+  const entry: OPDSEntry = {
+    id: `openstax-${book.id}`,
+    title: book.title,
+    authors,
+    summary: "",
+    coverUrl: book.cover_url || "",
+    thumbnailUrl: "",
+    links: [
+      {
+        href: book.high_resolution_pdf_url,
+        type: "application/pdf",
+        rel: "http://opds-spec.org/acquisition/open-access",
+        title: "PDF",
+      },
+    ],
+    updated: "",
+    isNavigation: false,
+    publisher: "OpenStax",
+    language: "en",
+    pubDate: "",
+    rights: "CC BY",
+    categories: [],
+  };
+  return {
+    id: entry.id,
+    title: book.title,
+    author: authors.join(", "),
+    // 封面是 SVG 卡片，导入后作为书籍封面不合适，留给豆瓣封面
+    coverUrl: "",
+    detailUrl: "",
+    entry,
+  };
+};
+
+// 书目只有一百多本，整份拉取后缓存；失败时清掉缓存以便下次重试
+let openStaxCatalog: Promise<OpenStaxBook[]> | null = null;
+const getOpenStaxCatalog = () => {
+  if (!openStaxCatalog) {
+    openStaxCatalog = fetch(OPENSTAX_API, { signal: AbortSignal.timeout(30000) })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data: { items?: OpenStaxBook[] }) => data.items || [])
+      .catch((err) => {
+        openStaxCatalog = null;
+        throw err;
+      });
+  }
+  return openStaxCatalog;
+};
+
+/** 在 OpenStax 书目里按书名匹配，在售版本（live）排在已停更版本前面 */
+export const matchOpenStax = (
+  catalog: OpenStaxBook[],
+  queries: string[]
+): StoreBook[] =>
+  catalog
+    .filter((b) => b.title && isTitleMatch(b.title, queries))
+    .sort((a, b) => Number(b.book_state === "live") - Number(a.book_state === "live"))
+    .map(toOpenStaxStoreBook)
+    .filter((b): b is StoreBook => b !== null)
+    .slice(0, MAX_MATCHES_PER_SOURCE);
+
 /**
  * 在单个书源里按候选书名搜索，返回书名匹配的条目。
  */
@@ -169,6 +253,9 @@ export const findInSource = async (
   source: BookSource,
   queries: string[]
 ): Promise<StoreBook[]> => {
+  if (source.type === "openstax") {
+    return matchOpenStax(await getOpenStaxCatalog(), queries);
+  }
   const seen = new Set<string>();
   const matches: StoreBook[] = [];
   let lastError: unknown = null;

@@ -17,7 +17,7 @@ import {
   getCurrentDocIndex,
   onReaderPositionChange,
 } from "../../../utils/aiReading/readerAdapter";
-import { getPointsBackend } from "../../../utils/aiReading/chapterPointsService";
+import { hasAiBackend } from "../../../utils/aiReading/chapterPointsService";
 import {
   FocusRequest,
   MarksJobState,
@@ -271,7 +271,7 @@ const ReadingCompanion = () => {
   const isRunning = jobState?.phase === "running";
 
   const handleStartBook = async () => {
-    if (!getPointsBackend()) {
+    if (!hasAiBackend()) {
       toast.error(t("AI_GUIDE_NO_SERVICE"));
       return;
     }

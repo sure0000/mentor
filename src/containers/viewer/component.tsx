@@ -54,7 +54,6 @@ import * as Kookit from "../../assets/lib/kookit.min";
 import PopupRefer from "../../components/popups/popupRefer";
 import DatabaseService from "../../utils/storage/databaseService";
 import { BookHelper } from "../../assets/lib/kookit.min";
-import { isAiAvailable } from "../../utils/aiReading/aiGateway";
 import { parseWithSystemOCR } from "../../utils/request/common";
 import { isElectron } from "react-device-detect";
 import axios from "axios";
@@ -404,12 +403,8 @@ const Viewer = (props: ViewerProps) => {
           propsRef.current.currentBook.format,
           propsRef.current.currentBook.key
         ),
-        fullTranslationMode:
-          ConfigService.getAllListConfig("fullTranslationBooks").includes(
-            propsRef.current.currentBook.key
-          ) && isAiAvailable("translate")
-            ? ConfigService.getReaderConfig("fullTranslationMode")
-            : "no",
+        // 全文翻译改由应用层按小段插入（utils/reader/fullTranslation.ts），引擎内置的整段翻译关闭
+        fullTranslationMode: "no",
         textOrientation: ConfigService.getReaderConfig("textOrientation"),
         isDarkMode:
           ConfigService.getReaderConfig("backgroundColor") ===

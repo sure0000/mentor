@@ -185,6 +185,12 @@ export const skinList = [
 
 export const readerSettingList = [
   {
+    title: "Disable click page turning",
+    propName: "isDisableClickTurn",
+    group: "layout",
+    isPDF: true,
+  },
+  {
     title: "Right-to-left page turning",
     propName: "isRevertDirection",
     group: "layout",

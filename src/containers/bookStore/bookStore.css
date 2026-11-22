@@ -499,6 +499,49 @@
 .paper-store-title:hover {
   color: var(--brand);
 }
+.paper-store-title-trans {
+  margin-top: 2px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--shelf-title);
+  opacity: 0.8;
+  cursor: pointer;
+  word-break: break-word;
+}
+.paper-store-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.paper-store-sort {
+  display: flex;
+  padding: 2px;
+  border-radius: 14px;
+  background: var(--shelf-input-bg);
+}
+.paper-store-sort-item,
+.paper-store-trans-toggle {
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--shelf-meta);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+.paper-store-sort-item.is-active {
+  background: var(--panel-bg);
+  color: var(--shelf-title);
+  box-shadow: var(--shelf-cover-shadow);
+}
+.paper-store-trans-toggle {
+  border: 1px solid var(--sidebar-divider);
+}
+.paper-store-trans-toggle.is-active {
+  border-color: var(--brand);
+  color: var(--brand);
+}
 .paper-store-meta {
   display: flex;
   flex-wrap: wrap;

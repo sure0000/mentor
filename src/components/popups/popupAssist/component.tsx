@@ -16,14 +16,7 @@ import { chatStream } from "../../../utils/request/common";
 import { marked } from "marked";
 import { sampleQuestion } from "../../../constants/settingList";
 import { useAppStore } from "../../../store/useAppStore";
-import {
-  CLAUDE_CODE_ERROR_KEYS,
-  CLAUDE_CODE_PLUGIN_KEY,
-  buildConversationPrompt,
-  cancelClaudeCode,
-  formatUsage,
-  startClaudeCodeChat,
-} from "../../../utils/aiReading/claudeCode";
+import { aiStreamText } from "../../../utils/aiReading/aiGateway";
 import QaAnswer from "../../aiReading/qaAnswer";
 import {
   SPOILER_SAFE_KEY,
@@ -74,7 +67,7 @@ const plainAnswer = (text: string) =>
   text.split(QA_EXTRA_OPEN).join("").split(QA_EXTRA_CLOSE).join("");
 
 const isBookQaService = (service: string) =>
-  service === CLAUDE_CODE_PLUGIN_KEY || service === "custom-ai-assistant-plugin";
+  service === "custom-ai-assistant-plugin";
 
 const PopupAssist = (props: PopupAssistProps) => {
   const currentBook = useAppStore((s) => s.book.currentBook);
@@ -108,7 +101,7 @@ const PopupAssist = (props: PopupAssistProps) => {
     setHasBookIndex(!!loadCachedIndex(currentBook));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBook?.key]);
-  const claudeRequestId = useRef("");
+  const cancelAnswer = useRef<(() => void) | null>(null);
   const isMounted = useRef(true);
   const chatBoxRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -272,11 +265,9 @@ const PopupAssist = (props: PopupAssistProps) => {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
-      // 关闭面板时结束正在运行的 Claude Code 进程（FR-AI-05）
-      if (claudeRequestId.current) {
-        cancelClaudeCode(claudeRequestId.current);
-        claudeRequestId.current = "";
-      }
+      // 关闭面板时结束正在进行的请求（FR-AI-05）
+      cancelAnswer.current?.();
+      cancelAnswer.current = null;
       saveChatHistory();
       if (updateInterval.current) {
         clearInterval(updateInterval.current);
@@ -347,16 +338,8 @@ const PopupAssist = (props: PopupAssistProps) => {
   const handleDoAnswer = async (text: string) => {
     try {
       const service = ConfigService.getReaderConfig("aiService");
-      if (
-        isElectron &&
-        (service === CLAUDE_CODE_PLUGIN_KEY ||
-          service === "custom-ai-assistant-plugin")
-      ) {
+      if (isElectron && isBookQaService(service)) {
         await handleBookQaAnswer(text);
-        return;
-      }
-      if (service === CLAUDE_CODE_PLUGIN_KEY) {
-        await handleClaudeCodeAnswer(text);
         return;
       }
       if (
@@ -432,69 +415,6 @@ const PopupAssist = (props: PopupAssistProps) => {
       });
     }
   };
-  const appendAssistantMessage = (finalAnswer: string) => {
-    setState((prev) => ({
-      ...prev,
-      askHistory: [
-        ...prev.askHistory,
-        { role: "assistant", content: finalAnswer },
-      ],
-      answer: "",
-      question: "",
-      isWaiting: false,
-    }));
-    runAfterUpdate(scrollToBottomIfNeeded);
-  };
-  const handleClaudeCodeAnswer = async (text: string) => {
-    const history = stateRef.current.askHistory;
-    const currentQuestion =
-      history[history.length - 1]?.content || stateRef.current.question;
-    if (!currentQuestion) {
-      return;
-    }
-    const template =
-      ConfigService.getReaderConfig("aiAssistancePrompt") ||
-      KookitConfig.DefaultPrompts.aiAssistance;
-    const system = template.replace("{text}", text);
-    answerTextAccumulator.current = "";
-    mergeState({ usage: "" });
-    startUpdateInterval();
-    const { requestId, promise } = startClaudeCodeChat({
-      system,
-      prompt: buildConversationPrompt(history.slice(0, -1), currentQuestion),
-      onText: (delta) => {
-        if (!answerTextAccumulator.current) {
-          mergeState({ isWaiting: false });
-        }
-        answerTextAccumulator.current += delta;
-      },
-    });
-    claudeRequestId.current = requestId;
-    const result = await promise;
-    claudeRequestId.current = "";
-    stopUpdateInterval();
-    const streamed = answerTextAccumulator.current;
-    answerTextAccumulator.current = "";
-    if (!isMounted.current) {
-      return;
-    }
-    const usage = formatUsage(result.costUsd, result.durationMs);
-    if (result.ok) {
-      appendAssistantMessage(streamed || result.text);
-      mergeState({ usage });
-      return;
-    }
-    const errorText = t(CLAUDE_CODE_ERROR_KEYS[result.code]);
-    if (result.code !== "cancelled") {
-      toast.error(errorText, { duration: 6000 });
-      if (result.message) console.error("Claude Code:", result.message);
-    }
-    // 已流出的部分保留，并标注中断原因
-    appendAssistantMessage(
-      (streamed ? streamed + "\n\n" : "") + "> " + errorText
-    );
-    mergeState({ usage });
-  };
   /**
    * AI 伴读：全书问答（FR-QA）。上下文 = 选中文字 + 当前章节 + 全书检索片段；
    * 回答流式显示，结束后解析并核对出处。
@@ -532,51 +452,21 @@ const PopupAssist = (props: PopupAssistProps) => {
     };
     let ok = true;
     let errorText = "";
-    let usage = "";
-    if (ConfigService.getReaderConfig("aiService") === CLAUDE_CODE_PLUGIN_KEY) {
-      const { requestId, promise } = startClaudeCodeChat({
-        system: qa.system,
-        prompt: qa.prompt,
-        onText,
-      });
-      claudeRequestId.current = requestId;
-      const result = await promise;
-      claudeRequestId.current = "";
-      usage = formatUsage(result.costUsd, result.durationMs);
-      if (!result.ok) {
-        ok = false;
-        errorText = t(CLAUDE_CODE_ERROR_KEYS[result.code]);
-        if (result.code !== "cancelled") {
-          toast.error(errorText, { duration: 6000 });
-          if (result.message) console.error("Claude Code:", result.message);
-        }
-      } else if (!answerTextAccumulator.current) {
-        answerTextAccumulator.current = result.text;
-      }
-    } else {
-      const plugin = plugins.find(
-        (item) => item.key === "custom-ai-assistant-plugin"
-      );
-      const config = (plugin?.config || {}) as Record<string, string>;
-      const started = Date.now();
-      try {
-        await chatStream(
-          config.endpoint,
-          config.providerId,
-          config.apiKey,
-          config.modelId,
-          qa.system + "\n\n" + qa.prompt,
-          [],
-          (r: { text?: string; done?: boolean }) => {
-            if (r && r.text) onText(r.text);
-          }
-        );
-      } catch (e) {
-        ok = false;
-        errorText = t("Error happened");
-      }
-      usage = `${((Date.now() - started) / 1000).toFixed(1)}s`;
+    const started = Date.now();
+    const handle = aiStreamText({
+      system: qa.system,
+      prompt: qa.prompt,
+      onText,
+    });
+    cancelAnswer.current = handle.cancel;
+    try {
+      await handle.done;
+    } catch (e) {
+      ok = false;
+      errorText = t("Error happened");
     }
+    cancelAnswer.current = null;
+    let usage = `${((Date.now() - started) / 1000).toFixed(1)}s`;
     stopUpdateInterval();
     const raw = answerTextAccumulator.current;
     answerTextAccumulator.current = "";
@@ -603,9 +493,7 @@ const PopupAssist = (props: PopupAssistProps) => {
     runAfterUpdate(scrollToBottomIfNeeded);
   };
   const handleStopAnswer = () => {
-    if (claudeRequestId.current) {
-      cancelClaudeCode(claudeRequestId.current);
-    }
+    cancelAnswer.current?.();
   };
   const handleChangeAiService = (aiService: string) => {
     let plugin = plugins.find((item) => item.key === aiService);
@@ -1046,7 +934,8 @@ const PopupAssist = (props: PopupAssistProps) => {
                       runAfterUpdate(autoResizeTextarea);
                     }}
                   />
-                  {state.aiService === CLAUDE_CODE_PLUGIN_KEY &&
+                  {isElectron &&
+                  isBookQaService(state.aiService) &&
                   (state.isWaiting || state.answer) ? (
                     <div
                       className="popup-assistant-send-button"
@@ -1063,7 +952,7 @@ const PopupAssist = (props: PopupAssistProps) => {
                     </div>
                   )}
                 </div>
-                {state.aiService === CLAUDE_CODE_PLUGIN_KEY && state.usage && (
+                {isBookQaService(state.aiService) && state.usage && (
                   <div className="popup-assist-usage">{state.usage}</div>
                 )}
               </div>

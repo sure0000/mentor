@@ -15,11 +15,6 @@ vi.mock("react-device-detect", () => ({
 vi.mock("react-hot-toast", () => ({ default: { error: vi.fn() } }));
 vi.mock("../../i18n", () => ({ default: { t: (k: string) => k } }));
 vi.mock("../request/common", () => ({ chatStream: vi.fn() }));
-vi.mock("./claudeCode", () => ({
-  CLAUDE_CODE_PLUGIN_KEY: "claude-code-assistant-plugin",
-  cancelClaudeCode: vi.fn(),
-  startClaudeCodeChat: vi.fn(),
-}));
 vi.mock("../storage/tokenService", () => ({
   default: {
     setToken: async (k: string, v: string) => {
@@ -70,17 +65,19 @@ describe("resolveAiBackend", () => {
 
   it("uses the purpose-specific custom model first", () => {
     objectConfig.m1 = { key: "m1", config: { endpoint: "https://a", modelId: "x" } };
+    objectConfig.m0 = { key: "m0", config: { endpoint: "https://z" } };
     readerConfig.aiTranslateModel = "m1";
-    readerConfig.aiService = "claude-code-assistant-plugin";
+    readerConfig.aiAssistanceModel = "m0";
     expect(resolveAiBackend("translate")).toMatchObject({
       kind: "custom",
       endpoint: "https://a",
     });
   });
 
-  it("falls back to Claude Code when selected as AI service", () => {
-    readerConfig.aiService = "claude-code-assistant-plugin";
-    expect(resolveAiBackend("dict")).toEqual({ kind: "claude-code" });
+  it("falls back to the assistance model", () => {
+    objectConfig.m3 = { key: "m3", config: { endpoint: "https://c" } };
+    readerConfig.aiAssistanceModel = "m3";
+    expect(resolveAiBackend("dict")).toMatchObject({ endpoint: "https://c" });
   });
 
   it("falls back to any saved custom model", () => {
@@ -88,8 +85,7 @@ describe("resolveAiBackend", () => {
     expect(resolveAiBackend()).toMatchObject({ endpoint: "https://b" });
   });
 
-  it("returns null in the browser with nothing configured", () => {
-    isElectron = false;
+  it("returns null with nothing configured", () => {
     expect(resolveAiBackend()).toBeNull();
   });
 });

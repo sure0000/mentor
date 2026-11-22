@@ -2,9 +2,10 @@
 // 回答仍走流式纯文本（逐字出现），用约定的标记让模型：
 //   - 把「书外补充」包在 [[补充]]…[[/补充]] 里（界面用不同样式）
 //   - 末尾附 <sources> 块，每行「编号 | 片段号 | 原文短引」，程序逐条核对
-import type { ChatTurn } from "./claudeCode";
 import type { ScoredPassage } from "./retrieval";
 import { normalizeForMatch } from "./chapterPoints";
+
+export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 export const QA_EXTRA_OPEN = "[[补充]]";
 export const QA_EXTRA_CLOSE = "[[/补充]]";

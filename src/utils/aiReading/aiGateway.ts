@@ -1,24 +1,16 @@
 // 统一 AI 网关：替代原先依赖 Koodo 官方服务器的 AI 能力（翻译、词典、整页翻译、
-// 单词释义、书名识别、元数据补全、TTS 分句等）。
-// 后端按「AI 服务」设置选择：本机 Claude Code，或用户自配的 OpenAI 兼容接口。
-import { isElectron } from "react-device-detect";
+// 单词释义、书名识别、元数据补全、TTS 分句、AI 伴读等）。
+// 后端为用户在「设置 > AI」中配置的 OpenAI 兼容接口。
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { chatStream } from "../request/common";
-import {
-  CLAUDE_CODE_PLUGIN_KEY,
-  cancelClaudeCode,
-  startClaudeCodeChat,
-} from "./claudeCode";
 
-export type AiBackend =
-  | { kind: "claude-code" }
-  | {
-      kind: "custom";
-      endpoint: string;
-      apiKey: string;
-      modelId: string;
-      providerId: string;
-    };
+export type AiBackend = {
+  kind: "custom";
+  endpoint: string;
+  apiKey: string;
+  modelId: string;
+  providerId: string;
+};
 
 export class AiUnavailableError extends Error {
   constructor() {
@@ -60,7 +52,7 @@ const toCustom = (config: Record<string, string>): AiBackend => ({
 /**
  * 解析某个用途应使用的 AI 后端。
  * purpose 对应设置里的模型选择：translate / dict / assistance；
- * 其余用途（书名识别、元数据等）跟随「AI 助手」的选择。
+ * 其余用途（书名识别、元数据、AI 伴读等）跟随「AI 助手」的选择。
  */
 export const resolveAiBackend = (
   purpose: "translate" | "dict" | "assistance" = "assistance"
@@ -71,25 +63,11 @@ export const resolveAiBackend = (
       : purpose === "dict"
         ? "aiDictModel"
         : "aiAssistanceModel";
-  const specific = getModelConfig(ConfigService.getReaderConfig(purposeKey));
-  if (specific) return toCustom(specific);
-  if (
-    isElectron &&
-    ConfigService.getReaderConfig("aiService") === CLAUDE_CODE_PLUGIN_KEY
-  ) {
-    return { kind: "claude-code" };
-  }
-  const assist = getModelConfig(
-    ConfigService.getReaderConfig("aiAssistanceModel")
-  );
-  if (assist) return toCustom(assist);
-  const any = getAnyModelConfig();
-  if (any) return toCustom(any);
-  if (isElectron) {
-    // 未配置任何自定义模型时，桌面端默认尝试本机 Claude Code
-    return { kind: "claude-code" };
-  }
-  return null;
+  const config =
+    getModelConfig(ConfigService.getReaderConfig(purposeKey)) ||
+    getModelConfig(ConfigService.getReaderConfig("aiAssistanceModel")) ||
+    getAnyModelConfig();
+  return config ? toCustom(config) : null;
 };
 
 export const isAiAvailable = (
@@ -98,6 +76,7 @@ export const isAiAvailable = (
 
 export type AiStreamHandle = {
   cancel: () => void;
+  /** 被 cancel 时正常 resolve（已流出的内容保留），请求失败时 reject */
   done: Promise<void>;
 };
 
@@ -112,24 +91,7 @@ export const aiStreamText = (params: {
   if (!backend) {
     return { cancel: () => {}, done: Promise.reject(new AiUnavailableError()) };
   }
-  if (backend.kind === "claude-code") {
-    const { requestId, promise } = startClaudeCodeChat({
-      system: params.system,
-      prompt: params.prompt,
-      onText: params.onText,
-    });
-    return {
-      cancel: () => {
-        cancelClaudeCode(requestId);
-      },
-      done: promise.then((r) => {
-        if (!r.ok && r.code !== "cancelled") {
-          throw new Error(r.message || r.code);
-        }
-      }),
-    };
-  }
-  let cancelled = false;
+  const controller = new AbortController();
   const done = chatStream(
     backend.endpoint,
     backend.providerId,
@@ -138,10 +100,11 @@ export const aiStreamText = (params: {
     params.prompt,
     params.system ? [{ role: "system", content: params.system }] : [],
     (r: { text?: string }) => {
-      if (!cancelled && r && r.text) params.onText(r.text);
-    }
+      if (!controller.signal.aborted && r && r.text) params.onText(r.text);
+    },
+    controller.signal
   ).then(() => undefined);
-  return { cancel: () => (cancelled = true), done };
+  return { cancel: () => controller.abort(), done };
 };
 
 /** 非流式：拿完整文本 */

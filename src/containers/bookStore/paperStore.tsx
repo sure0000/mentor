@@ -3,23 +3,35 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useAppStore } from "../../store/useAppStore";
 import { useLatest } from "../../utils/hooks/useLatest";
-import { openInBrowser, throttle } from "../../utils/common";
+import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import {
-  buildArxivKeywordUrl,
-  buildArxivSearchUrl,
-  buildEuropePmcSearchUrl,
+  getFullTranslationTarget,
+  isRateLimitedResult,
+  openInBrowser,
+  throttle,
+} from "../../utils/common";
+import { isAiAvailable } from "../../utils/aiReading/aiGateway";
+import { getBatchTrans } from "../../utils/request/reader";
+import {
+  buildCategoryUrl,
+  buildPaperSearchUrls,
   fetchCitationCounts,
   fetchPaperPage,
   paperCategories,
   paperFileName,
 } from "../../utils/request/papers";
-import type { Paper, PaperSourceId } from "../../utils/request/papers";
+import type {
+  Paper,
+  PaperSort,
+  PaperSourceId,
+} from "../../utils/request/papers";
 
 interface PaperStoreState {
   // 分类下标；-1 表示当前为搜索结果
   categoryIndex: number;
   searchSource: PaperSourceId;
   searchQuery: string;
+  sort: PaperSort;
   papers: Paper[];
   nextUrl: string;
   isLoading: boolean;
@@ -30,13 +42,22 @@ interface PaperStoreState {
 interface Props {
   // 书籍/论文切换控件，由外层书城传入，放在工具栏里
   modeSwitch: ReactNode;
-  onBack: () => void;
 }
 
 const SOURCE_NAMES: Record<PaperSourceId, string> = {
   arxiv: "arXiv",
   europepmc: "Europe PMC",
 };
+
+const SORTS: { id: PaperSort; title: string }[] = [
+  { id: "cited", title: "Most cited" },
+  { id: "latest", title: "Latest" },
+];
+
+// 标题翻译缓存：目标语言 + 原标题 → 译文，切换分类/排序后回来不必重复请求
+const titleTransCache = new Map<string, string>();
+const TITLE_BATCH_SIZE = 25;
+const TRANSLATE_TITLE_CONFIG = "isTranslatePaperTitle";
 
 const formatCount = (count: number) =>
   count >= 10000 ? (count / 1000).toFixed(0) + "k" : String(count);
@@ -45,13 +66,14 @@ const formatCount = (count: number) =>
 const isPdf = (buffer: ArrayBuffer) =>
   new TextDecoder().decode(buffer.slice(0, 5)).startsWith("%PDF");
 
-const PaperStore = ({ modeSwitch, onBack }: Props) => {
+const PaperStore = ({ modeSwitch }: Props) => {
   const importBookFunc = useAppStore((s) => s.book.importBookFunc);
   const { t } = useTranslation();
   const [state, setState] = useState<PaperStoreState>({
     categoryIndex: 0,
     searchSource: "arxiv",
     searchQuery: "",
+    sort: "cited",
     papers: [],
     nextUrl: "",
     isLoading: false,
@@ -60,6 +82,12 @@ const PaperStore = ({ modeSwitch, onBack }: Props) => {
   });
   const [expandedId, setExpandedId] = useState("");
   const [downloadingId, setDownloadingId] = useState("");
+  const [isTranslateTitle, setIsTranslateTitle] = useState(
+    () => ConfigService.getReaderConfig(TRANSLATE_TITLE_CONFIG) === "yes"
+  );
+  // 译文更新时递增，触发重新渲染（译文本身存在 titleTransCache 里）
+  const [, setTransVersion] = useState(0);
+  const translatingRef = useRef(new Set<string>());
   const stateRef = useLatest(state);
   const requestIdRef = useRef(0);
 
@@ -129,27 +157,39 @@ const PaperStore = ({ modeSwitch, onBack }: Props) => {
   const loadCategory = (categoryIndex: number) => {
     const category = paperCategories[categoryIndex];
     if (!category) return;
-    loadPage(category.source, category.url, { categoryIndex, searchQuery: "" });
+    loadPage(
+      category.source,
+      buildCategoryUrl(category, stateRef.current.sort),
+      { categoryIndex, searchQuery: "" }
+    );
   };
 
   const handleSearch = () => {
-    const { searchQuery, searchSource } = stateRef.current;
+    const { searchQuery, searchSource, sort } = stateRef.current;
     const query = searchQuery.trim();
     if (!query) return;
-    if (searchSource === "arxiv") {
-      const keywordUrl = buildArxivKeywordUrl(query);
-      const phraseUrl = buildArxivSearchUrl(query);
-      loadPage(
-        "arxiv",
-        phraseUrl,
-        { categoryIndex: -1 },
-        keywordUrl !== phraseUrl ? [keywordUrl] : []
-      );
-    } else {
-      loadPage("europepmc", buildEuropePmcSearchUrl(query), {
-        categoryIndex: -1,
-      });
+    const [url, ...fallbacks] = buildPaperSearchUrls(searchSource, query, sort);
+    loadPage(searchSource, url, { categoryIndex: -1 }, fallbacks);
+  };
+
+  const handleSort = (sort: PaperSort) => {
+    if (sort === stateRef.current.sort) return;
+    mergeState({ sort });
+    // mergeState 是异步的，先同步写入 ref 让下面的请求用上新的排序
+    stateRef.current = { ...stateRef.current, sort };
+    const { categoryIndex, searchQuery } = stateRef.current;
+    if (categoryIndex >= 0) loadCategory(categoryIndex);
+    else if (searchQuery.trim()) handleSearch();
+  };
+
+  const toggleTranslateTitle = () => {
+    if (!isTranslateTitle && !isAiAvailable("translate")) {
+      toast(t("No AI service configured. Please add one in Settings > AI service"));
+      return;
     }
+    const next = !isTranslateTitle;
+    ConfigService.setReaderConfig(TRANSLATE_TITLE_CONFIG, next ? "yes" : "no");
+    setIsTranslateTitle(next);
   };
 
   const loadMore = async () => {
@@ -229,11 +269,51 @@ const PaperStore = ({ modeSwitch, onBack }: Props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 开启标题翻译后，翻译列表中还没有译文的标题（加载更多时只翻新增的部分）
+  useEffect(() => {
+    if (!isTranslateTitle || !isAiAvailable("translate")) return;
+    const lang = getFullTranslationTarget();
+    const pending = Array.from(
+      new Set(
+        state.papers
+          .map((p) => p.title)
+          .filter(
+            (title) =>
+              title &&
+              !titleTransCache.has(lang + title) &&
+              !translatingRef.current.has(lang + title)
+          )
+      )
+    );
+    for (let i = 0; i < pending.length; i += TITLE_BATCH_SIZE) {
+      const batch = pending.slice(i, i + TITLE_BATCH_SIZE);
+      batch.forEach((title) => translatingRef.current.add(lang + title));
+      getBatchTrans(batch, "Automatic", lang)
+        .then((res) => {
+          const results = res?.data?.texts;
+          if (!results) return;
+          batch.forEach((title, j) => {
+            const translated = (results[j] || "").trim();
+            if (translated && !isRateLimitedResult(translated)) {
+              titleTransCache.set(lang + title, translated);
+            }
+          });
+          setTransVersion((v) => v + 1);
+        })
+        .finally(() =>
+          batch.forEach((title) => translatingRef.current.delete(lang + title))
+        );
+    }
+  }, [isTranslateTitle, state.papers]);
+
   const { papers, isLoading, isLoadingMore, error, categoryIndex, searchQuery } =
     state;
 
   const renderPaper = (paper: Paper) => {
     const isExpanded = expandedId === paper.id;
+    const translatedTitle = isTranslateTitle
+      ? titleTransCache.get(getFullTranslationTarget() + paper.title)
+      : "";
     const authors =
       paper.authors.length > 4
         ? paper.authors.slice(0, 4).join(", ") + " " + t("et al.")
@@ -246,6 +326,14 @@ const PaperStore = ({ modeSwitch, onBack }: Props) => {
         >
           {paper.title}
         </div>
+        {translatedTitle && translatedTitle !== paper.title && (
+          <div
+            className="paper-store-title-trans"
+            onClick={() => setExpandedId(isExpanded ? "" : paper.id)}
+          >
+            {translatedTitle}
+          </div>
+        )}
         <div className="paper-store-meta">
           {authors && <span>{authors}</span>}
           {paper.venue && <span>{paper.venue}</span>}
@@ -294,15 +382,11 @@ const PaperStore = ({ modeSwitch, onBack }: Props) => {
   return (
     <div className="book-store-container">
       <div className="book-store-toolbar">
-        <span className="book-store-back" onClick={onBack}>
-          <span className="icon-dropdown book-store-back-icon"></span>
-          <Trans>Back to bookshelf</Trans>
-        </span>
         {modeSwitch}
         <div className="book-store-tabs">
           {paperCategories.map((c, i) => (
             <span
-              key={c.url}
+              key={c.title}
               className={
                 "book-store-tab" + (categoryIndex === i ? " is-active" : "")
               }
@@ -311,6 +395,31 @@ const PaperStore = ({ modeSwitch, onBack }: Props) => {
               <Trans>{c.title}</Trans>
             </span>
           ))}
+        </div>
+        <div className="paper-store-options">
+          <div className="paper-store-sort">
+            {SORTS.map((item) => (
+              <span
+                key={item.id}
+                className={
+                  "paper-store-sort-item" +
+                  (state.sort === item.id ? " is-active" : "")
+                }
+                onClick={() => handleSort(item.id)}
+              >
+                <Trans>{item.title}</Trans>
+              </span>
+            ))}
+          </div>
+          <span
+            className={
+              "paper-store-trans-toggle" +
+              (isTranslateTitle ? " is-active" : "")
+            }
+            onClick={toggleTranslateTitle}
+          >
+            <Trans>Translate titles</Trans>
+          </span>
         </div>
         <div className="book-store-search">
           <select

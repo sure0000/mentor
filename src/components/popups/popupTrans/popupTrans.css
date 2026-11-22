@@ -1,82 +1,99 @@
 .trans-container {
-  width: calc(100% - 40px);
+  width: 100%;
   height: calc(100% - 50px);
-  padding: 20px;
+  box-sizing: border-box;
+  padding: 14px 20px 16px;
   margin-top: 50px;
 }
-.trans-box {
-  height: calc(100% - 40px);
-  width: 100%;
+.trans-body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.trans-lang-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  border-radius: 7px;
+  gap: 4px;
+  flex-shrink: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
 }
-.original-text,
-.trans-text {
-  overflow-y: scroll;
-  height: calc(100% - 40px);
-  margin: 5px;
-  margin-top: 5px;
+.trans-lang-select {
+  max-width: 130px;
+  height: 28px;
+  padding: 0 6px;
+  font-size: 13px;
+  border: none;
+  border-radius: 6px;
+  background-color: rgba(128, 128, 128, 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+.trans-lang-arrow {
+  opacity: 0.45;
+  font-size: 13px;
+}
+.trans-copy-button {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 15px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.trans-copy-button:hover {
+  opacity: 1;
+  background-color: rgba(128, 128, 128, 0.1);
+}
+.trans-copy-disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.trans-copy-disabled:hover {
+  opacity: 0.25;
+  background-color: transparent;
+}
+.trans-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 4px 4px 0;
+  user-select: text;
+}
+.trans-result {
+  font-size: 17px;
+  line-height: 1.7;
+  white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: break-word;
 }
-.original-text-box,
-.trans-text-box {
-  width: 100%;
-  height: 100%;
-  opacity: 1;
-  user-select: text;
-
-  padding: 5px;
-  box-sizing: border-box;
-  font-size: 15px;
-  line-height: 18px;
-  /* position: relative; */
+.trans-result-placeholder {
+  opacity: 0.5;
 }
-.trans-lang-selector-container {
-  width: calc(100% - 40px);
-  height: 30px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 10px;
-  position: absolute;
-  top: 67px;
+.trans-source {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--brand);
+  border-radius: 0 6px 6px 0;
+  background-color: rgba(128, 128, 128, 0.07);
+  font-size: 13px;
+  line-height: 1.6;
+  opacity: 0.75;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-height: 9.6em;
+  overflow-y: auto;
 }
-.trans-lang-box,
-.original-lang-box {
-  width: calc(50%);
-  padding-left: 7px;
-  box-sizing: border-box;
-  flex-direction: column;
-}
-.original-text-box {
-  /* margin-right: 10px; */
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  border-right: none;
-  border-bottom-left-radius: 7px;
-  border-top-left-radius: 7px;
-}
-.trans-text-box {
-  background-color: rgba(75, 75, 75, 0.05);
-  border-bottom-right-radius: 7px;
-  border-top-right-radius: 7px;
-}
-.trans-lang-selector,
-.original-lang-selector {
-  height: 30px;
-  opacity: 1;
-  box-sizing: border-box;
-  font-size: 15px;
-  line-height: 30px;
-  cursor: pointer;
-  border: none;
-  background-color: transparent;
-}
-.trans-lang-selector {
-  font-size: 15px;
-  line-height: 15px;
+.trans-ai-tag {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--brand);
+  opacity: 0.8;
 }
 .trans-service-selector {
   border: 1px solid rgba(0, 0, 0, 0.05);

@@ -19,6 +19,10 @@ const INVOKE_CHANNELS = new Set([
   "cloud-exist",
   "cloud-close",
   "github-verify",
+  "github-login-available",
+  "github-login-start",
+  "github-login-cancel",
+  "github-token-login",
   "icloud-status",
   "open-icloud-settings",
   "clear-tts",
@@ -76,9 +80,6 @@ const INVOKE_CHANNELS = new Set([
   "untar-file",
   "list-zip-file",
   "unzip-file",
-  "claude-code-check",
-  "claude-code-chat",
-  "claude-code-cancel",
 ]);
 const SEND_CHANNELS = new Set([
   "reader-close-ready",
@@ -109,7 +110,7 @@ const EVENT_CHANNELS = new Set([
   "picker-finished",
   "backup-progress",
   "restore-progress",
-  "claude-code-delta",
+  "github-login-result",
 ]);
 
 const assertChannel = (set, channel) => {

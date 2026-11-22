@@ -9,7 +9,16 @@ import {
   fullTranslationLangList,
 } from "../../../constants/dropdownList";
 import { isAiAvailable } from "../../../utils/aiReading/aiGateway";
+import "./studyLangDialog.css";
 import { useAppStore } from "../../../store/useAppStore";
+import {
+  cancelTranslationJob,
+  getTranslationJob,
+  subscribeTranslationJob,
+  translateCurrentChapter,
+  translateWholeBook,
+  TranslationJob,
+} from "../../../utils/reader/fullTranslation";
 
 export interface StudyLangDialogState {
   fullTranslationModeValue: string;
@@ -35,6 +44,8 @@ const StudyLangDialog = () => {
       "zhCN",
   });
   const stateRef = useLatest(state);
+  const [job, setJob] = useState<TranslationJob | null>(getTranslationJob());
+  useEffect(() => subscribeTranslationJob(setJob), []);
   const prevBookKeyRef = useRef(currentBook?.key);
 
   const mergeState = (patch: Partial<StudyLangDialogState>) => {
@@ -59,6 +70,7 @@ const StudyLangDialog = () => {
   const handleFullTranslationChange = (value: string) => {
     mergeState({ fullTranslationModeValue: value });
     if (value === "no" || value === "") {
+      cancelTranslationJob();
       ConfigService.deleteListConfig(
         currentBook.key,
         "fullTranslationBooks"
@@ -84,6 +96,73 @@ const StudyLangDialog = () => {
     toast.success(t("Setup successful"));
     renderBookFunc();
   };
+
+  const bookJob = job && job.bookKey === currentBook?.key ? job : null;
+  const isRunning = bookJob?.status === "running";
+
+  const startJob = async (scope: "chapter" | "book") => {
+    toast(t("Translating in the background"));
+    const started =
+      scope === "chapter"
+        ? await translateCurrentChapter()
+        : await translateWholeBook();
+    if (!started) toast.error(t("Translation failed"));
+  };
+
+  const renderJobRow = () => (
+    <div className="study-lang-job">
+      <div className="study-lang-job-hint">
+        <Trans>
+          Pages are translated automatically as you read. You can also
+          translate ahead:
+        </Trans>
+      </div>
+      {isRunning ? (
+        <div className="study-lang-job-progress">
+          <div className="study-lang-job-bar">
+            <div
+              className="study-lang-job-bar-inner"
+              style={{
+                width: bookJob!.total
+                  ? `${Math.round((bookJob!.done / bookJob!.total) * 100)}%`
+                  : "0%",
+              }}
+            />
+          </div>
+          <span className="study-lang-job-text">
+            {bookJob!.scope === "book" ? t("Whole book") : t("Current chapter")}
+            {bookJob!.total ? ` ${bookJob!.done}/${bookJob!.total}` : " …"}
+          </span>
+          <span
+            className="study-lang-job-button"
+            onClick={() => cancelTranslationJob()}
+          >
+            <Trans>Stop</Trans>
+          </span>
+        </div>
+      ) : (
+        <div className="study-lang-job-actions">
+          <span
+            className="study-lang-job-button"
+            onClick={() => startJob("chapter")}
+          >
+            <Trans>Translate this chapter</Trans>
+          </span>
+          <span
+            className="study-lang-job-button"
+            onClick={() => startJob("book")}
+          >
+            <Trans>Translate whole book</Trans>
+          </span>
+        </div>
+      )}
+      {bookJob?.status === "done" && !isRunning && (
+        <div className="study-lang-job-hint">
+          <Trans>Translation completed</Trans>
+        </div>
+      )}
+    </div>
+  );
 
   const fullTranslationItem = dropdownList.find(
     (item) => item.value === "fullTranslationMode"
@@ -165,6 +244,9 @@ const StudyLangDialog = () => {
             </select>
           </div>
         )}
+        {(state.fullTranslationModeValue === "both" ||
+          state.fullTranslationModeValue === "target") &&
+          renderJobRow()}
       </ul>
     </div>
   );

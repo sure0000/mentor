@@ -1187,7 +1187,7 @@ export const showTaskProgress = async (
   let service = ConfigService.getItem("defaultSyncOption");
   if (!service) {
     toast(
-      i18n.t("Please add data source in the setting-Sync and backup first")
+      i18n.t("Sign in to sync your library")
     );
     return null;
   }
@@ -1267,7 +1267,7 @@ export const getTaskStats = async () => {
   let service = ConfigService.getItem("defaultSyncOption");
   if (!service) {
     toast(
-      i18n.t("Please add data source in the setting-Sync and backup first")
+      i18n.t("Sign in to sync your library")
     );
     return {};
   }

@@ -1,9 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import "./header.css";
 import SearchBox from "../../components/searchBox";
 import ImportLocal from "../../components/importLocal";
+import AccountButton from "../../components/accountButton";
 import {
   ConfigService,
   KookitConfig,
@@ -49,9 +50,9 @@ declare var window: any;
 
 const Header = (props: HeaderProps) => {
   const currentBook = useAppStore((s) => s.book.currentBook);
-  const isSortDisplay = useAppStore((s) => s.manager.isSortDisplay);
-  const handleSortDisplay = useAppStore((s) => s.handleSortDisplay);
   const handleSetting = useAppStore((s) => s.handleSetting);
+  const handleShelf = useAppStore((s) => s.handleShelf);
+  const handleLoginDialog = useAppStore((s) => s.handleLoginDialog);
   const handleSettingMode = useAppStore((s) => s.handleSettingMode);
   const handleAbout = useAppStore((s) => s.handleAbout);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
@@ -73,6 +74,8 @@ const Header = (props: HeaderProps) => {
   );
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isStore = location.pathname.startsWith("/manager/store");
   const [state, setState] = useState<HeaderState>({
     isSync: false,
   });
@@ -193,11 +196,8 @@ const Header = (props: HeaderProps) => {
 
   const beforeSync = async () => {
     if (!ConfigService.getItem("defaultSyncOption")) {
-      toast.error(
-        t("Please add data source in the setting-Sync and backup first")
-      );
-      handleSetting(true);
-      handleSettingMode("sync");
+      toast(t("Sign in to sync your library"));
+      handleLoginDialog(true);
       return false;
     }
     let config = await getCloudConfig(
@@ -538,45 +538,30 @@ const Header = (props: HeaderProps) => {
         />
         <span className="header-brand-name">Mentor</span>
       </div>
-      <div className="header-search-container">
-        <SearchBox />
-      </div>
+      <nav className="header-nav">
+        <span
+          className={"header-nav-item" + (isStore ? "" : " is-active")}
+          onClick={() => {
+            handleShelf("");
+            navigate("/manager/home");
+          }}
+        >
+          {t("Shelf")}
+        </span>
+        <span
+          className={"header-nav-item" + (isStore ? " is-active" : "")}
+          onClick={() => navigate("/manager/store")}
+        >
+          {t("Book store")}
+        </span>
+      </nav>
+      {/* 书城有自己的搜索框，书库搜索只在书架页显示 */}
+      {!isStore && (
+        <div className="header-search-container">
+          <SearchBox />
+        </div>
+      )}
       <div className="setting-icon-parrent">
-        <div
-          className="setting-icon-container"
-          onClick={() => {
-            handleSortDisplay(!isSortDisplay);
-          }}
-          onMouseLeave={() => {
-            handleSortDisplay(false);
-          }}
-          style={{ top: "18px" }}
-        >
-          <span
-            data-tooltip-id="my-tooltip"
-            data-tooltip-content={t("Sort by")}
-            data-tooltip-place="left"
-          >
-            <span className="icon-sort-desc header-sort-icon"></span>
-          </span>
-        </div>
-        <div
-          className="setting-icon-container"
-          onClick={() => {
-            navigate("/manager/store");
-          }}
-        >
-          <span
-            data-tooltip-id="my-tooltip"
-            data-tooltip-content={t("Open Source Book Store")}
-            data-tooltip-place="bottom"
-          >
-            <span
-              className="icon-internet setting-icon"
-              style={{ fontSize: "21px" }}
-            ></span>
-          </span>
-        </div>
         <div
           className="setting-icon-container"
           onClick={() => {
@@ -621,11 +606,8 @@ const Header = (props: HeaderProps) => {
           onClick={async () => {
             const hasCloud = !!ConfigService.getItem("defaultSyncOption");
             if (!hasCloud) {
-              toast(
-                t("Please add data source in the setting-Sync and backup first")
-              );
-              handleSetting(true);
-              handleSettingMode("sync");
+              toast(t("Sign in to sync your library"));
+              handleLoginDialog(true);
               return;
             }
             setIsSync(true);
@@ -646,6 +628,10 @@ const Header = (props: HeaderProps) => {
             ></span>
           </span>
         </div>
+      </div>
+
+      <div className="header-account">
+        <AccountButton />
       </div>
 
       {KookitConfig.CloudMode !== "production" ? (

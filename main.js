@@ -73,11 +73,11 @@ const {
   runMacosOcr,
 } = require("./src/utils/main/ocr-util");
 const { getVoicePlugin } = require("./src/utils/plugins/main/registry");
-const claudeCode = require("./src/utils/main/claude-code-util");
 const {
   GitHubSyncUtil,
   verifyGitHubConfig,
 } = require("./src/utils/main/github-sync");
+const githubAuth = require("./src/utils/main/github-auth");
 const ttsCacheUtil = require("./src/utils/plugins/main/voice/ttsCache");
 let dictReaderModule = null;
 const getDictReader = () => {
@@ -799,63 +799,6 @@ const createMainWin = () => {
       word,
     });
   });
-  // ===== AI 伴读：Claude Code 后端（见 docs/ai-reading/decisions.md） =====
-  ipcMain.handle("claude-code-check", async (event, args) => {
-    const override =
-      args && typeof args.binPath === "string" ? args.binPath.trim() : "";
-    const bin = await claudeCode.locate(override);
-    if (!bin) return { ok: false, code: "not-found" };
-    const version = await claudeCode.version(bin);
-    if (!version) return { ok: false, code: "not-found", bin };
-    return { ok: true, bin, version };
-  });
-  ipcMain.handle("claude-code-chat", async (event, args) => {
-    const requestId = args && args.requestId;
-    const prompt = args && args.prompt;
-    if (typeof requestId !== "string" || !/^[\w-]{1,64}$/.test(requestId)) {
-      throw new TypeError("Invalid requestId");
-    }
-    if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 2000000) {
-      throw new TypeError("Invalid prompt");
-    }
-    const system = typeof args.system === "string" ? args.system : "";
-    const model =
-      typeof args.model === "string" && /^[\w.\-[\]]{0,80}$/.test(args.model)
-        ? args.model
-        : "";
-    const budgetUsd =
-      typeof args.budgetUsd === "number" && args.budgetUsd > 0
-        ? args.budgetUsd
-        : 0;
-    const schema =
-      args.schema && typeof args.schema === "object" && !Array.isArray(args.schema)
-        ? args.schema
-        : null;
-    const override =
-      typeof args.binPath === "string" ? args.binPath.trim() : "";
-    const bin = await claudeCode.locate(override);
-    if (!bin) return { ok: false, code: "not-found", costUsd: 0, durationMs: 0 };
-    const sender = event.sender;
-    return await claudeCode.run({
-      bin,
-      requestId,
-      prompt,
-      system,
-      model,
-      budgetUsd,
-      schema,
-      log,
-      onText: (text) => {
-        if (!sender.isDestroyed()) {
-          sender.send("claude-code-delta", { requestId, text });
-        }
-      },
-    });
-  });
-  ipcMain.handle("claude-code-cancel", (event, requestId) => {
-    if (typeof requestId !== "string") return false;
-    return claudeCode.cancel(requestId);
-  });
   ipcMain.handle("dict-migrate", async (event, args) => {
     const storagePath = args && args.storagePath;
     if (typeof storagePath !== "string" || !storagePath.trim()) {
@@ -1226,6 +1169,112 @@ const createMainWin = () => {
       { token: config.token.trim(), repo: config.repo.trim() },
       net.fetch
     );
+  });
+  // GitHub 登录：同一时间只允许一个登录流程，新请求会取消旧的
+  let githubLoginId = 0;
+  let cancelBrowserLogin = null;
+  // 返回 "browser"（一键登录）/ "device"（设备码）/ ""（未配置，只能用令牌）
+  ipcMain.handle("github-login-available", async () => {
+    return githubAuth.getLoginMode();
+  });
+  const finishGitHubLogin = async (sender, loginId, result) => {
+    if (loginId !== githubLoginId) return;
+    let payload = result;
+    if (result.ok) {
+      try {
+        const repo = await githubAuth.ensureSyncRepo(
+          result.token,
+          githubAuth.DEFAULT_REPO,
+          net.fetch
+        );
+        payload = repo.ok ? { ...repo, token: result.token } : repo;
+      } catch (error) {
+        payload = { ok: false, error: "network" };
+      }
+    }
+    if (loginId !== githubLoginId) return;
+    if (sender && !sender.isDestroyed()) {
+      sender.send("github-login-result", payload);
+      // 授权完成后把 Mentor 窗口带回前台
+      const win = BrowserWindow.fromWebContents(sender);
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      }
+    }
+  };
+  ipcMain.handle("github-login-start", async (event) => {
+    const mode = githubAuth.getLoginMode();
+    if (!mode) return { ok: false, error: "no-client-id" };
+    const loginId = ++githubLoginId;
+    if (cancelBrowserLogin) {
+      cancelBrowserLogin();
+      cancelBrowserLogin = null;
+    }
+    const sender = event.sender;
+    if (mode === "browser") {
+      let login;
+      try {
+        login = await githubAuth.startBrowserLogin(net.fetch);
+      } catch (error) {
+        return { ok: false, error: "network" };
+      }
+      cancelBrowserLogin = login.cancel;
+      login.result.then((result) => {
+        if (cancelBrowserLogin === login.cancel) cancelBrowserLogin = null;
+        finishGitHubLogin(sender, loginId, result);
+      });
+      await shell.openExternal(login.url);
+      return { ok: true, mode };
+    }
+    const clientId = githubAuth.getClientId();
+    let device;
+    try {
+      device = await githubAuth.requestDeviceCode(clientId, net.fetch);
+    } catch (error) {
+      return { ok: false, error: "network" };
+    }
+    // 后台轮询；结果通过 github-login-result 事件推给发起登录的窗口
+    githubAuth
+      .pollAccessToken(clientId, device, () => loginId !== githubLoginId, net.fetch)
+      .then((result) => finishGitHubLogin(sender, loginId, result));
+    return {
+      ok: true,
+      mode,
+      userCode: device.userCode,
+      verificationUri: device.verificationUri,
+      expiresIn: device.expiresIn,
+    };
+  });
+  // 令牌方式登录：指定仓库时校验写权限，未指定时创建/复用 <login>/mentor-sync
+  ipcMain.handle("github-token-login", async (event, config) => {
+    if (!config || typeof config.token !== "string" || !config.token.trim()) {
+      return { ok: false, error: "bad-token" };
+    }
+    const token = config.token.trim();
+    const repo = typeof config.repo === "string" ? config.repo.trim() : "";
+    try {
+      if (repo) {
+        const verified = await verifyGitHubConfig({ token, repo }, net.fetch);
+        return verified.ok ? { ...verified, repo } : verified;
+      }
+      return await githubAuth.ensureSyncRepo(
+        token,
+        githubAuth.DEFAULT_REPO,
+        net.fetch
+      );
+    } catch (error) {
+      return { ok: false, error: "network" };
+    }
+  });
+  ipcMain.handle("github-login-cancel", async () => {
+    githubLoginId++;
+    if (cancelBrowserLogin) {
+      cancelBrowserLogin();
+      cancelBrowserLogin = null;
+    }
+    return true;
   });
   ipcMain.handle("cloud-close", async (event, config) => {
     removeSyncUtil(config);
@@ -2212,9 +2261,6 @@ app.on("ready", async () => {
   applyDoubanImageReferer();
   applyNativeThemeSource(store.get("appSkin"));
   createMainWin();
-});
-app.on("before-quit", () => {
-  claudeCode.cancelAll();
 });
 app.on("window-all-closed", () => {
   app.quit();

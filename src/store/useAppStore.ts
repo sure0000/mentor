@@ -22,8 +22,6 @@ import type { PluginConfig, PluginVoice } from "../utils/plugins/types";
 import { HighlightValue } from "../utils/common";
 import toast from "react-hot-toast";
 import i18n from "../i18n";
-import { isElectron } from "react-device-detect";
-import { CLAUDE_CODE_PLUGIN_KEY } from "../utils/aiReading/claudeCode";
 import {
   getCustomTtsConfig,
   isCustomTtsConfigured,
@@ -69,6 +67,7 @@ const initialManager = {
   isSearch: false,
   isShowPopupNote: false,
   isAboutOpen: false,
+  isLoginOpen: false,
   isSettingOpen: false,
   viewMode: "card",
   isSortDisplay: false,
@@ -197,6 +196,7 @@ export type stateType = {
 
 export type AppActionName =
   | "handleAbout"
+  | "handleLoginDialog"
   | "handleActionDialog"
   | "handleAddCollectionDialog"
   | "handleAddDialog"
@@ -345,6 +345,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       setManager({ isShowPopupNote }),
     handleSettingDrive: (settingDrive: string) => setManager({ settingDrive }),
     handleAbout: (isAboutOpen: boolean) => setManager({ isAboutOpen }),
+    handleLoginDialog: (isLoginOpen: boolean) => setManager({ isLoginOpen }),
     handleViewMode: (mode: string) => setManager({ viewMode: mode }),
     handleSortDisplay: (isSortDisplay: boolean) =>
       setManager({ isSortDisplay }),
@@ -654,26 +655,8 @@ export const useAppStore = create<AppState>()((set, get) => {
               pluginList.push(assistPlugin);
             }
           }
-          if (isElectron) {
-            // AI 伴读：本机 Claude Code 后端，无需配置 Key
-            pluginList.push(
-              new PluginModel(
-                CLAUDE_CODE_PLUGIN_KEY,
-                "assistant",
-                "Claude Code (local)",
-                "assistant",
-                "1.0.0",
-                "",
-                {},
-                officialTranList,
-                [],
-                "",
-                ""
-              )
-            );
-          }
           {
-            // 二开：原「官方 AI」插件改为走统一 AI 网关（Claude Code / 自定义接口），
+            // 二开：原「官方 AI」插件改为走统一 AI 网关（自定义 LLM 接口），
             // 沿用原 key 以兼容用户已保存的服务选择。
             pluginList.push(
               new PluginModel(

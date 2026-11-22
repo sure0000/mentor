@@ -58,3 +58,8 @@
   font-size: 12px;
   opacity: 0.7;
 }
+.icloud-status-button.is-plain {
+  background: transparent;
+  color: #e5484d;
+  padding-left: 0;
+}

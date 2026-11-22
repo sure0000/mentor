@@ -388,6 +388,102 @@ export const scrollChapter = async (
   }
 };
 let lastScaleTime = 0;
+
+// 滚轮翻页按「手势」计：触控板惯性滚动 / 快速拨动滚轮会在一两秒内连续产生大量
+// wheel 事件，仅靠固定时长的锁会连翻多页。翻页后进入冷却，冷却期内每个新事件都会
+// 顺延冷却时间，直到滚轮静止 WHEEL_GESTURE_GAP 毫秒才允许下一次翻页；
+// 同时累计位移达到阈值才触发，过滤触控板的轻微误触。
+const WHEEL_GESTURE_GAP = 250;
+const WHEEL_TRIGGER_DELTA = 15;
+let wheelCooldownUntil = 0;
+let wheelAccum = 0;
+let wheelLastTime = 0;
+const takeWheelTurn = (delta: number): number => {
+  const now = Date.now();
+  if (now < wheelCooldownUntil) {
+    wheelCooldownUntil = now + WHEEL_GESTURE_GAP;
+    return 0;
+  }
+  if (now - wheelLastTime > WHEEL_GESTURE_GAP || Math.sign(delta) !== Math.sign(wheelAccum)) {
+    wheelAccum = 0;
+  }
+  wheelLastTime = now;
+  wheelAccum += delta;
+  if (Math.abs(wheelAccum) < WHEEL_TRIGGER_DELTA) return 0;
+  const result = wheelAccum;
+  wheelAccum = 0;
+  wheelCooldownUntil = now + WHEEL_GESTURE_GAP;
+  return result;
+};
+
+// 点击翻页：分页模式下点击页面左/右两侧 30% 区域翻页，中间区域不处理
+const CLICK_TURN_EDGE_RATIO = 0.3;
+const CLICK_TURN_DELAY = 220; // 等待可能的双击选词，避免双击时先翻了页
+const CLICK_MOVE_TOLERANCE = 5;
+const CLICK_IGNORE_SELECTOR =
+  "a,button,input,textarea,select,img,image,svg,video,audio,label,[role='button'],.kookit-note,.kookit-note-icon,.kookit-word-def";
+const isClickTurnEnabled = () =>
+  ConfigService.getReaderConfig("isDisableClickTurn") !== "yes";
+
+const bindClickTurn = (
+  rendition: any,
+  doc: any,
+  book: Book,
+  readerMode: string
+) => {
+  let downX = 0;
+  let downY = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  doc.addEventListener("mousedown", (event: MouseEvent) => {
+    downX = event.clientX;
+    downY = event.clientY;
+  });
+  doc.addEventListener("click", (event: MouseEvent) => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (
+      readerMode === "scroll" ||
+      !isClickTurnEnabled() ||
+      event.button !== 0 ||
+      event.detail > 1 ||
+      event.defaultPrevented ||
+      Math.abs(event.clientX - downX) > CLICK_MOVE_TOLERANCE ||
+      Math.abs(event.clientY - downY) > CLICK_MOVE_TOLERANCE
+    ) {
+      return;
+    }
+    const target = event.target as Element | null;
+    if (target?.closest?.(CLICK_IGNORE_SELECTOR)) return;
+    if (doc.getSelection()?.toString().trim()) return;
+    const state = useAppStore.getState();
+    if (state.viewArea.isOpenMenu) return;
+    // 点击位置换算到阅读区（#page-area）坐标：iframe 内 clientX 是相对 iframe 视口的
+    const pageArea = document.getElementById("page-area");
+    const frame = (doc.defaultView?.frameElement as HTMLElement | null) || null;
+    if (!pageArea || !frame) return;
+    const areaRect = pageArea.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    const x = frameRect.left + event.clientX - areaRect.left;
+    const ratio = x / areaRect.width;
+    let direction = 0;
+    if (ratio < CLICK_TURN_EDGE_RATIO) direction = -1;
+    else if (ratio > 1 - CLICK_TURN_EDGE_RATIO) direction = 1;
+    if (!direction) return;
+    if (isRevertDirectionReading(rendition)) direction = -direction;
+    timer = setTimeout(async () => {
+      timer = null;
+      if (doc.getSelection()?.toString().trim()) return;
+      if (lock) return;
+      lock = true;
+      if (direction > 0) await rendition.next();
+      else await rendition.prev();
+      handleLocation(book.key, rendition);
+      setTimeout(() => (lock = false), getThrottleTime());
+    }, CLICK_TURN_DELAY);
+  });
+};
 // kookit 渲染章节时复用同一个 iframe document，"rendered" 每触发一次就会
 // 走到这里重绑一遍，用 WeakSet 保证同一 doc 只绑定一次
 const boundDocs = new WeakSet<Document>();
@@ -446,6 +542,23 @@ export const bindHtmlEvent = (
       ) {
         event.preventDefault();
       }
+      // 分页模式（以及滚动模式下的阅读辅助）按手势翻页，一次手势只翻一页
+      const isPagedWheel =
+        readerMode !== "scroll" ||
+        (Math.abs(event.deltaX) === 0 && isReadingAidMode(format, key));
+      let wheelDelta = 0;
+      if (isPagedWheel) {
+        // 取主方向：触控板竖向轻扫常带微小 deltaX，不应因此忽略
+        const isHorizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
+        const raw = !isHorizontal
+          ? event.deltaY
+          : readerMode !== "scroll" && isRevertDirectionReading(rendition)
+            ? event.deltaX // RTL 下触控板水平滚动：向左滚动（deltaX<0）为下一页
+            : 0;
+        if (!raw) return;
+        wheelDelta = takeWheelTurn(raw);
+        if (!wheelDelta) return;
+      }
       if (lock) return;
       lock = true;
       if (readerMode === "scroll") {
@@ -453,7 +566,7 @@ export const bindHtmlEvent = (
           // 段落/阅读尺/速读模式内部实际按单页渲染，同样遵循 RTL
           await mouseChrome(
             rendition,
-            event.deltaY,
+            wheelDelta,
             isRevertDirectionReading(rendition)
           );
         } else {
@@ -468,16 +581,11 @@ export const bindHtmlEvent = (
           }
         }
       } else {
-        const revertDirection = isRevertDirectionReading(rendition);
-        if (Math.abs(event.deltaX) === 0) {
-          await mouseChrome(rendition, event.deltaY, revertDirection);
-        } else if (
-          revertDirection &&
-          Math.abs(event.deltaY) < Math.abs(event.deltaX)
-        ) {
-          // RTL 下触控板水平滚动：向左滚动（deltaX<0）为下一页
-          await mouseChrome(rendition, event.deltaX, true);
-        }
+        await mouseChrome(
+          rendition,
+          wheelDelta,
+          isRevertDirectionReading(rendition)
+        );
       }
       handleLocation(key, rendition);
       setTimeout(() => (lock = false), getThrottleTime());
@@ -496,6 +604,8 @@ export const bindHtmlEvent = (
     },
     { passive: false }
   );
+
+  bindClickTurn(rendition, doc, book, readerMode);
 
   doc.addEventListener(
     "touchend",

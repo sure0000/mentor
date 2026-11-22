@@ -8,6 +8,9 @@ import {
   buildEuropePmcUrl,
   parseArxivFeed,
   parseEuropePmc,
+  parseOpenAlexArxiv,
+  buildCategoryUrl,
+  paperCategories,
 } from "./papers";
 
 // 结构取自 arXiv API 真实返回（2026-11），只保留解析用到的节点
@@ -119,6 +122,43 @@ describe("papers", () => {
   it("Europe PMC 查询总是限定开放获取且有 PDF", () => {
     const query = new URL(buildEuropePmcUrl("crispr", "CITED desc")).searchParams.get("query");
     expect(query).toBe("(crispr) AND OPEN_ACCESS:y AND HAS_PDF:y");
+  });
+
+  it("解析 OpenAlex 的 arXiv 结果：还原摘要、arXiv id、正式发表的期刊名、下一页游标", () => {
+    const json = JSON.stringify({
+      meta: { next_cursor: "abc" },
+      results: [
+        {
+          doi: "https://doi.org/10.1145/2939672.2939785",
+          title: "XGBoost: A Scalable Tree Boosting System",
+          cited_by_count: 77687,
+          publication_date: "2016-08-13",
+          authorships: [{ author: { display_name: "Tianqi Chen" } }],
+          primary_location: { source: { id: "https://openalex.org/S1", display_name: "KDD" } },
+          locations: [{ landing_page_url: "http://arxiv.org/abs/1603.02754v3" }],
+          abstract_inverted_index: { Tree: [0], boosting: [1], works: [2] },
+        },
+        { doi: "https://doi.org/10.1/none", title: "No arXiv", locations: [] },
+      ],
+    });
+    const page = parseOpenAlexArxiv(json, "https://api.openalex.org/works?cursor=*");
+    expect(page.papers).toHaveLength(1);
+    expect(page.papers[0]).toMatchObject({
+      id: "1603.02754",
+      citations: 77687,
+      venue: "KDD",
+      summary: "Tree boosting works",
+      pdfUrl: "https://arxiv.org/pdf/1603.02754",
+      doi: "10.48550/arxiv.1603.02754",
+    });
+    expect(new URL(page.nextUrl).searchParams.get("cursor")).toBe("abc");
+  });
+
+  it("arXiv 分类按被引排序走 OpenAlex，按最新走 arXiv API", () => {
+    const ai = paperCategories[0];
+    expect(buildCategoryUrl(ai, "cited")).toContain("api.openalex.org");
+    expect(buildCategoryUrl(ai, "cited")).toContain("sort=cited_by_count%3Adesc");
+    expect(buildCategoryUrl(ai, "latest")).toContain("export.arxiv.org");
   });
 
   describe("fetchCitationCounts", () => {

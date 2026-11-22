@@ -27,9 +27,9 @@ import {
 import {
   AiTaskError,
   RunningTask,
-  getPointsBackend,
+  AI_TASK_ERROR_KEYS,
+  hasAiBackend,
 } from "../../../utils/aiReading/chapterPointsService";
-import { CLAUDE_CODE_ERROR_KEYS } from "../../../utils/aiReading/claudeCode";
 import { visibleWhileStreaming } from "../../../utils/aiReading/bookQa";
 import { jumpToQuote } from "../../../utils/aiReading/readerAdapter";
 import QaAnswer from "../qaAnswer";
@@ -54,9 +54,7 @@ const renderMarkdown = (md: string) =>
 
 export const errorText = (t: (k: string) => string, e: unknown) => {
   if (e instanceof AiTaskError) {
-    if (e.code === "no-service") return t("AI_GUIDE_NO_SERVICE");
-    if (e.code === "bad-output") return t("AI_GUIDE_BAD_OUTPUT");
-    return t(CLAUDE_CODE_ERROR_KEYS[e.code]);
+    return t(AI_TASK_ERROR_KEYS[e.code]);
   }
   return e instanceof Error ? e.message : String(e);
 };
@@ -123,7 +121,7 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
 
   const handleGenerate = async () => {
     if (isRunning) return;
-    if (!getPointsBackend()) {
+    if (!hasAiBackend()) {
       setError(t("AI_GUIDE_NO_SERVICE"));
       return;
     }

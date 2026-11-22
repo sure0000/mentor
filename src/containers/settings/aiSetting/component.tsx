@@ -10,7 +10,8 @@ import {
   KookitConfig,
 } from "../../../assets/lib/kookit-extra-browser.min";
 import { useAppStore } from "../../../store/useAppStore";
-import ClaudeCodeSetting from "../../../components/aiReading/claudeCodeSetting";
+import SwitchRow from "../../../components/readerSettings/switchRow";
+import { CHAPTER_END_PROMPT_KEY } from "../../../utils/aiReading/guideNav";
 import CustomTtsSetting from "../../../components/aiReading/customTtsSetting";
 
 export interface AIModelConfig {
@@ -72,6 +73,9 @@ const AISetting = () => {
       ConfigService.getReaderConfig("aiAssistancePrompt") || "",
   }));
   const stateRef = useLatest(state);
+  const [isChapterEndPrompt, setIsChapterEndPrompt] = useState(
+    ConfigService.getReaderConfig(CHAPTER_END_PROMPT_KEY) === "yes"
+  );
 
   const updateState = (patch: Partial<SettingInfoState>) => {
     stateRef.current = { ...stateRef.current, ...patch };
@@ -769,7 +773,20 @@ const AISetting = () => {
         </select>
       </div>
 
-      <ClaudeCodeSetting />
+      <SwitchRow
+        variant="setting"
+        title={t("Suggest reading companion after finishing a chapter")}
+        isEnabled={isChapterEndPrompt}
+        onClick={() => {
+          const next = !isChapterEndPrompt;
+          setIsChapterEndPrompt(next);
+          ConfigService.setReaderConfig(
+            CHAPTER_END_PROMPT_KEY,
+            next ? "yes" : "no"
+          );
+          toast.success(t("Change successful"));
+        }}
+      />
       <CustomTtsSetting />
 
       <div className="setting-dialog-new-plugin">

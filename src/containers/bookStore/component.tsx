@@ -1,5 +1,4 @@
 import { useTranslation, Trans } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Parser from "html-react-parser";
@@ -130,10 +129,9 @@ const getSearchQueries = (book: DoubanBook, detail: DoubanDetail) => {
 
 interface BookViewProps {
   modeSwitch: ReactNode;
-  onBack: () => void;
 }
 
-const BookView = ({ modeSwitch, onBack }: BookViewProps) => {
+const BookView = ({ modeSwitch }: BookViewProps) => {
   const importBookFunc = useAppStore((s) => s.book.importBookFunc);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleRefreshBookCover = useAppStore((s) => s.handleRefreshBookCover);
@@ -563,10 +561,6 @@ const BookView = ({ modeSwitch, onBack }: BookViewProps) => {
   return (
     <div className="book-store-container">
       <div className="book-store-toolbar">
-        <span className="book-store-back" onClick={onBack}>
-          <span className="icon-dropdown book-store-back-icon"></span>
-          <Trans>Back to bookshelf</Trans>
-        </span>
         {modeSwitch}
         <div className="book-store-tabs">
           {doubanCategories.map((c, i) => (
@@ -636,6 +630,9 @@ const BookView = ({ modeSwitch, onBack }: BookViewProps) => {
                 <div className="book-store-card-title" title={book.title}>
                   {book.title}
                 </div>
+                <div className="book-store-card-author" title={book.abstract}>
+                  {book.abstract}
+                </div>
                 <div className="book-store-card-rating">
                   {book.rating !== null ? (
                     <>
@@ -649,9 +646,6 @@ const BookView = ({ modeSwitch, onBack }: BookViewProps) => {
                       {t("Not enough ratings")}
                     </span>
                   )}
-                </div>
-                <div className="book-store-card-author" title={book.abstract}>
-                  {book.abstract}
                 </div>
               </div>
             ))}
@@ -667,9 +661,7 @@ const BookView = ({ modeSwitch, onBack }: BookViewProps) => {
 type StoreMode = "books" | "papers";
 
 const BookStore = () => {
-  const navigate = useNavigate();
   const [mode, setMode] = useState<StoreMode>("books");
-  const onBack = () => navigate("/manager/home");
   const modeSwitch = (
     <div className="book-store-mode-switch">
       {(["books", "papers"] as StoreMode[]).map((m) => (
@@ -685,9 +677,9 @@ const BookStore = () => {
   );
   // 两个视图各自维护列表状态，切换时卸载即可，不必常驻
   return mode === "books" ? (
-    <BookView modeSwitch={modeSwitch} onBack={onBack} />
+    <BookView modeSwitch={modeSwitch} />
   ) : (
-    <PaperStore modeSwitch={modeSwitch} onBack={onBack} />
+    <PaperStore modeSwitch={modeSwitch} />
   );
 };
 

@@ -320,6 +320,18 @@ const PopupTrans = (props: PopupTransProps) => {
     handleTrans(originalText.replace(/(\r\n|\n|\r)/gm, ""));
   };
 
+  const currentPlugin = plugins.find((item) => item.key === state.transService);
+  const renderLangOptions = () => {
+    const langList = currentPlugin?.langList;
+    if (!langList) return null;
+    // 与原实现一致：选项值取 key，显示取 value（数组形式的语言表显示其本地名）
+    return Object.entries(langList).map(([code, label]) => (
+      <option value={code} key={code} className="add-dialog-shelf-list-option">
+        {t(typeof label === "string" ? label : label.nativeLang)}
+      </option>
+    ));
+  };
+
   const renderNoteEditor = () => {
     return (
       <div className="trans-container">
@@ -342,6 +354,7 @@ const PopupTrans = (props: PopupTransProps) => {
             .map((item) => {
               return (
                 <div
+                  key={item.key}
                   className={
                     state.transService === item.key
                       ? "trans-service-selector"
@@ -386,151 +399,79 @@ const PopupTrans = (props: PopupTransProps) => {
           </div>
         )}
         {!state.isAddNew && (
-          <>
-            <div
-              className="trans-box"
-              style={
-                props.isDockedRight
-                  ? { flexDirection: "column", height: "calc(100% - 80px)" }
-                  : undefined
-              }
-            >
-              <div
-                className="original-text-box"
-                style={
-                  props.isDockedRight
-                    ? {
-                        flex: 1,
-                        minHeight: 0,
-                        borderRight: "1px solid rgba(0,0,0,0.05)",
-                        borderBottom: "1px solid rgba(0,0,0,0.05)",
-                        borderBottomLeftRadius: 0,
-                        borderTopRightRadius: "7px",
-                      }
-                    : undefined
-                }
+          <div className="trans-body">
+            <div className="trans-lang-bar">
+              <select
+                className="trans-lang-select"
+                value={ConfigService.getReaderConfig("transSource")}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
+                  ConfigService.setReaderConfig(
+                    "transSource",
+                    event.target.value
+                  );
+                  handleTrans(originalText.replace(/(\r\n|\n|\r)/gm, ""));
+                  forceUpdate();
+                }}
               >
-                <div className="original-lang-box">
-                  <select
-                    className="original-lang-selector"
-                    style={{ maxWidth: "120px", margin: 0 }}
-                    value={ConfigService.getReaderConfig("transSource")}
-                    onChange={(
-                      event: React.ChangeEvent<HTMLSelectElement>
-                    ) => {
-                      let targetLang = event.target.value;
-                      ConfigService.setReaderConfig("transSource", targetLang);
-                      handleTrans(
-                        originalText.replace(/(\r\n|\n|\r)/gm, "")
-                      );
-                      forceUpdate();
-                    }}
-                  >
-                    {plugins.find(
-                      (item) => item.key === state.transService
-                    )?.langList &&
-                      Object.keys(
-                        plugins.find(
-                          (item) => item.key === state.transService
-                        )?.langList as any
-                      ).map((item, index) => {
-                        return (
-                          <option
-                            value={item}
-                            key={index}
-                            className="add-dialog-shelf-list-option"
-                          >
-                            {t(
-                              Object.values(
-                                plugins.find(
-                                  (item) => item.key === state.transService
-                                )?.langList as any[]
-                              )[index]
-                            )}
-                          </option>
-                        );
-                      })}
-                  </select>
-                </div>
-                <div className="original-text">{state.originalText}</div>
-              </div>
-              <div
-                className="trans-text-box"
-                style={
-                  props.isDockedRight ? { flex: 1, minHeight: 0 } : undefined
+                {renderLangOptions()}
+              </select>
+              <span className="trans-lang-arrow">→</span>
+              <select
+                className="trans-lang-select"
+                value={
+                  ConfigService.getReaderConfig("transTarget") ||
+                  getDefaultTransTarget(currentPlugin?.langList)
                 }
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
+                  ConfigService.setReaderConfig(
+                    "transTarget",
+                    event.target.value
+                  );
+                  handleTrans(originalText.replace(/(\r\n|\n|\r)/gm, ""));
+                  forceUpdate();
+                }}
               >
-                <div className="trans-lang-box">
-                  <select
-                    className="trans-lang-selector"
-                    style={{ maxWidth: "120px", margin: 0 }}
-                    value={
-                      ConfigService.getReaderConfig("transTarget") ||
-                      getDefaultTransTarget(
-                        plugins.find(
-                          (item) => item.key === state.transService
-                        )?.langList
-                      )
-                    }
-                    onChange={(
-                      event: React.ChangeEvent<HTMLSelectElement>
-                    ) => {
-                      let targetLang = event.target.value;
-                      ConfigService.setReaderConfig("transTarget", targetLang);
-                      handleTrans(
-                        originalText.replace(/(\r\n|\n|\r)/gm, "")
-                      );
-                      forceUpdate();
-                    }}
-                  >
-                    {plugins.find(
-                      (item) => item.key === state.transService
-                    )?.langList &&
-                      Object.keys(
-                        plugins.find(
-                          (item) => item.key === state.transService
-                        )?.langList as any
-                      ).map((item, index) => {
-                        return (
-                          <option
-                            value={item}
-                            key={index}
-                            className="add-dialog-shelf-list-option"
-                          >
-                            {t(
-                              Object.values(
-                                plugins.find(
-                                  (item) => item.key === state.transService
-                                )?.langList as any[]
-                              )[index]
-                            )}
-                          </option>
-                        );
-                      })}
-                  </select>
-                </div>
-                <div className="trans-text">
-                  {state.isAiWaiting && !state.translatedText ? (
-                    <div className="dict-ai-answer-waiting">
-                      <span className="icon-loading popup-assistant-loading"></span>
-                      <span>{t("Thinking, please wait...")}</span>
-                    </div>
-                  ) : (
-                    state.translatedText
-                  )}
-                  {state.transService.includes("ai-trans") &&
-                    state.isFinishOutput && (
-                      <p
-                        className="dict-learn-more"
-                        style={{ color: "var(--brand)" }}
-                      >
-                        {t("Generated with AI")}
-                      </p>
-                    )}
-                </div>
-              </div>
+                {renderLangOptions()}
+              </select>
+              <span
+                className={
+                  "trans-copy-button" +
+                  (state.translatedText ? "" : " trans-copy-disabled")
+                }
+                title={t("Copy")}
+                onClick={() => {
+                  if (!state.translatedText) return;
+                  navigator.clipboard
+                    ?.writeText(state.translatedText)
+                    .then(() => toast.success(t("Copied")))
+                    .catch(() => {});
+                }}
+              >
+                <span className="icon-copy-line"></span>
+              </span>
             </div>
-          </>
+            <div className="trans-scroll">
+              <div className="trans-result">
+                {state.isAiWaiting && !state.translatedText ? (
+                  <div className="dict-ai-answer-waiting">
+                    <span className="icon-loading popup-assistant-loading"></span>
+                    <span>{t("Thinking, please wait...")}</span>
+                  </div>
+                ) : state.translatedText ? (
+                  state.translatedText
+                ) : (
+                  <span className="trans-result-placeholder">
+                    <span className="icon-loading popup-assistant-loading"></span>
+                  </span>
+                )}
+              </div>
+              <div className="trans-source">{state.originalText}</div>
+              {state.transService.includes("ai-trans") &&
+                state.isFinishOutput && (
+                  <p className="trans-ai-tag">{t("Generated with AI")}</p>
+                )}
+            </div>
+          </div>
         )}
       </div>
     );

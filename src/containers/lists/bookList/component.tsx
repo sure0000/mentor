@@ -14,12 +14,13 @@ import {
 import { Navigate } from "react-router-dom";
 import ViewMode from "../../../components/viewMode";
 import SelectBook from "../../../components/selectBook";
-import { Trans } from "react-i18next";
 import Book from "../../../models/Book";
 import { isElectron } from "react-device-detect";
 import DatabaseService from "../../../utils/storage/databaseService";
 import { throttle } from "../../../utils/common";
 import ShelfCategoryItem from "../../../components/shelfCategoryItem";
+import ContinueReading from "../../../components/continueReading";
+import SortDialog from "../../../components/dialogs/sortBookDialog";
 import {
   createCategory,
   getCategoryBookKeys,
@@ -72,6 +73,8 @@ const BookList = () => {
   const isSearch = useAppStore((s) => s.manager.isSearch);
   const isSelectBook = useAppStore((s) => s.manager.isSelectBook);
   const viewMode = useAppStore((s) => s.manager.viewMode);
+  const isSortDisplay = useAppStore((s) => s.manager.isSortDisplay);
+  const handleSortDisplay = useAppStore((s) => s.handleSortDisplay);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleShelf = useAppStore((s) => s.handleShelf);
   const handleLoadMore = useAppStore((s) => s.handleLoadMore);
@@ -554,6 +557,8 @@ const BookList = () => {
             <span>{t("Shelf")}</span>
           )}
         </div>
+        <div className="shelf-toolbar-actions">
+        {renderStatusTabs()}
         {!shelfTitle &&
           (state.isCreatingCategory ? (
             <input
@@ -590,15 +595,55 @@ const BookList = () => {
               {t("New category")}
             </span>
           ))}
+        <div
+          className="shelf-toolbar-sort"
+          onMouseLeave={() => handleSortDisplay(false)}
+        >
+          <span
+            className={
+              "shelf-toolbar-icon" + (isSortDisplay ? " is-active" : "")
+            }
+            data-tooltip-id="my-tooltip"
+            data-tooltip-content={t("Sort by")}
+            onClick={() => handleSortDisplay(!isSortDisplay)}
+          >
+            <span className="icon-sort-desc"></span>
+          </span>
+          {isSortDisplay && <SortDialog />}
+        </div>
+        <ViewMode />
+        </div>
       </li>
     );
   };
 
-  const handleCardScaleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const scale = parseFloat(e.target.value);
-    setState((prevState) => ({ ...prevState, cardScale: scale }));
-    ConfigService.setReaderConfig("cardScale", String(scale));
-  };
+  const statusTabs: { value: string; label: string }[] = [
+    { value: "", label: "All" },
+    { value: "reading", label: "CurrentlyReading" },
+    { value: "unread", label: "Unread" },
+    { value: "finished", label: "Finished" },
+  ];
+  const renderStatusTabs = () => (
+    <div className="shelf-status-tabs">
+      {statusTabs.map((tab) => (
+        <span
+          key={tab.value}
+          className={
+            "shelf-status-tab" +
+            (state.readingStatusFilter === tab.value ? " is-active" : "")
+          }
+          onClick={() =>
+            setState((prevState) => ({
+              ...prevState,
+              readingStatusFilter: tab.value,
+            }))
+          }
+        >
+          {t(tab.label)}
+        </span>
+      ))}
+    </div>
+  );
 
   const renderBookList = (books: Book[], bookMode: string) => {
     if (
@@ -698,65 +743,11 @@ const BookList = () => {
   const { books: displayedBookList, bookMode } = handleBooks();
   return (
     <>
-      <div
-        className="book-list-header"
-      >
-        <SelectBook />
-
-        <div
-          style={isSelectBook ? { display: "none" } : {}}
-          className="book-list-header-right"
-        >
-          {viewMode === "card" && (
-            <input
-              type="range"
-              min="0.6"
-              max="2"
-              step="0.05"
-              value={state.cardScale}
-              onChange={handleCardScaleChange}
-              className="book-card-scale-slider"
-              title="Adjust cover size"
-            />
-          )}
-          <div className="book-list-total-page">
-            <Trans i18nKey="Total books" count={displayedBookList.length}>
-              {"Total " + displayedBookList.length + " books"}
-            </Trans>
-          </div>
-          <select
-            className="lang-setting-dropdown"
-            value={state.readingStatusFilter}
-            onChange={(e) => {
-              const value = e.target.value;
-              setState((prevState) => ({
-                ...prevState,
-                readingStatusFilter: value,
-              }));
-            }}
-            style={{
-              marginRight: "10px",
-              width: "70px",
-              borderWidth: "0px",
-              backgroundColor: "transparent",
-            }}
-          >
-            <option value="" className="lang-setting-option">
-              {t("All")}
-            </option>
-            <option value="unread" className="lang-setting-option">
-              {t("Unread")}
-            </option>
-            <option value="reading" className="lang-setting-option">
-              {t("CurrentlyReading")}
-            </option>
-            <option value="finished" className="lang-setting-option">
-              {t("Finished")}
-            </option>
-          </select>
-          <ViewMode />
+      {isSelectBook && (
+        <div className="book-list-header">
+          <SelectBook />
         </div>
-      </div>
+      )}
       <div
         className="book-list-container-parent"
       >
@@ -766,6 +757,9 @@ const BookList = () => {
             ref={scrollContainer}
             style={{ "--card-scale": state.cardScale } as React.CSSProperties}
           >
+            {!isSearch && !shelfTitle && !state.readingStatusFilter && (
+              <ContinueReading />
+            )}
             {renderShelfToolbar()}
             {renderCategoryFolders()}
             {renderBookList(displayedBookList, bookMode)}

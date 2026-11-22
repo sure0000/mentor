@@ -263,7 +263,7 @@ class BookUtil {
     ) {
       if (!ConfigService.getItem("defaultSyncOption")) {
         toast(
-          i18n.t("Please add data source in the setting-Sync and backup first")
+          i18n.t("Sign in to sync your library")
         );
         BookUtil.startNextDownload();
         return;

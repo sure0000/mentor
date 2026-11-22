@@ -72,7 +72,7 @@ const SettingDialog = () => {
       case "plugins":
         return "Plugins";
       case "sync":
-        return "Sync and backup";
+        return "Account and sync";
       case "about":
         return "About";
       case "ai":
@@ -115,7 +115,7 @@ const SettingDialog = () => {
               "20px"
             )}
 
-            {renderSidebarItem("sync", "icon-sync", "Sync and backup", "")}
+            {renderSidebarItem("sync", "icon-sync", "Account and sync", "")}
             {renderSidebarItem("about", "icon-detail", "About", "18px")}
           </div>
 

@@ -1,5 +1,5 @@
 // 开源书城的书源配置。新增书源只需在 bookSourceList 中追加一项。
-// 目前仅支持 OPDS 类型；其它协议（如 MediaWiki API）后续再扩展 type。
+// type 为 opds 的书源走 OPDS 搜索；openstax 一次拉取完整书目后在本地按书名匹配。
 
 export interface BookSourceCategory {
   // i18n key
@@ -11,7 +11,7 @@ export interface BookSource {
   id: string;
   // 书源名称是专有名词，不做翻译
   name: string;
-  type: "opds";
+  type: "opds" | "openstax";
   homepage: string;
   categories: BookSourceCategory[];
   // 搜索 URL 模板，{searchTerms} 会被替换为关键词
@@ -32,6 +32,26 @@ const gutenbergCover = (bookFeedUrl: string) => {
 };
 
 export const bookSourceList: BookSource[] = [
+  {
+    // 莱斯大学的开放教材（CC BY），数学、计算机、统计等，提供完整 PDF
+    id: "openstax",
+    name: "OpenStax",
+    type: "openstax",
+    homepage: "https://openstax.org",
+    categories: [
+      {
+        title: "Math",
+        url: "https://openstax.org/subjects/math",
+      },
+      {
+        title: "Computer science",
+        url: "https://openstax.org/subjects/computer-science",
+      },
+    ],
+    // 没有书目搜索 API，findInSource 在本地书目里匹配，不使用 searchTemplate
+    searchTemplate: "https://openstax.org/search?q={searchTerms}",
+    webSearchTemplate: "https://openstax.org/search?q={searchTerms}",
+  },
   {
     id: "gutenberg",
     name: "Project Gutenberg",

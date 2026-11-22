@@ -3,21 +3,20 @@ import { useEffect, useRef, useState } from "react";
 import "./pageWidget.css";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { Trans } from "react-i18next";
-import { getBatchTrans } from "../../utils/request/reader";
-import { isAiAvailable } from "../../utils/aiReading/aiGateway";
 import {
-  getFullTranslationTarget,
   isFixedLayoutComic,
   isPaginatedBook,
-  isRateLimitedResult,
   isReadingRawPDF,
   getRightPanelInset,
   isPaperLayout,
 } from "../../utils/common";
-import { isElectron } from "react-device-detect";
 import DatabaseService from "../../utils/storage/databaseService";
 import Note from "../../models/Note";
 import ConfigUtil from "../../utils/file/configUtil";
+import {
+  attachFullTranslation,
+  handleTranslationRender,
+} from "../../utils/reader/fullTranslation";
 import { useAppStore } from "../../store/useAppStore";
 
 export interface PageWidgetState {
@@ -33,8 +32,6 @@ export interface PageWidgetState {
 }
 
 declare var window: any;
-
-type TransCache = Record<string, Record<string, string>>;
 
 interface BatteryLike {
   level: number;
@@ -142,10 +139,6 @@ const PageWidget = () => {
 
   const isFirst = useRef<Boolean>(true);
   const timeInterval = useRef<any>(null);
-  const lastBatchTranslationTriggerAt = useRef<number>(0);
-  const batchTranslationLock = useRef<Promise<any>>(Promise.resolve());
-  const transCacheMap = useRef<Map<string, TransCache>>(new Map());
-  const transCacheDirPath = useRef<string>("");
   const ignoreNextPageChange = useRef<boolean>(false);
 
   const setIgnoreNextPageChange = (value: boolean) => {
@@ -153,120 +146,8 @@ const PageWidget = () => {
     setState((prev) => ({ ...prev, ignoreNextPageChange: value }));
   };
 
-  const getTransCachePath = (chapterDocIndex: string): string => {
-    const electron = window.electronAPI;
-    const dirPath = electron.sendSync("user-data", "ping");
-    const transDir = electron.path.join(dirPath, "trans");
-    if (!electron.fs.existsSync(transDir)) {
-      electron.fs.mkdirSync(transDir, { recursive: true });
-    }
-    transCacheDirPath.current = transDir;
-    return electron.path.join(
-      transDir,
-      currentBook.key + "_" + chapterDocIndex + ".json"
-    );
-  };
-
-  const getTransCache = (chapterDocIndex: string): TransCache => {
-    if (transCacheMap.current.has(chapterDocIndex)) {
-      return transCacheMap.current.get(chapterDocIndex)!;
-    }
-    let cache: TransCache = {};
-    if (isElectron && window.electronAPI && window.electronAPI.fs) {
-      try {
-        const cachePath = getTransCachePath(chapterDocIndex);
-        const fs = window.electronAPI.fs;
-        if (fs.existsSync(cachePath)) {
-          cache = JSON.parse(fs.readFileSync(cachePath, "utf-8")) || {};
-        }
-      } catch (error) {
-        console.error("Failed to load translation cache:", error);
-        cache = {};
-      }
-    }
-    transCacheMap.current.set(chapterDocIndex, cache);
-    return cache;
-  };
-
-  const saveTransCache = (chapterDocIndex: string, cache: TransCache) => {
-    if (!isElectron || !window.electronAPI || !window.electronAPI.fs) {
-      return;
-    }
-    try {
-      const cachePath = getTransCachePath(chapterDocIndex);
-      window.electronAPI.fs.writeFileSync(
-        cachePath,
-        JSON.stringify(cache),
-        "utf-8"
-      );
-    } catch (error) {
-      console.error("Failed to save translation cache:", error);
-    }
-  };
-
-  const handleBatchTranslation = async (rendition) => {
-    const prev = batchTranslationLock.current;
-    const next = prev.then(async () => {
-      if (
-        !ConfigService.getAllListConfig("fullTranslationBooks").includes(
-          currentBook.key
-        ) ||
-        ConfigService.getReaderConfig("fullTranslationMode") === "no" ||
-        !isAiAvailable("translate")
-      ) {
-        return;
-      }
-
-      let batchTransTexts: string[] = await rendition.getBatchTransTexts();
-      if (batchTransTexts && batchTransTexts.length > 0) {
-        let targetLang = getFullTranslationTarget();
-        let chapterDocIndex = "";
-        if (typeof rendition.getPosition === "function") {
-          chapterDocIndex = rendition.getPosition()?.chapterDocIndex || "";
-        }
-        if (!chapterDocIndex && rendition.tempLocation) {
-          chapterDocIndex = rendition.tempLocation.chapterDocIndex || "";
-        }
-        if (!chapterDocIndex) {
-          chapterDocIndex = "0";
-        }
-        let cache = getTransCache(chapterDocIndex);
-        let translatedTexts: string[] = new Array(batchTransTexts.length);
-        let pendingIndexes: number[] = [];
-        let pendingTexts: string[] = [];
-        batchTransTexts.forEach((text, index) => {
-          let cachedText = cache[targetLang] && cache[targetLang][text];
-          if (cachedText !== undefined) {
-            translatedTexts[index] = cachedText;
-          } else {
-            pendingIndexes.push(index);
-            pendingTexts.push(text);
-          }
-        });
-        if (pendingTexts.length > 0) {
-          let res = await getBatchTrans(pendingTexts, "Automatic", targetLang);
-          const resTexts = res && res.data ? res.data.texts : null;
-          if (resTexts) {
-            pendingIndexes.forEach((index, i) => {
-              translatedTexts[index] = resTexts[i];
-              if (isRateLimitedResult(resTexts[i])) {
-                return;
-              }
-              if (!cache[targetLang]) {
-                cache[targetLang] = {};
-              }
-              cache[targetLang][batchTransTexts[index]] = resTexts[i];
-            });
-            saveTransCache(chapterDocIndex, cache);
-          }
-        }
-        if (translatedTexts.every((text) => text !== undefined)) {
-          rendition.handleBatchTransResult(batchTransTexts, translatedTexts);
-        }
-      }
-    });
-    batchTranslationLock.current = next.catch(() => {});
-    return next;
+  const handleBatchTranslation = async (_rendition) => {
+    await handleTranslationRender();
   };
 
   // 单词释义（Word Definition）原依赖官方服务，返回结构由闭源引擎渲染，二开版本暂不提供
@@ -401,6 +282,7 @@ const PageWidget = () => {
     prevHtmlBookRef.current = nextHtmlBook;
     if (nextHtmlBook && nextHtmlBook !== prevHtmlBook && !prevHtmlBook) {
       const rendition = nextHtmlBook.rendition;
+      attachFullTranslation(rendition, currentBook);
       (async () => {
         await methodsRef.current.handlePageNum(rendition);
         await methodsRef.current.handleChapterWords(rendition);

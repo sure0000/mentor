@@ -16,9 +16,9 @@ import {
 } from "../../../utils/aiReading/bookGuideService";
 import {
   AiTaskError,
-  getPointsBackend,
+  AI_TASK_ERROR_KEYS,
+  hasAiBackend,
 } from "../../../utils/aiReading/chapterPointsService";
-import { CLAUDE_CODE_ERROR_KEYS } from "../../../utils/aiReading/claudeCode";
 import { jumpToChapter } from "../../../utils/aiReading/readerAdapter";
 import "../chapterPoints/chapterPoints.css";
 import "./bookOverview.css";
@@ -56,7 +56,7 @@ const BookOverview = ({ index, onBack, onOpenChapter }: BookOverviewProps) => {
     jobState?.phase === "chapters" || jobState?.phase === "summary";
 
   const handleStart = async () => {
-    if (!getPointsBackend()) {
+    if (!hasAiBackend()) {
       toast.error(t("AI_GUIDE_NO_SERVICE"));
       return;
     }
@@ -95,9 +95,7 @@ const BookOverview = ({ index, onBack, onOpenChapter }: BookOverviewProps) => {
   const errorText = (e?: Error) => {
     if (!e) return "";
     if (e instanceof AiTaskError) {
-      if (e.code === "no-service") return t("AI_GUIDE_NO_SERVICE");
-      if (e.code === "bad-output") return t("AI_GUIDE_BAD_OUTPUT");
-      return t(CLAUDE_CODE_ERROR_KEYS[e.code]);
+      return t(AI_TASK_ERROR_KEYS[e.code]);
     }
     return e.message;
   };

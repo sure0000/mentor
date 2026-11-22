@@ -10,7 +10,7 @@ import {
   buildQaPrompt,
   buildQaSystem,
 } from "./bookQa";
-import type { ChatTurn } from "./claudeCode";
+import type { ChatTurn } from "./bookQa";
 
 /** 设置项：防剧透（只检索当前位置之前的章节，FR-QA-04） */
 export const SPOILER_SAFE_KEY = "isAiSpoilerSafe";

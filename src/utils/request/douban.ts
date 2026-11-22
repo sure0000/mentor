@@ -52,6 +52,10 @@ export const doubanCategories: DoubanCategory[] = [
   { title: "Philosophy", url: tagUrl("哲学") },
   { title: "Science fiction", url: tagUrl("科幻") },
   { title: "Mystery", url: tagUrl("推理") },
+  { title: "Math", url: tagUrl("数学") },
+  { title: "Computer science", url: tagUrl("计算机") },
+  { title: "Programming", url: tagUrl("编程") },
+  { title: "Algorithms", url: tagUrl("算法") },
 ];
 
 export const buildDoubanSearchUrl = (query: string, start = 0) =>

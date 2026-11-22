@@ -23,6 +23,8 @@ const SettingSwitch = (props: SettingSwitchProps) => {
   const handleBackgroundColor = useAppStore((s) => s.handleBackgroundColor);
   const { t } = useTranslation();
   const [state, setState] = useState<Record<string, any>>({
+    isDisableClickTurn:
+      ConfigService.getReaderConfig("isDisableClickTurn") === "yes",
     isBold: ConfigService.getReaderConfig("isBold") === "yes",
     isIndent: ConfigService.getReaderConfig("isIndent") === "yes",
     isUnderline: ConfigService.getReaderConfig("isUnderline") === "yes",
@@ -218,6 +220,9 @@ const SettingSwitch = (props: SettingSwitchProps) => {
                 setTimeout(async () => {
                   await renderBookFunc();
                 }, 500);
+              } else if (propName === "isDisableClickTurn") {
+                // 点击翻页实时读取配置，无需重新渲染书籍
+                handleChange(propName);
               } else if (propName in renderProps) {
                 renderProps[propName]!(!state[propName]);
                 handleChange(propName);

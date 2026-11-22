@@ -1,0 +1,102 @@
+.account-login-button {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  color: var(--shelf-title);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.account-login-button:hover {
+  background: var(--shelf-hover);
+}
+.account-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.account-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px var(--shelf-bg), 0 0 0 3px var(--divider);
+}
+.account-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.account-avatar.is-github {
+  background: #24292f;
+}
+.account-avatar.is-icloud {
+  background: linear-gradient(180deg, #4aa8ff, #1b88ee);
+}
+.account-menu {
+  position: absolute;
+  top: 100%;
+  right: -8px;
+  z-index: 30;
+  width: 230px;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: var(--panel-bg);
+  box-shadow:
+    0 0 0 1px var(--divider),
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    0 16px 48px rgba(0, 0, 0, 0.14);
+  animation: popup 0.1s ease-in-out 0s 1;
+}
+/* 鼠标从头像移到菜单时不断开 hover */
+.account-menu::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+.account-menu-head {
+  padding: 8px 10px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--divider);
+}
+.account-menu-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--shelf-title);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-menu-meta {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--shelf-meta);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-menu-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--shelf-title);
+  cursor: pointer;
+}
+.account-menu-item:hover {
+  background: var(--shelf-hover);
+}
+.account-menu-item.is-danger {
+  color: #e5484d;
+}

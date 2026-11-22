@@ -6,9 +6,9 @@ import Header from "../../containers/header";
 import DeleteDialog from "../../components/dialogs/deleteDialog";
 import EditDialog from "../../components/dialogs/editDialog";
 import AddDialog from "../../components/dialogs/addDialog";
-import SortDialog from "../../components/dialogs/sortBookDialog";
 import { Trans } from "react-i18next";
 import SettingDialog from "../../components/dialogs/settingDialog";
+import LoginDialog from "../../components/dialogs/loginDialog";
 import { Route, Routes } from "react-router-dom";
 import { routes } from "../../router/routes";
 import LoadingDialog from "../../components/dialogs/loadingDialog";
@@ -45,6 +45,7 @@ const Manager = () => {
   const importBookFunc = useAppStore((s) => s.book.importBookFunc);
   const cloudSyncFunc = useAppStore((s) => s.book.cloudSyncFunc);
   const isSettingOpen = useAppStore((s) => s.manager.isSettingOpen);
+  const isLoginOpen = useAppStore((s) => s.manager.isLoginOpen);
   const isOpenDeleteDialog = useAppStore((s) => s.book.isOpenDeleteDialog);
   const isOpenDissolveDialog = useAppStore(
     (s) => s.book.isOpenDissolveDialog
@@ -63,7 +64,6 @@ const Manager = () => {
     (s) => s.collection.isOpenAddCollectionDialog
   );
   const isShowLoading = useAppStore((s) => s.manager.isShowLoading);
-  const isSortDisplay = useAppStore((s) => s.manager.isSortDisplay);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleFetchPlugins = useAppStore((s) => s.handleFetchPlugins);
   const handleFetchNotes = useAppStore((s) => s.handleFetchNotes);
@@ -341,8 +341,8 @@ const Manager = () => {
       {isOpenEditDialog && <EditDialog />}
       {isOpenAddDialog && <AddDialog />}
       {isShowLoading && <LoadingDialog />}
-      {isSortDisplay && <SortDialog />}
       {isSettingOpen && <SettingDialog />}
+      {isLoginOpen && <LoginDialog />}
       {isDetailDialog && <DetailDialog />}
       {isOpenCollectionDialog && <CollectionDialog />}
       {isOpenCollectionDetailDialog && <CollectionDetailDialog />}

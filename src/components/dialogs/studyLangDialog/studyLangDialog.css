@@ -1,0 +1,44 @@
+.study-lang-job {
+  margin: 6px 15px 12px;
+  font-size: 13px;
+}
+.study-lang-job-hint {
+  opacity: 0.6;
+  line-height: 18px;
+  margin-bottom: 8px;
+}
+.study-lang-job-actions,
+.study-lang-job-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.study-lang-job-button {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: var(--brand);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.study-lang-job-button:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+.study-lang-job-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background-color: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+.study-lang-job-bar-inner {
+  height: 100%;
+  background-color: var(--brand);
+  transition: width 0.3s ease;
+}
+.study-lang-job-text {
+  flex-shrink: 0;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
