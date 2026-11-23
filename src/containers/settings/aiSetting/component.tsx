@@ -1,7 +1,5 @@
-import { useLatest } from "../../../utils/hooks/useLatest";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
-import { Trans } from "react-i18next";
 import toast from "react-hot-toast";
 import { handleContextMenu, vexTextareaAsync } from "../../../utils/common";
 import { aiRequest } from "../../../utils/request/common";
@@ -10,9 +8,15 @@ import {
   KookitConfig,
 } from "../../../assets/lib/kookit-extra-browser.min";
 import { useAppStore } from "../../../store/useAppStore";
+import CustomTtsSetting from "../../../components/aiReading/customTtsSetting";
 import SwitchRow from "../../../components/readerSettings/switchRow";
 import { CHAPTER_END_PROMPT_KEY } from "../../../utils/aiReading/guideNav";
-import CustomTtsSetting from "../../../components/aiReading/customTtsSetting";
+import { getPrompt } from "../../../utils/aiReading/aiGateway";
+import {
+  DEFAULT_PROMPTS,
+  PROMPT_PLACEHOLDERS,
+  PromptKey,
+} from "../../../utils/aiReading/prompts";
 
 export interface AIModelConfig {
   endpoint: string;
@@ -23,222 +27,167 @@ export interface AIModelConfig {
   providerName: string;
 }
 
-export interface SettingInfoState {
-  isAddNew: boolean;
-  isEditing: boolean;
-  editingKey: string;
-  selectedProvider: string;
-  selectedModel: string;
-  endpoint: string;
-  modelName: string;
-  modelId: string;
-  apiKey: string;
-  isTesting: boolean;
-  testResult: string;
-  fetchedModels: { id: string; name: string }[];
-  isFetchingModels: boolean;
-  aiTranslateModel: string;
-  aiDictModel: string;
-  aiAssistanceModel: string;
-  aiTranslatePrompt: string;
-  aiDictPrompt: string;
-  aiAssistancePrompt: string;
-}
+type ModelEntry = { key: string; displayName: string; config: AIModelConfig };
+
+/** 新建时使用的固定 key；已有配置则沿用原 key */
+const DEFAULT_MODEL_KEY = "default";
+const MODEL_PURPOSE_KEYS = [
+  "aiAssistanceModel",
+  "aiTranslateModel",
+  "aiDictModel",
+] as const;
+const LOCAL_PROVIDERS = ["ollama", "lmstudio", "vllm"];
+const PROMPT_ITEMS: { type: PromptKey; label: string }[] = [
+  { type: "aiAssistance", label: "AI assistance" },
+  { type: "aiTranslate", label: "Translation" },
+  { type: "aiDict", label: "Dictionary" },
+  { type: "bookQa", label: "Whole-book Q&A" },
+  { type: "chapterPoints", label: "Key points of this chapter" },
+  { type: "readingMarks", label: "Terms and core ideas" },
+  { type: "bookGuide", label: "Book overview" },
+  { type: "companionAssist", label: "Reading aid" },
+  { type: "companionRelate", label: "Knowledge links" },
+  { type: "companionFurther", label: "Further reading" },
+];
+
+/** 读取当前在用的模型：优先「AI 助手」指定的，其次任意一个已保存的 */
+const loadCurrentModel = (): ModelEntry | null => {
+  const assignedKey = ConfigService.getReaderConfig("aiAssistanceModel");
+  const assigned = assignedKey
+    ? (ConfigService.getObjectConfig(
+        assignedKey,
+        "aiModelConfig",
+        null
+      ) as ModelEntry | null)
+    : null;
+  if (assigned?.config) return assigned;
+  const all = Object.values(
+    (ConfigService.getAllObjectConfig("aiModelConfig") || {}) as Record<
+      string,
+      ModelEntry
+    >
+  );
+  return all.find((e) => e?.config?.endpoint) || null;
+};
+
+const findProvider = (id: string) =>
+  KookitConfig.AiProviderList.find((p) => p.id === id);
 
 const AISetting = () => {
   const handleFetchPlugins = useAppStore((s) => s.handleFetchPlugins);
   const { t } = useTranslation();
-  const [state, setState] = useState<SettingInfoState>(() => ({
-    isAddNew: false,
-    isEditing: false,
-    editingKey: "",
-    selectedProvider: "",
-    selectedModel: "",
-    endpoint: "",
-    modelName: "",
-    modelId: "",
-    apiKey: "",
-    isTesting: false,
-    testResult: "",
-    fetchedModels: [],
-    isFetchingModels: false,
-    aiTranslateModel: ConfigService.getReaderConfig("aiTranslateModel") || "",
-    aiDictModel: ConfigService.getReaderConfig("aiDictModel") || "",
-    aiAssistanceModel:
-      ConfigService.getReaderConfig("aiAssistanceModel") || "",
-    aiTranslatePrompt:
-      ConfigService.getReaderConfig("aiTranslatePrompt") || "",
-    aiDictPrompt: ConfigService.getReaderConfig("aiDictPrompt") || "",
-    aiAssistancePrompt:
-      ConfigService.getReaderConfig("aiAssistancePrompt") || "",
-  }));
-  const stateRef = useLatest(state);
+  const [current] = useState(loadCurrentModel);
+  const [modelKey] = useState(current?.key || DEFAULT_MODEL_KEY);
+  const [providerId, setProviderId] = useState(
+    current?.config.providerId || "openai"
+  );
+  const [endpoint, setEndpoint] = useState(
+    current?.config.endpoint ?? findProvider("openai")?.defaultEndpoint ?? ""
+  );
+  const [apiKey, setApiKey] = useState(current?.config.apiKey || "");
+  const [modelId, setModelId] = useState(current?.config.modelId || "");
+  const [fetchedModels, setFetchedModels] = useState<string[]>([]);
+  const [isFetching, setIsFetching] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [isChapterEndPrompt, setIsChapterEndPrompt] = useState(
     ConfigService.getReaderConfig(CHAPTER_END_PROMPT_KEY) === "yes"
   );
 
-  const updateState = (patch: Partial<SettingInfoState>) => {
-    stateRef.current = { ...stateRef.current, ...patch };
-    setState((prev) => ({ ...prev, ...patch }));
-  };
+  const provider = findProvider(providerId);
+  const isCustom = providerId === "custom";
+  const needsKey = !LOCAL_PROVIDERS.includes(providerId);
 
-  const scrollSettingInfoTop = () => {
-    const infoEl = document.querySelector(".setting-dialog-info");
-    if (infoEl) infoEl.scrollTop = 0;
-  };
-
-  const getAIModels = () => {
-    // Load AI models from ConfigService
-    let aiModels: { key: string; displayName: string; config: any }[] = [];
-    const aiModelConfig =
-      ConfigService.getAllObjectConfig("aiModelConfig") || {};
-    Object.values(aiModelConfig).forEach((entry: any) => {
-      if (entry && entry.key) {
-        aiModels.push({
-          key: entry.key,
-          displayName: entry.displayName,
-          config: entry.config,
-        });
-      }
-    });
-    return aiModels;
-  };
-
-  const parseConfig = (plugin: any): AIModelConfig | null => {
-    try {
-      if (typeof plugin.config === "string") {
-        return JSON.parse(plugin.config);
-      }
-      return plugin.config as AIModelConfig;
-    } catch {
-      return null;
-    }
-  };
-
-  const resetForm = () => {
-    updateState({
-      isAddNew: false,
-      isEditing: false,
-      editingKey: "",
-      selectedProvider: "",
-      selectedModel: "",
-      endpoint: "",
-      modelName: "",
-      modelId: "",
-      apiKey: "",
-      isTesting: false,
-      testResult: "",
-      fetchedModels: [],
-    });
-  };
-
-  const handleProviderChange = (providerId: string) => {
-    const provider = KookitConfig.AiProviderList.find(
-      (p) => p.id === providerId
+  /** 自动保存：一个模型同时用于 AI 助手 / 翻译 / 词典 */
+  const persist = (
+    patch: Partial<{
+      providerId: string;
+      endpoint: string;
+      apiKey: string;
+      modelId: string;
+    }> = {}
+  ) => {
+    const next = { providerId, endpoint, apiKey, modelId, ...patch };
+    const p = findProvider(next.providerId);
+    const config: AIModelConfig = {
+      endpoint: next.endpoint.trim().replace(/\/+$/, ""),
+      apiKey: next.apiKey.trim(),
+      modelId: next.modelId.trim(),
+      modelName: next.modelId.trim(),
+      providerId: next.providerId,
+      providerName: p ? p.name : "Custom",
+    };
+    ConfigService.setObjectConfig(
+      modelKey,
+      { key: modelKey, displayName: config.modelName, config },
+      "aiModelConfig"
     );
-    updateState({
-      selectedProvider: providerId,
-      selectedModel: "",
-      endpoint: provider ? provider.defaultEndpoint : "",
-      modelName: "",
-      modelId: "",
-      fetchedModels: [],
-      testResult: "",
-    });
+    MODEL_PURPOSE_KEYS.forEach((k) => ConfigService.setReaderConfig(k, modelKey));
+    handleFetchPlugins();
   };
 
-  const handleModelSelect = (modelId: string) => {
-    if (!modelId) {
-      updateState({ selectedModel: "", modelName: "", modelId: "" });
-      return;
-    }
-    const found = stateRef.current.fetchedModels.find((m) => m.id === modelId);
-    updateState({
-      selectedModel: modelId,
-      modelName: found ? found.name : modelId,
-      modelId: modelId,
-      testResult: "",
-    });
+  const handleProviderChange = (id: string) => {
+    const nextEndpoint = findProvider(id)?.defaultEndpoint || "";
+    setProviderId(id);
+    setEndpoint(nextEndpoint);
+    setModelId("");
+    setFetchedModels([]);
+    persist({ providerId: id, endpoint: nextEndpoint, modelId: "" });
   };
 
   const handleFetchModels = async () => {
-    const provider = KookitConfig.AiProviderList.find(
-      (p) => p.id === stateRef.current.selectedProvider
-    );
-    if (!provider || !provider.modelsEndpoint) {
-      toast.error(
-        t(
-          "This provider does not support fetching model list, please fill in manually"
-        )
-      );
-      return;
-    }
-    if (
-      !stateRef.current.apiKey &&
-      stateRef.current.selectedProvider !== "ollama" &&
-      stateRef.current.selectedProvider !== "lmstudio" &&
-      stateRef.current.selectedProvider !== "vllm"
-    ) {
+    if (!provider?.modelsEndpoint) return;
+    if (needsKey && !apiKey) {
       toast.error(t("Please enter API Key first"));
       return;
     }
-    updateState({ isFetchingModels: true });
+    setIsFetching(true);
     try {
       const headers: Record<string, string> = {};
-      if (stateRef.current.apiKey) {
+      if (apiKey) {
         if (provider.authType === "x-api-key") {
-          headers["x-api-key"] = stateRef.current.apiKey;
+          headers["x-api-key"] = apiKey;
           headers["anthropic-version"] = "2023-06-01";
         } else {
-          headers["Authorization"] = `Bearer ${stateRef.current.apiKey}`;
+          headers["Authorization"] = `Bearer ${apiKey}`;
         }
       }
       const response = await aiRequest(provider.modelsEndpoint, "GET", headers);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = JSON.parse(response.body);
-      const rawModels = data.data || data.models || data.results || data || [];
-      if (rawModels.length === 0) {
+      const raw: Record<string, string>[] =
+        data.data || data.models || data.results || data || [];
+      const ids = raw
+        .map((m) => m.id || m.model || m.name)
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      setFetchedModels(ids);
+      if (ids.length === 0) {
         toast.error(t("No models found"));
-        toast.error(
-          t("You can add models manually by selecting the custom model")
-        );
-        return;
-      }
-      const models = rawModels.map((m: any) => ({
-        id: m.id || m.model || m.name,
-        name: m.id || m.display_name || m.name || m.model,
-      }));
-      models.sort((a: { name: string }, b: { name: string }) =>
-        a.name.localeCompare(b.name)
-      );
-      updateState({ fetchedModels: models });
-      if (models.length > 0) {
-        toast.success(t("Fetched models") + ": " + models.length);
       } else {
-        toast.error(t("No models found"));
+        toast.success(t("Fetched models") + ": " + ids.length);
       }
-    } catch (e: any) {
-      toast.error(t("Failed to fetch model list") + ": " + e.message);
+    } catch (e) {
+      toast.error(
+        t("Failed to fetch model list") +
+          ": " +
+          (e instanceof Error ? e.message : String(e))
+      );
     } finally {
-      updateState({ isFetchingModels: false });
+      setIsFetching(false);
     }
   };
 
   const handleTest = async () => {
-    const { endpoint, modelId, apiKey } = stateRef.current;
-    if (!endpoint || !modelId || !apiKey) {
+    persist();
+    if (!endpoint || !modelId || (needsKey && !apiKey)) {
       toast.error(t("Please fill in all required fields"));
       return;
     }
-    updateState({ isTesting: true, testResult: "" });
+    setIsTesting(true);
     try {
-      const chatEndpoint = endpoint.endsWith("/")
-        ? endpoint + "chat/completions"
-        : endpoint + "/chat/completions";
       const response = await aiRequest(
-        chatEndpoint,
+        endpoint.replace(/\/+$/, "") + "/chat/completions",
         "POST",
         {
           "Content-Type": "application/json",
@@ -257,520 +206,140 @@ const AISetting = () => {
           `HTTP ${response.status}: ${response.body.substring(0, 200)}`
         );
       }
-      const data = JSON.parse(response.body);
-      const reply =
-        data.choices?.[0]?.message?.content ||
-        JSON.stringify(data).substring(0, 100);
-      updateState({ testResult: "success" });
-      toast.success(t("Test successful") + ": " + reply);
-    } catch (e: any) {
-      updateState({ testResult: "fail" });
-      toast.error(t("Test failed") + ": " + e.message);
-    } finally {
-      updateState({ isTesting: false });
-    }
-  };
-
-  const handleSave = async () => {
-    const {
-      endpoint,
-      modelName,
-      modelId,
-      apiKey,
-      selectedProvider,
-      isEditing,
-      editingKey,
-    } = stateRef.current;
-    if (!endpoint || !modelName || !modelId || !apiKey) {
-      toast.error(t("Please fill in all required fields"));
-      return;
-    }
-    const provider = KookitConfig.AiProviderList.find(
-      (p) => p.id === selectedProvider
-    );
-    const config: AIModelConfig = {
-      endpoint,
-      modelName,
-      modelId,
-      apiKey,
-      providerId: selectedProvider || "custom",
-      providerName: provider ? provider.name : "Custom",
-    };
-    const key = isEditing ? editingKey : Date.now().toString();
-    const modelEntry = {
-      key,
-      displayName: modelName,
-      config,
-    };
-
-    try {
-      ConfigService.setObjectConfig(key, modelEntry, "aiModelConfig");
-      toast.success(
-        t(isEditing ? "Update successful" : "Addition successful")
+      toast.success(t("Test successful"));
+    } catch (e) {
+      toast.error(
+        t("Test failed") + ": " + (e instanceof Error ? e.message : String(e))
       );
-      handleFetchPlugins();
-      resetForm();
-    } catch (e: any) {
-      toast.error(t("Operation failed") + ": " + e.message);
+    } finally {
+      setIsTesting(false);
     }
   };
 
-  const handleDelete = (key: string) => {
-    try {
-      ConfigService.deleteObjectConfig(key, "aiModelConfig");
-      // 如果被删除的模型正被某个功能使用，则清空对应配置
-      if (stateRef.current.aiTranslateModel === key) {
-        updateState({ aiTranslateModel: "" });
-        ConfigService.setReaderConfig("aiTranslateModel", "");
-      }
-      if (stateRef.current.aiDictModel === key) {
-        updateState({ aiDictModel: "" });
-        ConfigService.setReaderConfig("aiDictModel", "");
-      }
-      if (stateRef.current.aiAssistanceModel === key) {
-        updateState({ aiAssistanceModel: "" });
-        ConfigService.setReaderConfig("aiAssistanceModel", "");
-      }
-      toast.success(t("Deletion successful"));
-    } catch (e: any) {
-      toast.error(t("Deletion failed") + ": " + e.message);
-    }
-    handleFetchPlugins();
-  };
-
-  const handleEdit = (plugin: any) => {
-    const entry = ConfigService.getObjectConfig(
-      plugin.key,
-      "aiModelConfig",
-      null
-    );
-    const config: AIModelConfig | null = entry
-      ? entry.config
-      : parseConfig(plugin);
-    if (!config) {
-      toast.error(t("Failed to parse model configuration"));
-      return;
-    }
-    updateState({
-      isAddNew: true,
-      isEditing: true,
-      editingKey: plugin.key,
-      selectedProvider: config.providerId || "custom",
-      selectedModel: config.modelId || "",
-      endpoint: config.endpoint || "",
-      modelName: config.modelName || plugin.displayName || "",
-      modelId: config.modelId || "",
-      apiKey: config.apiKey || "",
-      testResult: "",
-      fetchedModels: [],
-    });
-    scrollSettingInfoTop();
-  };
-
-  const handleEditPrompt = async (
-    type: "aiTranslate" | "aiDict" | "aiAssistance"
-  ) => {
-    const configKey = type + "Prompt";
-    const currentValue =
-      (stateRef.current as any)[configKey] || KookitConfig.DefaultPrompts[type];
-    const result = await vexTextareaAsync(
-      t("Edit prompt"),
-      currentValue
-    );
+  const handleEditPrompt = async (type: PromptKey) => {
+    const placeholders = PROMPT_PLACEHOLDERS[type];
+    const message =
+      t("Edit prompt") +
+      (placeholders.length
+        ? "\n" + t("Available placeholders") + " " + placeholders.join(" ")
+        : "") +
+      "\n" +
+      t("Leave empty to restore the default prompt");
+    const result = await vexTextareaAsync(message, getPrompt(type));
     if (result === false) return;
-    updateState({ [configKey]: result } as any);
-    ConfigService.setReaderConfig(configKey, result);
+    const value = result.trim();
+    // 清空或与默认一致时不保存，之后默认提示词更新也能自动生效
+    ConfigService.setReaderConfig(
+      type + "Prompt",
+      value && value !== DEFAULT_PROMPTS[type] ? value : ""
+    );
     toast.success(t("Change successful"));
   };
 
-  const renderAddForm = () => {
-    const isCustom =
-      !state.selectedProvider || state.selectedProvider === "custom";
-    const provider = KookitConfig.AiProviderList.find(
-      (p) => p.id === state.selectedProvider
-    );
-    const hasModelsEndpoint = provider && provider.modelsEndpoint;
-    const hasFetchedModels = state.fetchedModels.length > 0;
-
-    return (
-      <div
-        className="voice-add-new-container"
-        style={{
-          marginLeft: "25px",
-          width: "calc(100% - 50px)",
-          fontWeight: 500,
-        }}
-      >
-        {/* Step 1: Provider selection */}
-        <div className="ai-setting-form-row">
-          <label className="ai-setting-label">
-            <Trans>Provider</Trans>
-          </label>
-          <select
-            className="lang-setting-dropdown"
-            style={{ width: "100px" }}
-            value={state.selectedProvider}
-            onChange={(e) => handleProviderChange(e.target.value)}
-          >
-            <option value="" className="lang-setting-option">
-              {t("Please select")}
-            </option>
-            {KookitConfig.AiProviderList.map((p) => (
-              <option key={p.id} value={p.id} className="lang-setting-option">
-                {t(p.name)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Step 2: API Key (shown after provider is selected, before fetching models) */}
-        {(state.selectedProvider || isCustom) &&
-          state.selectedProvider !== "" && (
-            <div className="ai-setting-form-row">
-              <label className="ai-setting-label">API Key</label>
-              <input
-                type="password"
-                className="token-dialog-username-box"
-                placeholder={t("Enter your API Key")}
-                value={state.apiKey}
-                id="ai-api-key-box"
-                onContextMenu={() => {
-                  handleContextMenu("ai-api-key-box", true);
-                }}
-                onChange={(e) =>
-                  updateState({ apiKey: e.target.value.trim() })
-                }
-              />
-            </div>
-          )}
-
-        {/* Step 3: Fetch models button (for non-custom providers with modelsEndpoint) */}
-        {!isCustom && hasModelsEndpoint && (
-          <div className="ai-setting-form-row">
-            <span
-              className="change-location-button"
-              style={{
-                display: "inline-flex",
-                marginTop: "6px",
-              }}
-              onClick={handleFetchModels}
-            >
-              {state.isFetchingModels ? (
-                <Trans>Loading...</Trans>
-              ) : (
-                <Trans>Fetch models</Trans>
-              )}
-            </span>
-          </div>
-        )}
-
-        {/* Step 4: Model selection dropdown (after models fetched) */}
-        {!isCustom && hasFetchedModels && (
-          <div className="ai-setting-form-row">
-            <label className="ai-setting-label">
-              <Trans>Select model</Trans>
-            </label>
-            <select
-              className="lang-setting-dropdown"
-              style={{ width: "100px" }}
-              value={state.selectedModel}
-              onChange={(e) => handleModelSelect(e.target.value)}
-            >
-              <option value="" className="lang-setting-option">
-                {t("Please select a model")}
-              </option>
-              {state.fetchedModels.map((m) => (
-                <option key={m.id} value={m.id} className="lang-setting-option">
-                  {m.name || m.id}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Step 5: Endpoint, Model name, Model ID (always shown for custom, shown after selection for others) */}
-        {(isCustom || state.selectedModel || state.isEditing) && (
-          <>
-            {/* Endpoint */}
-            <div className="ai-setting-form-row">
-              <label className="ai-setting-label">Endpoint</label>
-              <input
-                type="text"
-                className="token-dialog-username-box"
-                placeholder="https://api.example.com/v1"
-                value={state.endpoint}
-                id="ai-endpoint-box"
-                onContextMenu={() => {
-                  handleContextMenu("ai-endpoint-box", true);
-                }}
-                onChange={(e) =>
-                  updateState({ endpoint: e.target.value.trim() })
-                }
-              />
-            </div>
-
-            {/* Model name */}
-            <div className="ai-setting-form-row">
-              <label className="ai-setting-label">
-                <Trans>Model name</Trans>
-              </label>
-              <input
-                type="text"
-                className="token-dialog-username-box"
-                placeholder={t("Display name of the model")}
-                value={state.modelName}
-                id="ai-model-name-box"
-                onContextMenu={() => {
-                  handleContextMenu("ai-model-name-box", true);
-                }}
-                onChange={(e) => updateState({ modelName: e.target.value })}
-              />
-            </div>
-
-            {/* Model ID */}
-            <div className="ai-setting-form-row">
-              <label className="ai-setting-label">
-                <Trans>Model ID</Trans>
-              </label>
-              <input
-                type="text"
-                className="token-dialog-username-box"
-                placeholder={t("e.g. gpt-4o, claude-sonnet-4-20250514")}
-                value={state.modelId}
-                id="ai-model-id-box"
-                onContextMenu={() => {
-                  handleContextMenu("ai-model-id-box", true);
-                }}
-                onChange={(e) => updateState({ modelId: e.target.value.trim() })}
-              />
-            </div>
-          </>
-        )}
-
-        {/* Buttons: Add/Save, Cancel, Test */}
-        <div className="token-dialog-button-container">
-          <div className="voice-add-confirm" onClick={handleSave}>
-            <Trans>{state.isEditing ? "Save" : "Add"}</Trans>
-          </div>
-          <div className="voice-add-button-container">
-            <div className="voice-add-cancel" onClick={resetForm}>
-              <Trans>Cancel</Trans>
-            </div>
-            <div
-              className="voice-add-confirm"
-              style={{ marginRight: "10px" }}
-              onClick={handleTest}
-            >
-              {state.isTesting ? <Trans>Testing...</Trans> : <Trans>Test</Trans>}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const aiModels = getAIModels();
+  const renderInput = (params: {
+    id: string;
+    label: string;
+    value: string;
+    placeholder: string;
+    onChange: (v: string) => void;
+    isSecret?: boolean;
+    listId?: string;
+  }) => (
+    <div className="setting-dialog-new-title">
+      <span>{t(params.label)}</span>
+      <input
+        type={params.isSecret ? "password" : "text"}
+        className="token-dialog-username-box"
+        id={params.id}
+        list={params.listId}
+        style={{ width: "220px", margin: 0 }}
+        placeholder={params.placeholder}
+        value={params.value}
+        onContextMenu={() => handleContextMenu(params.id, true)}
+        onChange={(e) => params.onChange(e.target.value)}
+        onBlur={() => persist()}
+      />
+    </div>
+  );
 
   return (
     <>
-      {state.isAddNew && renderAddForm()}
+      <div className="setting-dialog-new-title" style={{ fontWeight: 600 }}>
+        {t("Large language model")}
+      </div>
+      <p className="setting-option-subtitle">
+        {t("Used for reading companion, Q&A, translation and dictionary")}
+      </p>
 
-      <div
-        style={{
-          fontWeight: "bold",
-          textAlign: "left",
-          marginBottom: "20px",
-          marginLeft: "20px",
-          marginTop: "20px",
-        }}
-      >
-        <Trans>Added AI models</Trans>
+      <div className="setting-dialog-new-title">
+        <span>{t("Provider")}</span>
+        <select
+          className="lang-setting-dropdown"
+          style={{ width: "220px" }}
+          value={providerId}
+          onChange={(e) => handleProviderChange(e.target.value)}
+        >
+          {KookitConfig.AiProviderList.map((p) => (
+            <option key={p.id} value={p.id} className="lang-setting-option">
+              {t(p.name)}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {aiModels.length === 0 && (
-        <div
-          style={{
-            textAlign: "center",
-            opacity: 0.5,
-            padding: "30px 0",
-            fontSize: "14px",
-          }}
-        >
-          <Trans>No AI models added yet</Trans>
-        </div>
-      )}
+      {isCustom &&
+        renderInput({
+          id: "ai-endpoint-box",
+          label: "API endpoint",
+          value: endpoint,
+          placeholder: "https://api.example.com/v1",
+          onChange: setEndpoint,
+        })}
 
-      {aiModels.map((item) => {
-        const config = parseConfig(item);
-        return (
-          <div
-            className="setting-dialog-new-title"
-            key={item.key}
-            style={{ marginLeft: "15px" }}
-          >
-            <span>
-              <span className="icon-ai-assist setting-plugin-icon"></span>
-              <span className="setting-plugin-name">
-                {t(item.displayName)}
-              </span>
-              {config && (
-                <span
-                  style={{
-                    // fontSize: "12px",
-                    opacity: 0.6,
-                    marginLeft: "8px",
-                  }}
-                >
-                  ({config.providerName || config.providerId})
-                </span>
-              )}
-            </span>
+      {needsKey &&
+        renderInput({
+          id: "ai-api-key-box",
+          label: "API key",
+          value: apiKey,
+          placeholder: "sk-...",
+          onChange: setApiKey,
+          isSecret: true,
+        })}
 
-            <span
-              style={{
-                display: "flex",
-                gap: "10px",
-                alignItems: "center",
-              }}
-            >
-              <span
-                className="change-location-button"
-                onClick={() => handleEdit(item)}
-              >
-                <Trans>Edit</Trans>
-              </span>
-              <span
-                className="change-location-button"
-                onClick={() => handleDelete(item.key)}
-              >
-                <Trans>Delete</Trans>
-              </span>
-            </span>
-          </div>
-        );
+      {renderInput({
+        id: "ai-model-id-box",
+        label: "Model",
+        value: modelId,
+        placeholder: t("e.g. gpt-4o, claude-sonnet-4-20250514"),
+        onChange: setModelId,
+        listId: "ai-model-options",
       })}
-
-      <div
-        style={{
-          fontWeight: "bold",
-          textAlign: "left",
-          marginBottom: "20px",
-          marginLeft: "20px",
-          marginTop: "20px",
-        }}
-      >
-        <Trans>Model assignment</Trans>
-      </div>
+      <datalist id="ai-model-options">
+        {fetchedModels.map((id) => (
+          <option key={id} value={id} />
+        ))}
+      </datalist>
 
       <div className="setting-dialog-new-title">
-        <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <Trans>AI translation model</Trans>
+        <span></span>
+        <span style={{ display: "flex", gap: "8px" }}>
+          {provider?.modelsEndpoint && (
+            <span
+              className="change-location-button"
+              style={{ opacity: isFetching ? 0.5 : 1 }}
+              onClick={() => !isFetching && handleFetchModels()}
+            >
+              {isFetching ? t("Loading...") : t("Fetch models")}
+            </span>
+          )}
           <span
             className="change-location-button"
-            style={{ fontSize: "12px" }}
-            onClick={() => handleEditPrompt("aiTranslate")}
+            style={{ opacity: isTesting ? 0.5 : 1 }}
+            onClick={() => !isTesting && handleTest()}
           >
-            <Trans>Edit prompt</Trans>
+            {isTesting ? t("Testing...") : t("Test")}
           </span>
         </span>
-        <select
-          className="lang-setting-dropdown"
-          value={state.aiTranslateModel}
-          onChange={(e) => {
-            const val = e.target.value;
-            updateState({ aiTranslateModel: val });
-            ConfigService.setReaderConfig("aiTranslateModel", val);
-            toast.success(t("Change successful"));
-            handleFetchPlugins();
-          }}
-        >
-          <option value="" className="lang-setting-option">
-            {t("Please select")}
-          </option>
-          {aiModels.map((item) => (
-            <option
-              key={item.key}
-              value={item.key}
-              className="lang-setting-option"
-            >
-              {item.displayName}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="setting-dialog-new-title">
-        <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <Trans>AI dictionary model</Trans>
-          <span
-            className="change-location-button"
-            style={{ fontSize: "12px" }}
-            onClick={() => handleEditPrompt("aiDict")}
-          >
-            <Trans>Edit prompt</Trans>
-          </span>
-        </span>
-        <select
-          className="lang-setting-dropdown"
-          value={state.aiDictModel}
-          onChange={(e) => {
-            const val = e.target.value;
-            updateState({ aiDictModel: val });
-            ConfigService.setReaderConfig("aiDictModel", val);
-            toast.success(t("Change successful"));
-            handleFetchPlugins();
-          }}
-        >
-          <option value="" className="lang-setting-option">
-            {t("Please select")}
-          </option>
-          {aiModels.map((item) => (
-            <option
-              key={item.key}
-              value={item.key}
-              className="lang-setting-option"
-            >
-              {item.displayName}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="setting-dialog-new-title">
-        <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <Trans>AI assistance model</Trans>
-          <span
-            className="change-location-button"
-            style={{ fontSize: "12px" }}
-            onClick={() => handleEditPrompt("aiAssistance")}
-          >
-            <Trans>Edit prompt</Trans>
-          </span>
-        </span>
-        <select
-          className="lang-setting-dropdown"
-          value={state.aiAssistanceModel}
-          onChange={(e) => {
-            const val = e.target.value;
-            updateState({ aiAssistanceModel: val });
-            ConfigService.setReaderConfig("aiAssistanceModel", val);
-            toast.success(t("Change successful"));
-            handleFetchPlugins();
-          }}
-        >
-          <option value="" className="lang-setting-option">
-            {t("Please select")}
-          </option>
-          {aiModels.map((item) => (
-            <option
-              key={item.key}
-              value={item.key}
-              className="lang-setting-option"
-            >
-              {item.displayName}
-            </option>
-          ))}
-        </select>
       </div>
 
       <SwitchRow
@@ -787,31 +356,46 @@ const AISetting = () => {
           toast.success(t("Change successful"));
         }}
       />
-      <CustomTtsSetting />
 
-      <div className="setting-dialog-new-plugin">
+      <div className="setting-dialog-new-title">
+        <span>{t("More settings")}</span>
         <span
-          style={{ fontWeight: "bold" }}
-          onClick={() => {
-            updateState({
-              isAddNew: true,
-              isEditing: false,
-              editingKey: "",
-              selectedProvider: "",
-              selectedModel: "",
-              endpoint: "",
-              modelName: "",
-              modelId: "",
-              apiKey: "",
-              testResult: "",
-              fetchedModels: [],
-            });
-            scrollSettingInfoTop();
-          }}
+          className="change-location-button"
+          onClick={() => setIsMoreOpen(!isMoreOpen)}
         >
-          <Trans>Add new model</Trans>
+          {isMoreOpen ? t("Collapse") : t("Expand")}
         </span>
       </div>
+      {isMoreOpen && (
+        <>
+          {!isCustom &&
+            renderInput({
+              id: "ai-endpoint-box",
+              label: "API endpoint",
+              value: endpoint,
+              placeholder: provider?.defaultEndpoint || "",
+              onChange: setEndpoint,
+            })}
+          <div
+            className="setting-dialog-new-title"
+            style={{ fontWeight: 600 }}
+          >
+            {t("Prompt")}
+          </div>
+          {PROMPT_ITEMS.map((item) => (
+            <div className="setting-dialog-new-title" key={item.type}>
+              <span>{t(item.label)}</span>
+              <span
+                className="change-location-button"
+                onClick={() => handleEditPrompt(item.type)}
+              >
+                {t("Edit")}
+              </span>
+            </div>
+          ))}
+          <CustomTtsSetting />
+        </>
+      )}
     </>
   );
 };

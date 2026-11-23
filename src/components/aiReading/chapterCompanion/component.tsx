@@ -7,22 +7,24 @@ import { marked } from "marked";
 import { useAppStore } from "../../../store/useAppStore";
 import { BookIndex, IndexChapter } from "../../../utils/aiReading/indexText";
 import {
+  ANNOTATION_KINDS,
   ActionResult,
+  Annotation,
   COMPANION_ACTIONS,
   ChapterMarks,
   CompanionAction,
-  KeyLine,
-  MarkSegment,
-  READING_LEVELS,
-  levelShares,
-  segmentKey,
+  annotationKey,
+  countByKind,
 } from "../../../utils/aiReading/readingMarks";
 import {
+  cancelChapterTask,
   chapterParagraphs,
-  generateChapterMarks,
+  getChapterTask,
   loadChapterMarks,
   runCompanionAction,
   setFocusedDocIndex,
+  startChapterTask,
+  subscribeChapterTasks,
 } from "../../../utils/aiReading/readingMarksService";
 import {
   AiTaskError,
@@ -33,7 +35,7 @@ import {
 import { visibleWhileStreaming } from "../../../utils/aiReading/bookQa";
 import { jumpToQuote } from "../../../utils/aiReading/readerAdapter";
 import QaAnswer from "../qaAnswer";
-import { ACTION_LABEL_KEYS, LEVEL_LABEL_KEYS } from "../readingCompanion/labels";
+import { ACTION_LABEL_KEYS, KIND_LABEL_KEYS } from "../readingCompanion/labels";
 import "../bookGuide/bookGuide.css";
 import "../chapterPoints/chapterPoints.css";
 import "../readingCompanion/readingCompanion.css";
@@ -41,8 +43,8 @@ import "../readingCompanion/readingCompanion.css";
 interface ChapterCompanionProps {
   index: BookIndex;
   chapter: IndexChapter;
-  /** 从书页点击进入时要展开的精读区间与功能 */
-  focus?: { segment: string; action?: CompanionAction } | null;
+  /** 从书页点击进入时要展开的标注（annotationKey）与功能 */
+  focus?: { annotation: string; action?: CompanionAction } | null;
   onBack?: () => void;
 }
 
@@ -59,30 +61,32 @@ export const errorText = (t: (k: string) => string, e: unknown) => {
   return e instanceof Error ? e.message : String(e);
 };
 
-/** 篇幅占比条：略读 / 浅读 / 精读 */
-export const LevelBar = ({ marks, paragraphs }: { marks: ChapterMarks; paragraphs: string[] }) => {
+/** 本章标注数量：核心观点 n · 术语 n */
+export const KindCounts = ({ marks }: { marks: ChapterMarks }) => {
   const { t } = useTranslation();
-  const shares = levelShares(marks.segments, paragraphs);
+  const counts = countByKind(marks.annotations);
   return (
-    <div className="ai-rc-bar" title={READING_LEVELS.map((l) => `${t(LEVEL_LABEL_KEYS[l])} ${Math.round(shares[l] * 100)}%`).join(" · ")}>
-      {READING_LEVELS.map((l) =>
-        shares[l] > 0 ? (
-          <span key={l} className={"ai-rc-bar-" + l} style={{ flexGrow: shares[l] }}></span>
-        ) : null
-      )}
-    </div>
+    <span className="ai-rc-counts">
+      {ANNOTATION_KINDS.map((k) => (
+        <span key={k}>
+          <span className={"ai-rc-dot ai-rc-dot-" + k}></span>
+          {t(KIND_LABEL_KEYS[k])} {counts[k]}
+        </span>
+      ))}
+    </span>
   );
 };
 
-/** AI 伴读：一章的阅读分级、重点划线与精读进一步功能 */
+/** AI 伴读：一章的术语 / 核心观点标注、注脚与核心观点的进一步功能 */
 const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionProps) => {
   const { t } = useTranslation();
   const currentBook = useAppStore((s) => s.book.currentBook);
   const htmlBook = useAppStore((s) => s.reader.htmlBook);
   const [marks, setMarks] = useState<ChapterMarks | null>(null);
+  // 生成在后台进行（readingMarksService 的单章任务），这里只订阅状态
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState("");
-  const [openSeg, setOpenSeg] = useState<string>("");
+  const [openKey, setOpenKey] = useState<string>("");
   const [openAction, setOpenAction] = useState<CompanionAction | "">("");
   const [streaming, setStreaming] = useState<{ key: string; action: CompanionAction; text: string } | null>(null);
   const task = useRef<RunningTask | null>(null);
@@ -92,56 +96,57 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
   useEffect(() => {
     mounted.current = true;
     setMarks(loadChapterMarks(index.bookKey, chapter));
-    setError("");
+    const running = getChapterTask(index.bookKey, chapter.docIndex);
+    setIsRunning(running?.phase === "running");
+    setError(running?.phase === "error" ? errorText(t, running.error) : "");
     setFocusedDocIndex(chapter.docIndex);
+    const off = subscribeChapterTasks((s) => {
+      if (s.bookKey !== index.bookKey || s.docIndex !== chapter.docIndex) return;
+      setIsRunning(s.phase === "running");
+      if (s.phase === "running") setError("");
+      else if (s.phase === "error") setError(errorText(t, s.error));
+      else if (s.phase === "cancelled") setError(t("Stopped"));
+      else setMarks(loadChapterMarks(index.bookKey, chapter));
+    });
     return () => {
       mounted.current = false;
+      off();
       setFocusedDocIndex(-1);
+      // 只取消进一步功能的流式回答；本章生成在后台继续
       task.current?.cancel();
       task.current = null;
     };
-  }, [index.bookKey, chapter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index.bookKey, chapter.docIndex]);
 
-  // 从书页点击精读段落进入：展开该段，并按需运行对应功能
+  // 从书页点击标注进入：展开该条，并按需运行对应功能
   useEffect(() => {
     if (!focus || !marks) return;
-    setOpenSeg(focus.segment);
-    if (focus.action) {
-      setOpenAction(focus.action);
-      if (!marks.extras?.[focus.segment]?.[focus.action]) {
-        const seg = marks.segments.find((s) => segmentKey(s) === focus.segment);
-        if (seg) handleAction(seg, focus.action);
-      }
+    setOpenKey(focus.annotation);
+    setOpenAction(focus.action || "");
+    if (focus.action && !marks.extras?.[focus.annotation]?.[focus.action]) {
+      const item = marks.annotations.find((a) => annotationKey(a) === focus.annotation);
+      if (item?.kind === "idea") handleAction(item, focus.action);
     }
     setTimeout(() => {
-      document.getElementById("ai-rc-seg-" + focus.segment)?.scrollIntoView({ block: "start" });
+      document.getElementById("ai-rc-note-" + focus.annotation)?.scrollIntoView({ block: "start" });
     }, 50);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, marks?.createdAt]);
 
-  const handleGenerate = async () => {
+  const handleGenerate = () => {
     if (isRunning) return;
     if (!hasAiBackend()) {
       setError(t("AI_GUIDE_NO_SERVICE"));
       return;
     }
-    setIsRunning(true);
-    setError("");
-    try {
-      const result = await generateChapterMarks(currentBook?.name || "", index, chapter, (r) => (task.current = r));
-      if (mounted.current) setMarks(result);
-    } catch (e) {
-      if (mounted.current) setError(e instanceof AiTaskError && e.code === "cancelled" ? t("Stopped") : errorText(t, e));
-    } finally {
-      task.current = null;
-      if (mounted.current) setIsRunning(false);
-    }
+    startChapterTask(currentBook?.name || "", index, chapter);
   };
 
-  const handleAction = async (seg: MarkSegment, action: CompanionAction) => {
+  const handleAction = async (item: Annotation, action: CompanionAction) => {
     if (!currentBook || task.current) return;
-    const key = segmentKey(seg);
-    setOpenSeg(key);
+    const key = annotationKey(item);
+    setOpenKey(key);
     setOpenAction(action);
     setStreaming({ key, action, text: "" });
     try {
@@ -149,7 +154,7 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
         book: currentBook,
         index,
         chapter,
-        segment: seg,
+        annotation: item,
         action,
         onText: (d) => mounted.current && setStreaming((s) => (s ? { ...s, text: s.text + d } : s)),
         onRunning: (r) => (task.current = r),
@@ -198,14 +203,14 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
     }
     const r: ActionResult | undefined = marks?.extras?.[key]?.[action];
     if (!r) return null;
-    const seg = marks?.segments.find((s) => segmentKey(s) === key);
+    const item = marks?.annotations.find((a) => annotationKey(a) === key);
     return (
       <div className="ai-rc-result">
         <QaAnswer content={r.content} sources={r.sources} />
         <div className="ai-points-footer">
           <span className="ai-guide-hint">{r.usage}</span>
-          {seg && !task.current && (
-            <span className="ai-guide-link" onClick={() => handleAction(seg, action)}>
+          {item && !task.current && (
+            <span className="ai-guide-link" onClick={() => handleAction(item, action)}>
               {t("Regenerate")}
             </span>
           )}
@@ -214,30 +219,29 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
     );
   };
 
-  const renderSegment = (seg: MarkSegment) => {
-    const key = segmentKey(seg);
-    const isOpen = openSeg === key;
-    const first = paragraphs[seg.from - 1] || "";
+  const renderAnnotation = (item: Annotation, i: number) => {
+    const key = annotationKey(item);
+    const isOpen = openKey === key;
     return (
-      <div key={key} id={"ai-rc-seg-" + key} className={"ai-rc-seg ai-rc-seg-" + seg.level}>
-        <div className="ai-rc-seg-head" onClick={() => setOpenSeg(isOpen ? "" : key)}>
-          <span className={"ai-rc-badge ai-rc-badge-" + seg.level}>{t(LEVEL_LABEL_KEYS[seg.level])}</span>
-          <span className="ai-rc-seg-title">{seg.title || first.slice(0, 24)}</span>
-          <span className="ai-guide-hint">
-            ¶{seg.from}
-            {seg.to > seg.from ? `–${seg.to}` : ""}
+      <div
+        key={key}
+        id={"ai-rc-note-" + key}
+        className={"ai-rc-note ai-rc-note-" + item.kind + (isOpen ? " ai-rc-note-focus" : "")}
+      >
+        <div
+          className={"ai-rc-note-head" + (item.verified ? "" : " ai-points-quote-missing")}
+          onClick={() => item.verified && jump(item.quote)}
+          title={item.verified ? t("Jump to this passage") : t("Not located in the original text")}
+        >
+          <span className="ai-rc-note-num">[{i + 1}]</span>
+          <span className={"ai-rc-badge ai-rc-badge-" + item.kind}>{t(KIND_LABEL_KEYS[item.kind])}</span>
+          <span className="ai-rc-note-quote">
+            {item.verified ? "" : "⚠ "}
+            {item.quote}
           </span>
-          <span
-            className="icon-share ai-guide-item-jump"
-            title={t("Jump to this passage")}
-            onClick={(e) => {
-              e.stopPropagation();
-              jump(first);
-            }}
-          ></span>
         </div>
-        {seg.reason && <div className="ai-rc-seg-reason">{seg.reason}</div>}
-        {seg.level === "deep" && (
+        <div className="ai-rc-note-footnote">{item.footnote}</div>
+        {item.kind === "idea" && (
           <div className="ai-rc-actions">
             {COMPANION_ACTIONS.map((a) => (
               <span
@@ -252,9 +256,9 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
                     setOpenAction("");
                     return;
                   }
-                  setOpenSeg(key);
+                  setOpenKey(key);
                   setOpenAction(a);
-                  if (!marks?.extras?.[key]?.[a]) handleAction(seg, a);
+                  if (!marks?.extras?.[key]?.[a]) handleAction(item, a);
                 }}
               >
                 {t(ACTION_LABEL_KEYS[a])}
@@ -262,28 +266,12 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
             ))}
           </div>
         )}
-        {isOpen && seg.level === "deep" && openAction && renderResult(key, openAction)}
+        {isOpen && item.kind === "idea" && openAction && renderResult(key, openAction)}
       </div>
     );
   };
 
-  const renderKeyLine = (k: KeyLine, i: number) => (
-    <div
-      key={i}
-      className={"ai-rc-keyline" + (k.verified ? "" : " ai-points-quote-missing")}
-      onClick={() => k.verified && jump(k.quote)}
-      title={k.verified ? t("Jump to this passage") : t("Not located in the original text")}
-    >
-      <div className="ai-rc-keyline-quote">
-        {k.verified ? "“" : "⚠ "}
-        {k.quote}
-        {k.verified ? "”" : ""}
-      </div>
-      {k.note && <div className="ai-guide-hint">{k.note}</div>}
-    </div>
-  );
-
-  const unverified = marks ? marks.keyLines.filter((k) => !k.verified).length : 0;
+  const unverified = marks ? marks.annotations.filter((a) => !a.verified).length : 0;
 
   return (
     <div className="ai-points-container">
@@ -317,7 +305,13 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
           <div>
             <span className="icon-loading ai-guide-spin"></span> {t("Reading this chapter, please wait...")}
           </div>
-          <div className="ai-points-button" onClick={() => task.current?.cancel()}>
+          <div className="ai-guide-hint" style={{ textAlign: "center" }}>
+            {t("AI_COMPANION_BACKGROUND_HINT")}
+          </div>
+          <div
+            className="ai-points-button"
+            onClick={() => cancelChapterTask(index.bookKey, chapter.docIndex)}
+          >
             {t("Stop")}
           </div>
         </div>
@@ -329,35 +323,20 @@ const ChapterCompanion = ({ index, chapter, focus, onBack }: ChapterCompanionPro
         <div className="ai-points-body">
           {marks.overview && (
             <div className="ai-points-section">
-              <div className="ai-points-label">{t("How to read this chapter")}</div>
+              <div className="ai-points-label">{t("Core argument of this chapter")}</div>
               <div className="ai-points-question">{marks.overview}</div>
             </div>
           )}
           <div className="ai-points-section">
-            <LevelBar marks={marks} paragraphs={paragraphs} />
-            <div className="ai-rc-legend">
-              {READING_LEVELS.map((l) => (
-                <span key={l}>
-                  <span className={"ai-rc-dot ai-rc-dot-" + l}></span>
-                  {t(LEVEL_LABEL_KEYS[l])}
-                </span>
-              ))}
-              <span>
-                <span className="ai-rc-dot ai-rc-dot-key"></span>
-                {t("Key line")}
-              </span>
+            <div className="ai-points-label">
+              {t("Annotations and footnotes")} <KindCounts marks={marks} />
             </div>
+            {marks.annotations.length > 0 ? (
+              marks.annotations.map(renderAnnotation)
+            ) : (
+              <div className="ai-guide-hint">{t("No terms or core ideas marked in this chapter")}</div>
+            )}
           </div>
-          <div className="ai-points-section">
-            <div className="ai-points-label">{t("Reading levels")}</div>
-            {marks.segments.map(renderSegment)}
-          </div>
-          {marks.keyLines.length > 0 && (
-            <div className="ai-points-section">
-              <div className="ai-points-label">{t("Key lines")}</div>
-              {marks.keyLines.map(renderKeyLine)}
-            </div>
-          )}
           <div className="ai-points-footer">
             <span className="ai-guide-hint">
               {usage(marks)}

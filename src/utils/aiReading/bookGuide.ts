@@ -136,13 +136,6 @@ export const BOOK_GUIDE_SCHEMA = {
   },
 } as const;
 
-export const BOOK_GUIDE_SYSTEM = [
-  "你是一位认真的读书助手。下面给出的是一本书每一章的要点（由此前逐章阅读原文得到）。",
-  "请据此写出全书导读：全书主线、每章一句话、核心概念表、阅读建议。",
-  "只能依据给出的章节要点，不要引入书外内容；章节编号必须使用输入中的 id。",
-  "「可略读」「核心必读」和阅读顺序建议必须有依据（例如：该章只是案例补充、后文多处依赖该章的概念）；没有依据就留空，不要硬给。",
-  "所有字段（包括 reason）使用同一种语言，以提示词末尾的语言要求为准。",
-].join("\n");
 
 const fmtPoints = (p: ChapterPoints) => {
   const lines = [p.question ? `问题：${p.question}` : ""];
@@ -167,7 +160,7 @@ export const buildBookGuidePrompt = (
         `<chapter id="${chapter.docIndex}" title="${chapter.title.replace(/"/g, "'")}">\n${fmtPoints(points)}\n</chapter>`
     ),
     "",
-    "请按 Schema 输出全书导读。所有字段使用同一种语言。",
+    "请按 Schema 输出全书导读。所有字段（包括 reason）使用同一种语言，以下面的语言要求为准。",
     languageLine,
   ].join("\n");
 

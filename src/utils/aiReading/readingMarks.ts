@@ -1,36 +1,32 @@
-// AI 伴读：阅读分级（略读 / 浅读 / 精读）与重点划线的纯逻辑（提示词、Schema、结果整理、原文定位）。
+// AI 伴读：术语与核心观点标注 + 注脚的纯逻辑（提示词、Schema、结果整理、原文定位）。
 // 无 DOM / 无 IPC，便于单测。
-// 思路：把章节切成带编号的段落交给模型，模型只回答「段落区间 → 级别」与「重点原句」；
-// 级别靠段落编号落到原文（不依赖模型复述原文），重点原句由程序在原文中核对。
+// 思路：把章节切成带编号的段落交给模型，模型只回答「段落编号 + 逐字原文 + 注脚」；
+// 原文由程序在段落中核对，按出现顺序编号为注脚 [1] [2] …
 import type { IndexChapter } from "./indexText";
 import type { QaSource } from "./bookQa";
 import { MAX_CHAPTER_CHARS, hashText, normalizeForMatch } from "./chapterPoints";
 
-export const READING_MARKS_VERSION = 1;
+export const READING_MARKS_VERSION = 2;
 
-export type ReadingLevel = "skim" | "light" | "deep";
-export const READING_LEVELS: ReadingLevel[] = ["skim", "light", "deep"];
+/** term = 术语；idea = 核心观点 */
+export type AnnotationKind = "term" | "idea";
+export const ANNOTATION_KINDS: AnnotationKind[] = ["idea", "term"];
 
-export interface MarkSegment {
-  /** 段落编号，1 起，闭区间 */
-  from: number;
-  to: number;
-  level: ReadingLevel;
-  title: string;
-  reason: string;
-  /** 模型漏掉、由程序补齐为「浅读」的区间 */
-  auto?: boolean;
-}
+/** 每章最多保留的条数（模型偶尔会标太多） */
+const MAX_PER_KIND: Record<AnnotationKind, number> = { term: 15, idea: 8 };
 
-export interface KeyLine {
+export interface Annotation {
+  kind: AnnotationKind;
   /** 所在段落编号（1 起）；未定位时为模型给出的值 */
   para: number;
+  /** 原文：术语本身，或表达核心观点的一句原文 */
   quote: string;
-  note: string;
+  /** 注脚：帮助理解的解释 */
+  footnote: string;
   verified: boolean;
 }
 
-/** 精读段落的进一步功能：辅助阅读 / 知识关联 / 拓展阅读 */
+/** 核心观点的进一步功能：辅助阅读 / 知识关联 / 拓展阅读 */
 export type CompanionAction = "assist" | "relate" | "further";
 export const COMPANION_ACTIONS: CompanionAction[] = ["assist", "relate", "further"];
 
@@ -47,19 +43,20 @@ export interface ChapterMarks {
   chapterTitle: string;
   textHash: string;
   paraCount: number;
-  /** 一句话：这一章怎么读 */
+  /** 一句话：本章的核心主张 */
   overview: string;
-  segments: MarkSegment[];
-  keyLines: KeyLine[];
+  /** 按原文出现顺序排列（未定位的在最后），下标 + 1 即注脚编号 */
+  annotations: Annotation[];
   truncated: boolean;
   costUsd: number;
   durationMs: number;
   createdAt: number;
-  /** 精读段落的进一步结果，键为 segmentKey */
+  /** 核心观点的进一步结果，键为 annotationKey */
   extras?: Record<string, Partial<Record<CompanionAction, ActionResult>>>;
 }
 
-export const segmentKey = (s: Pick<MarkSegment, "from" | "to">) => `${s.from}-${s.to}`;
+export const annotationKey = (a: Pick<Annotation, "kind" | "quote">) =>
+  `${a.kind}-${hashText(normalizeForMatch(a.quote))}`;
 
 const PARA_MAX = 800;
 const PARA_TARGET = 400;
@@ -107,58 +104,30 @@ export const splitParagraphs = (
 export const READING_MARKS_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["overview", "segments", "keyLines"],
+  required: ["overview", "annotations"],
   properties: {
-    overview: { type: "string", description: "一句话告诉读者这一章该怎么读" },
-    segments: {
+    overview: { type: "string", description: "一句话概括本章的核心主张" },
+    annotations: {
       type: "array",
-      minItems: 1,
+      maxItems: 24,
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["from", "to", "level", "title", "reason"],
+        required: ["kind", "para", "quote", "footnote"],
         properties: {
-          from: { type: "integer", description: "起始段落编号" },
-          to: { type: "integer", description: "结束段落编号（含）" },
-          level: { type: "string", enum: ["skim", "light", "deep"] },
-          title: { type: "string", description: "这一段讲什么，不超过 20 字" },
-          reason: { type: "string", description: "为什么这样分级，一句话" },
-        },
-      },
-    },
-    keyLines: {
-      type: "array",
-      maxItems: 12,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["para", "quote", "note"],
-        properties: {
-          para: { type: "integer", description: "原句所在段落编号" },
+          kind: { type: "string", enum: ["term", "idea"], description: "term = 术语，idea = 核心观点" },
+          para: { type: "integer", description: "原文所在段落编号" },
           quote: {
             type: "string",
-            description: "从该段落中逐字复制的一句原文（10–60 字），不得改写、拼接或省略",
+            description:
+              "从该段落中逐字复制：术语只写术语本身；核心观点写表达该观点的一句原文（10–80 字）。不得改写、拼接或省略",
           },
-          note: { type: "string", description: "为什么值得划线，一句话" },
+          footnote: { type: "string", description: "注脚：帮助读者理解的通俗解释" },
         },
       },
     },
   },
 } as const;
-
-export const READING_MARKS_SYSTEM = [
-  "你是一位阅读教练，帮读者决定一章里哪些内容略读、哪些浅读、哪些需要精读，并划出重点句。",
-  "分级标准：",
-  "- skim（略读）：过渡、铺垫、重复、枝节、过多的举例或背景，与主线关系弱，扫一眼即可。",
-  "- light（浅读）：正常阅读、理解大意即可的内容。",
-  "- deep（精读）：核心论点、关键定义、推理链条、方法步骤、反直觉的结论，需要放慢、反复琢磨。",
-  "规则：",
-  "1. 按段落编号把全章划分为若干连续区间：按顺序、不重叠、覆盖全部段落；相邻同级的段落合并成一个区间。",
-  "2. 精读要克制，通常不超过全章篇幅的三分之一；不要整章都标精读或都标略读。",
-  "3. 每个区间给一个不超过 20 字的小标题和一句分级理由，理由要具体，指出这一段在本章中的作用。",
-  "4. 重点划线：挑出 3–12 句最值得记住的原句，从对应段落中逐字复制（10–60 字），不得改写、翻译、拼接或加省略号，并标明段落编号。",
-  "5. 只根据给出的原文判断，不要引入书外观点。",
-].join("\n");
 
 export const buildReadingMarksPrompt = (params: {
   bookTitle: string;
@@ -180,7 +149,7 @@ export const buildReadingMarksPrompt = (params: {
     params.paragraphs.map((p, i) => `[${i + 1}] ${p}`).join("\n"),
     "</paragraphs>",
     "",
-    "请给出：overview（这章怎么读）、segments（覆盖全部段落的分级区间）、keyLines（重点原句，原句保持原文语言）。",
+    "请给出：overview（本章核心主张）、annotations（术语与核心观点的标注及注脚；quote 保持原文语言）。",
     params.languageLine || "",
   ]
     .filter((line) => line !== "")
@@ -192,71 +161,51 @@ const int = (v: unknown) => {
   const n = typeof v === "number" ? v : parseInt(String(v));
   return Number.isFinite(n) ? Math.round(n) : NaN;
 };
-const isLevel = (v: unknown): v is ReadingLevel =>
-  v === "skim" || v === "light" || v === "deep";
+const isKind = (v: unknown): v is AnnotationKind => v === "term" || v === "idea";
 
-/** 整理分级区间：排序、裁剪越界、去重叠，漏掉的段落补为「浅读」 */
-export const normalizeSegments = (raw: unknown, paraCount: number): MarkSegment[] => {
-  const list = (Array.isArray(raw) ? raw : [])
-    .map((s) => (s && typeof s === "object" ? (s as Record<string, unknown>) : {}))
-    .map((s) => ({
-      from: Math.max(1, int(s.from)),
-      to: Math.min(paraCount, int(s.to)),
-      level: s.level,
-      title: str(s.title),
-      reason: str(s.reason),
-    }))
-    .filter((s): s is MarkSegment => isLevel(s.level) && s.from <= s.to)
-    .sort((a, b) => a.from - b.from || a.to - b.to);
-  const out: MarkSegment[] = [];
-  const gap = (from: number, to: number): MarkSegment => ({
-    from,
-    to,
-    level: "light",
-    title: "",
-    reason: "",
-    auto: true,
-  });
-  let next = 1;
-  for (const s of list) {
-    const from = Math.max(s.from, next);
-    if (from > s.to) continue;
-    if (from > next) out.push(gap(next, from - 1));
-    out.push({ ...s, from });
-    next = s.to + 1;
-    if (next > paraCount) break;
-  }
-  if (out.length && next <= paraCount) out.push(gap(next, paraCount));
-  return out;
-};
-
-/** 核对重点原句：先在模型给的段落里找，找不到再在全章找（模型常把编号写错） */
-export const verifyKeyLines = (raw: unknown, paragraphs: string[]): KeyLine[] => {
+/**
+ * 整理并核对标注：先在模型给的段落里找原文，找不到再在全章找（模型常把编号写错）；
+ * 去重、按类型限量，按原文位置排序（未定位的排最后）。
+ * 术语可能很短（如「熵」），只在指定段落内核对；全章回退要求至少 2 个字符。
+ */
+export const normalizeAnnotations = (raw: unknown, paragraphs: string[]): Annotation[] => {
   const norm = paragraphs.map(normalizeForMatch);
   const seen = new Set<string>();
-  const out: KeyLine[] = [];
+  const count: Record<AnnotationKind, number> = { term: 0, idea: 0 };
+  const items: { a: Annotation; pos: number }[] = [];
   for (const item of Array.isArray(raw) ? raw : []) {
     const r = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-    const quote = str(r.quote).replace(/^[“"「]|[”"」]$/g, "");
+    if (!isKind(r.kind)) continue;
+    const kind = r.kind;
+    const quote = str(r.quote).replace(/^[“"「『]|[”"」』]$/g, "");
     const nq = normalizeForMatch(quote);
-    if (!quote || seen.has(nq)) continue;
-    seen.add(nq);
+    const footnote = str(r.footnote);
+    if (!nq || !footnote || seen.has(kind + nq) || count[kind] >= MAX_PER_KIND[kind]) continue;
+    seen.add(kind + nq);
+    count[kind]++;
     let para = int(r.para);
-    let verified = false;
-    if (nq.length >= 4) {
-      if (para >= 1 && para <= norm.length && norm[para - 1].includes(nq)) {
-        verified = true;
-      } else {
-        const i = norm.findIndex((p) => p.includes(nq));
-        if (i >= 0) {
-          para = i + 1;
-          verified = true;
-        }
+    let pos = Infinity;
+    const minGlobal = kind === "term" ? 2 : 4;
+    if (para >= 1 && para <= norm.length && norm[para - 1].includes(nq)) {
+      pos = (para - 1) * 1e6 + norm[para - 1].indexOf(nq);
+    } else if (nq.length >= minGlobal) {
+      const i = norm.findIndex((p) => p.includes(nq));
+      if (i >= 0) {
+        para = i + 1;
+        pos = i * 1e6 + norm[i].indexOf(nq);
       }
     }
-    out.push({ para: Number.isFinite(para) ? para : 0, quote, note: str(r.note), verified });
+    const verified = Number.isFinite(pos) && (kind === "term" || nq.length >= 4);
+    items.push({
+      a: { kind, para: Number.isFinite(para) ? para : 0, quote, footnote, verified },
+      pos: verified ? pos : Infinity,
+    });
   }
-  return out;
+  // 稳定排序：同一位置（或都未定位）保持模型给出的顺序
+  return items
+    .map((x, i) => ({ ...x, i }))
+    .sort((x, y) => (x.pos === y.pos ? x.i - y.i : x.pos < y.pos ? -1 : 1))
+    .map((x) => x.a);
 };
 
 export const toChapterMarks = (
@@ -272,8 +221,7 @@ export const toChapterMarks = (
   }
 ): ChapterMarks => {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const segments = normalizeSegments(r.segments, ctx.paragraphs.length);
-  if (segments.length === 0) throw new Error("empty-segments");
+  if (!Array.isArray(r.annotations)) throw new Error("missing-annotations");
   return {
     version: READING_MARKS_VERSION,
     docIndex: ctx.docIndex,
@@ -281,8 +229,7 @@ export const toChapterMarks = (
     textHash: hashText(ctx.chapterText),
     paraCount: ctx.paragraphs.length,
     overview: str(r.overview),
-    segments,
-    keyLines: verifyKeyLines(r.keyLines, ctx.paragraphs),
+    annotations: normalizeAnnotations(r.annotations, ctx.paragraphs),
     truncated: ctx.truncated,
     costUsd: ctx.costUsd,
     durationMs: ctx.durationMs,
@@ -298,33 +245,12 @@ export const isMarksValid = (
   m.version === READING_MARKS_VERSION &&
   m.docIndex === chapter.docIndex &&
   m.textHash === hashText(chapter.text) &&
-  Array.isArray(m.segments);
+  Array.isArray(m.annotations);
 
-/** 各级别占本章（已分析部分）篇幅的比例，按字数计 */
-export const levelShares = (
-  segments: MarkSegment[],
-  paragraphs: string[]
-): Record<ReadingLevel, number> => {
-  const chars: Record<ReadingLevel, number> = { skim: 0, light: 0, deep: 0 };
-  for (const s of segments) {
-    for (let i = s.from; i <= s.to; i++) chars[s.level] += (paragraphs[i - 1] || "").length;
-  }
-  const total = chars.skim + chars.light + chars.deep;
-  if (!total) return chars;
-  return { skim: chars.skim / total, light: chars.light / total, deep: chars.deep / total };
-};
-
-export const segmentText = (s: Pick<MarkSegment, "from" | "to">, paragraphs: string[]) =>
-  paragraphs.slice(s.from - 1, s.to).join("\n");
-
-/** 精读段落进一步功能的提问（交给全书问答的上下文与出处核对） */
-export const ACTION_QUESTIONS: Record<CompanionAction, string> = {
-  assist:
-    "请帮我读懂选中的这段精读内容：先用通俗的话概括它在说什么；再解释其中的关键术语和概念；梳理它的论证或推理步骤；必要时举一个简单的例子帮助理解。",
-  relate:
-    "选中的这段精读内容与本书其他部分有哪些关联？例如前文的铺垫或定义、后文的展开或应用、相互印证或形成对比之处。再补充它与哪些常见的学科知识或经典观点相关。",
-  further:
-    "围绕选中的这段精读内容，推荐值得拓展阅读的书籍、论文、文章或主题（3–6 项），说明每一项与这段内容的关系、适合在什么时候读。书中如果自己提到了相关文献，优先列出。",
+export const countByKind = (annotations: Annotation[]): Record<AnnotationKind, number> => {
+  const out: Record<AnnotationKind, number> = { term: 0, idea: 0 };
+  annotations.forEach((a) => out[a.kind]++);
+  return out;
 };
 
 // ---- 原文定位（书页渲染用；纯逻辑部分） ----
@@ -361,17 +287,18 @@ export const locateParagraphs = (
   });
 };
 
-/** 定位一句原文；优先在 [near.start, near.end) 范围内 */
+/** 定位一段原文；优先在 [near.start, near.end) 范围内。短于 4 字的（术语）只在 near 内找 */
 export const locateQuote = (
   normDoc: string,
   normQuote: string,
   near: [number, number] | null
 ): [number, number] | null => {
-  if (normQuote.length < 4) return null;
+  if (!normQuote) return null;
   if (near) {
     const at = normDoc.indexOf(normQuote, near[0]);
-    if (at >= 0 && at < near[1]) return [at, at + normQuote.length];
+    if (at >= 0 && at + normQuote.length <= near[1]) return [at, at + normQuote.length];
   }
+  if (normQuote.length < 4) return null;
   const at = normDoc.indexOf(normQuote);
   return at >= 0 ? [at, at + normQuote.length] : null;
 };

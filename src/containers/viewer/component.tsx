@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import BookUtil from "../../utils/file/bookUtil";
 import PopupMenu from "../../components/popups/popupMenu";
-import Background from "../../components/background";
 import StyleUtil from "../../utils/reader/styleUtil";
 import "./index.css";
 import { htmlMouseEvent } from "../../utils/reader/mouseEvent";
@@ -12,9 +11,10 @@ import {
   teardownOverlayTurn,
 } from "../../utils/reader/overlayTurn";
 import ImageViewer from "../../components/imageViewer";
-import { getIframeDoc } from "../../utils/reader/docUtil";
+import { addPageShadow, enablePdfTextSelection, getIframeDoc } from "../../utils/reader/docUtil";
 import PopupBox from "../../components/popups/popupBox";
 import Note from "../../models/Note";
+import { isNightReaderBg } from "../../constants/themeList";
 import PageWidget from "../pageWidget";
 import {
   BRUSH_COLORS,
@@ -109,12 +109,10 @@ const Viewer = (props: ViewerProps) => {
   const scale = useAppStore((s) => s.reader.scale);
   const isFitPage = useAppStore((s) => s.reader.isFitPage);
   const margin = useAppStore((s) => s.reader.margin);
-  const isHideBackground = useAppStore((s) => s.reader.isHideBackground);
   const isParagraphMode = useAppStore((s) => s.reader.isParagraphMode);
   const isReadingRuler = useAppStore((s) => s.reader.isReadingRuler);
   const isSpeedReading = useAppStore((s) => s.reader.isSpeedReading);
   const backgroundColor = useAppStore((s) => s.reader.backgroundColor);
-  const isShowPageBorder = useAppStore((s) => s.reader.isShowPageBorder);
   const textOrientation = useAppStore((s) => s.reader.textOrientation);
   const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
   const handleReadingState = useAppStore((s) => s.handleReadingState);
@@ -146,11 +144,9 @@ const Viewer = (props: ViewerProps) => {
     scale,
     isFitPage,
     margin,
-    isHideBackground,
     isParagraphMode,
     isReadingRuler,
     isSpeedReading,
-    isShowPageBorder,
     textOrientation,
     renderBookFunc,
     handleReadingState,
@@ -272,7 +268,12 @@ const Viewer = (props: ViewerProps) => {
     propsRef.current.handleOpenMenu(true);
   };
   const handleRenderBook = async () => {
-    if (lock) return;
+    // 刚渲染完的 1 秒内处于锁定期，此时的重排请求（如 AI 侧边栏停靠 / 取消停靠）
+    // 不能直接丢弃，否则 PDF 等固定版式不会按新的可用宽度重新排版；解锁后补一次
+    if (lock) {
+      pendingRerenderRef.current = true;
+      return;
+    }
     teardownOverlayTurn();
     let { key, path, format, name } = propsRef.current.currentBook;
     if (ConfigService.getAllListConfig("seperateStyleBooks").includes(key)) {
@@ -406,11 +407,11 @@ const Viewer = (props: ViewerProps) => {
         // 全文翻译改由应用层按小段插入（utils/reader/fullTranslation.ts），引擎内置的整段翻译关闭
         fullTranslationMode: "no",
         textOrientation: ConfigService.getReaderConfig("textOrientation"),
-        isDarkMode:
-          ConfigService.getReaderConfig("backgroundColor") ===
-          "rgba(44,47,49,1)"
-            ? "yes"
-            : "no",
+        isDarkMode: isNightReaderBg(
+          ConfigService.getReaderConfig("backgroundColor")
+        )
+          ? "yes"
+          : "no",
         backgroundColor: ConfigService.getReaderConfig("backgroundColor"),
         isMobile: "no",
         isIndent: ConfigService.getReaderConfig("isIndent"),
@@ -575,6 +576,7 @@ const Viewer = (props: ViewerProps) => {
       rendition: rendition,
     });
     updateState({ rendition });
+    if (isPaginatedBook(propsRef.current.currentBook)) addPageShadow();
     setupOverlayTurn(
       rendition,
       propsRef.current.currentBook,
@@ -723,6 +725,9 @@ const Viewer = (props: ViewerProps) => {
       let doc = docs[i];
       if (!doc || gestureBoundDocs.has(doc)) continue;
       gestureBoundDocs.add(doc);
+      if (isPaginatedBook(propsRef.current.currentBook)) {
+        enablePdfTextSelection(doc);
+      }
       doc.addEventListener("click", () => {
         propsRef.current.handleLeaveReader("left");
         propsRef.current.handleLeaveReader("right");
@@ -1005,14 +1010,6 @@ const Viewer = (props: ViewerProps) => {
           </>
         )}
       <PageWidget />
-      {isHideBackground ||
-      isPaperLayout(readerMode, currentBook, isFitPage) ||
-      textOrientation === "vertical" ||
-      isShowPageBorder ||
-      ((isParagraphMode || isReadingRuler || isSpeedReading) &&
-        !isReadingRawPDF(currentBook)) ? null : currentBook.key ? (
-        <Background />
-      ) : null}
     </>
   );
 };

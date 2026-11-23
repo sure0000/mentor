@@ -2,16 +2,14 @@ import { useLatest } from "../../../utils/hooks/useLatest";
 import { useTranslation } from "react-i18next";
 import React, { useEffect, useReducer, useRef, useState } from "react";
 import "./popupTrans.css";
-import {
-  ConfigService,
-  KookitConfig,
-} from "../../../assets/lib/kookit-extra-browser.min";
+import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
 import axios from "axios";
 import { Trans } from "react-i18next";
 import toast from "react-hot-toast";
 import { getDefaultTransTarget, openExternalUrl } from "../../../utils/common";
 import { getTransStream } from "../../../utils/request/reader";
-import { isAiAvailable } from "../../../utils/aiReading/aiGateway";
+import { getPrompt, isAiAvailable } from "../../../utils/aiReading/aiGateway";
+import { fillPrompt, sourceLangText } from "../../../utils/aiReading/prompts";
 import { chatStream } from "../../../utils/request/common";
 import { getIframeDoc } from "../../../utils/reader/docUtil";
 import { getBuiltinTranslation } from "../../../utils/plugins/rendererRegistry";
@@ -159,15 +157,11 @@ const PopupTrans = (props: PopupTransProps) => {
       if (targetLang === "Traditional Chinese") {
         targetLang = "繁体中文";
       }
-      let systemPrompt =
-        ConfigService.getReaderConfig("aiTranslatePrompt") ||
-        KookitConfig.DefaultPrompts.aiTranslate;
-      systemPrompt = systemPrompt.replace(
-        "{from}",
-        ConfigService.getReaderConfig("transSource") || "Automatic"
-      );
-      systemPrompt = systemPrompt.replace("{to}", targetLang);
-      systemPrompt = systemPrompt.replace("{text}", text);
+      const systemPrompt = fillPrompt(getPrompt("aiTranslate"), {
+        from: sourceLangText(ConfigService.getReaderConfig("transSource")),
+        to: targetLang,
+        text,
+      });
       let config: any = plugin.config || {};
       textAccumulator.current = "";
       setState((prev) => ({ ...prev, isAiWaiting: true }));

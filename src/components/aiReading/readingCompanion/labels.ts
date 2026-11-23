@@ -1,10 +1,9 @@
-import type { CompanionAction, ReadingLevel } from "../../../utils/aiReading/readingMarks";
+import type { AnnotationKind, CompanionAction } from "../../../utils/aiReading/readingMarks";
 
 /** 文案 key（en.json / zh-CN.json） */
-export const LEVEL_LABEL_KEYS: Record<ReadingLevel, string> = {
-  skim: "Skim",
-  light: "Light reading",
-  deep: "Deep reading",
+export const KIND_LABEL_KEYS: Record<AnnotationKind, string> = {
+  term: "Term",
+  idea: "Core idea",
 };
 
 export const ACTION_LABEL_KEYS: Record<CompanionAction, string> = {

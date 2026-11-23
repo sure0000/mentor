@@ -108,7 +108,6 @@ const PageWidget = () => {
   const isFitPage = useAppStore((s) => s.reader.isFitPage);
   const isHideFooter = useAppStore((s) => s.reader.isHideFooter);
   const isHideHeader = useAppStore((s) => s.reader.isHideHeader);
-  const isShowPageBorder = useAppStore((s) => s.reader.isShowPageBorder);
   const textOrientation = useAppStore((s) => s.reader.textOrientation);
   const htmlBook = useAppStore((s) => s.reader.htmlBook);
   const isShowBookmark = useAppStore((s) => s.viewArea.isShowBookmark);
@@ -508,30 +507,6 @@ const PageWidget = () => {
           )}
         </div>
         <>{isShowBookmark ? <div className="bookmark"></div> : null}</>
-        {isShowPageBorder && (
-          <>
-            <div className="page-border"></div>
-            <div className="inner-page-border"></div>
-            <div className="page-border-header-line"></div>
-            <div className="page-border-footer-line"></div>
-            {!state.isSingle && (
-              <div
-                className="page-border-center-line"
-                style={
-                  textOrientation === "vertical"
-                    ? {
-                        top: "50%",
-                        height: "1px",
-                        width: "calc(100% - 30px)",
-                        left: "15px",
-                        right: "15px",
-                      }
-                    : {}
-                }
-              ></div>
-            )}
-          </>
-        )}
       </div>
       {jumpPosition && (
         <div className="jump-return-button-container">

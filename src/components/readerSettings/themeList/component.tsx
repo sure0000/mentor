@@ -1,6 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { useReducer, useState } from "react";
-import { backgroundList, textList } from "../../../constants/themeList";
+import {
+  backgroundList,
+  DAY_BG,
+  DAY_TEXT,
+  readerPresetThemes,
+  textList,
+} from "../../../constants/themeList";
 import "./themeList.css";
 import { Trans } from "react-i18next";
 import {
@@ -34,7 +40,7 @@ const ThemeList = () => {
         return (
           item ===
           (ConfigService.getReaderConfig("backgroundColor") ||
-            "rgba(255,255,255,1)")
+            DAY_BG)
         );
       }),
     currentTextIndex: textList
@@ -42,7 +48,7 @@ const ThemeList = () => {
       .findIndex((item) => {
         return (
           item ===
-          (ConfigService.getReaderConfig("textColor") || "rgba(0,0,0,1)")
+          (ConfigService.getReaderConfig("textColor") || DAY_TEXT)
         );
       }),
     isShowTextPicker: false,
@@ -65,13 +71,14 @@ const ThemeList = () => {
     ),
   }));
   const [, forceUpdate] = useReducer((x) => x + 1, 0);
+  const [isShowCustom, setIsShowCustom] = useState(false);
 
   const updateState = (patch: Partial<ThemeListState>) => {
     setState((prev) => ({ ...prev, ...patch }));
   };
 
   const getPresetIndex = (backgroundColor: string, textColor: string) => {
-    return KookitConfig.PresetThemeList.findIndex((item) => {
+    return [...readerPresetThemes, ...KookitConfig.PresetThemeList.slice(4)].findIndex((item) => {
       return (
         item.backgroundColor === backgroundColor && item.textColor === textColor
       );
@@ -84,13 +91,9 @@ const ThemeList = () => {
     updateState({
       currentBackgroundIndex: index,
     });
-    if (index === 1) {
-      ConfigService.setReaderConfig("textColor", "rgba(255,255,255,1)");
-    } else if (
-      index === 0 &&
-      ConfigService.getReaderConfig("backgroundColor") === "rgba(255,255,255,1)"
-    ) {
-      ConfigService.setReaderConfig("textColor", "rgba(0,0,0,1)");
+    // 选内置背景时同步配套文字色，避免夜间背景配深色字
+    if (index >= 0 && index < textList.length) {
+      ConfigService.setReaderConfig("textColor", textList[index]);
     }
     renderBookFunc();
   };
@@ -111,7 +114,7 @@ const ThemeList = () => {
         ConfigService.setListConfig(pendingHex, "themeColors");
       }
       const appliedColor =
-        ConfigService.getReaderConfig("textColor") || "rgba(0,0,0,1)";
+        ConfigService.getReaderConfig("textColor") || DAY_TEXT;
       updateState({
         currentTextIndex: textList
           .concat(ConfigService.getAllListConfig("themeColors"))
@@ -140,7 +143,7 @@ const ThemeList = () => {
       }
       const appliedColor =
         ConfigService.getReaderConfig("backgroundColor") ||
-        "rgba(255,255,255,1)";
+        DAY_BG;
       updateState({
         currentBackgroundIndex: backgroundList
           .concat(ConfigService.getAllListConfig("themeColors"))
@@ -263,177 +266,171 @@ const ThemeList = () => {
       });
   };
 
+  const renderColorPicker = (type: "bg" | "text") => {
+    const isBg = type === "bg";
+    const inputValue = isBg ? state.bgColorInput : state.textColorInput;
+    const pendingValue = isBg ? state.pendingBgColor : state.pendingTextColor;
+    const handlePreview = isBg ? handlePreviewBgColor : handlePreviewTextColor;
+    return (
+      <div className="theme-color-picker">
+        <HexColorPicker
+          color={pendingValue}
+          onChange={handlePreview}
+          style={{
+            marginBottom: 10,
+            animation: "fade-in 0.2s ease-in-out 0s 1",
+          }}
+        />
+        <input
+          className="color-input-box"
+          value={inputValue}
+          placeholder="#rrggbb / rgba(r,g,b,a)"
+          onChange={(e) =>
+            updateState(
+              isBg
+                ? { bgColorInput: e.target.value }
+                : { textColorInput: e.target.value }
+            )
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const hex = parseColorInput(inputValue);
+              if (hex) handlePreview(hex);
+            }
+          }}
+          onBlur={() => {
+            const hex = parseColorInput(inputValue);
+            if (hex) handlePreview(hex);
+            else
+              updateState(
+                isBg
+                  ? { bgColorInput: pendingValue }
+                  : { textColorInput: pendingValue }
+              );
+          }}
+        />
+      </div>
+    );
+  };
+
+  const currentBg =
+    ConfigService.getReaderConfig("backgroundColor") || DAY_BG;
+  const currentText =
+    ConfigService.getReaderConfig("textColor") || DAY_TEXT;
+  const activePresetIndex = getPresetIndex(currentBg, currentText);
+  const isZh = (ConfigService.getReaderConfig("lang") || "").startsWith("zh");
+  // 微信读书式：常用主题平铺展示，其余主题与自定义颜色收进「自定义」
+  const mainPresets = readerPresetThemes;
+  const extraPresets = KookitConfig.PresetThemeList.slice(4);
+
+  const renderPreset = (
+    item: { key: string; title: string; backgroundColor: string; textColor: string },
+    index: number,
+    size: "large" | "small"
+  ) => (
+    <div
+      key={item.key}
+      className={
+        "preset-theme-item preset-theme-item-" +
+        size +
+        (index === activePresetIndex ? " active" : "")
+      }
+      style={{
+        backgroundColor: item.backgroundColor,
+        color: item.textColor,
+      }}
+      title={t(item.title)}
+      onClick={() => {
+        handleChoosePreset(item);
+      }}
+    >
+      <span className="preset-theme-text">
+        {size === "large" ? "Aa" : isZh ? t(item.title) : "A"}
+      </span>
+    </div>
+  );
+
   return (
     <div className="background-color-setting">
+      <div className="preset-theme-main">
+        {mainPresets.map((item, index) => renderPreset(item, index, "large"))}
+      </div>
       <div
-        className="background-color-text"
-        style={{
-          display: "flex",
-          justifyContent: "flex-start",
-          alignItems: "center",
+        className="theme-custom-toggle"
+        onClick={() => {
+          setIsShowCustom((prev) => !prev);
         }}
       >
-        <Trans>Background color</Trans>
+        <Trans>Customize</Trans>
         <span
-          className="theme-color-clear-button"
-          onClick={() => {
-            ConfigService.setReaderConfig("backgroundColor", "");
-            handleBackgroundColor("");
-            toast.success(t("Removal successful"));
-            renderBookFunc();
-          }}
-        >
-          <Trans>Clear</Trans>{" "}
-          <span className="icon-trash" style={{ fontSize: "13px" }}></span>
-        </span>
+          className="icon-dropdown theme-custom-toggle-icon"
+          style={isShowCustom ? { transform: "rotate(180deg)" } : {}}
+        ></span>
       </div>
-      <ul className="background-color-list">
-        <li
-          className="background-color-circle"
-          onClick={() => {
-            handleColorBgPicker(!state.isShowBgPicker);
-          }}
-        >
-          <span
-            className={state.isShowBgPicker ? "icon-check" : "icon-more"}
-          ></span>
-        </li>
-
-        {renderBackgroundColorList()}
-      </ul>
-      {state.isShowBgPicker && (
-        <div style={{ margin: "10px 20px", marginLeft: "30px" }}>
-          <HexColorPicker
-            color={state.pendingBgColor}
-            onChange={handlePreviewBgColor}
-            style={{
-              marginBottom: 10,
-              animation: "fade-in 0.2s ease-in-out 0s 1",
-            }}
-          />
-          <input
-            className="color-input-box"
-            value={state.bgColorInput}
-            placeholder="#rrggbb / rgba(r,g,b,a)"
-            onChange={(e) => updateState({ bgColorInput: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const hex = parseColorInput(state.bgColorInput);
-                if (hex) handlePreviewBgColor(hex);
-              }
-            }}
-            onBlur={() => {
-              const hex = parseColorInput(state.bgColorInput);
-              if (hex) handlePreviewBgColor(hex);
-              else
-                updateState({
-                  bgColorInput: state.pendingBgColor,
-                });
-            }}
-          />
-        </div>
-      )}
-      <div
-        className="background-color-text"
-        style={{
-          display: "flex",
-          justifyContent: "flex-start",
-          alignItems: "center",
-        }}
-      >
-        <Trans>Text color</Trans>
-        <span
-          className="theme-color-clear-button"
-          onClick={() => {
-            ConfigService.setReaderConfig("textColor", "");
-            toast.success(t("Removal successful"));
-            renderBookFunc();
-          }}
-        >
-          <Trans>Clear</Trans>{" "}
-          <span className="icon-trash" style={{ fontSize: "13px" }}></span>
-        </span>
-      </div>
-      <ul className="background-color-list">
-        <li
-          className="background-color-circle"
-          onClick={() => {
-            handleColorTextPicker(!state.isShowTextPicker);
-          }}
-        >
-          <span
-            className={state.isShowTextPicker ? "icon-check" : "icon-more"}
-          ></span>
-        </li>
-
-        {renderTextColorList()}
-      </ul>
-      {state.isShowTextPicker && (
-        <div style={{ margin: "10px 20px", marginLeft: "30px" }}>
-          <HexColorPicker
-            color={state.pendingTextColor}
-            onChange={handlePreviewTextColor}
-            style={{
-              marginBottom: 10,
-              animation: "fade-in 0.2s ease-in-out 0s 1",
-            }}
-          />
-          <input
-            className="color-input-box"
-            value={state.textColorInput}
-            placeholder="#rrggbb / rgba(r,g,b,a)"
-            onChange={(e) => updateState({ textColorInput: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const hex = parseColorInput(state.textColorInput);
-                if (hex) handlePreviewTextColor(hex);
-              }
-            }}
-            onBlur={() => {
-              const hex = parseColorInput(state.textColorInput);
-              if (hex) handlePreviewTextColor(hex);
-              else
-                updateState({
-                  textColorInput: state.pendingTextColor,
-                });
-            }}
-          />
-        </div>
-      )}
-      <div
-        className="background-color-text"
-        style={{
-          display: "flex",
-          justifyContent: "flex-start",
-          alignItems: "center",
-        }}
-      >
-        <Trans>Theme</Trans>
-      </div>
-      <div className="preset-theme-list">
-        {KookitConfig.PresetThemeList.map((item) => {
-          return (
-            <div
-              key={item.key}
-              className={"preset-theme-item"}
-              style={{
-                backgroundColor: item.backgroundColor,
-                color: item.textColor,
-                borderColor: item.textColor,
-              }}
+      {isShowCustom && (
+        <div className="theme-custom-section">
+          <div className="preset-theme-list">
+            {extraPresets.map((item, index) =>
+              renderPreset(item, index + mainPresets.length, "small")
+            )}
+          </div>
+          <div className="background-color-text">
+            <Trans>Background color</Trans>
+            <span
+              className="theme-color-clear-button"
               onClick={() => {
-                handleChoosePreset(item);
+                ConfigService.setReaderConfig("backgroundColor", "");
+                handleBackgroundColor("");
+                toast.success(t("Removal successful"));
+                renderBookFunc();
               }}
             >
-              <span className="preset-theme-text">
-                {(ConfigService.getReaderConfig("lang") || "").startsWith("zh")
-                  ? t(item.title)
-                  : "A"}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+              <Trans>Clear</Trans>
+            </span>
+          </div>
+          <ul className="background-color-list">
+            <li
+              className="background-color-circle theme-color-add"
+              onClick={() => {
+                handleColorBgPicker(!state.isShowBgPicker);
+              }}
+            >
+              <span
+                className={state.isShowBgPicker ? "icon-check" : "icon-add"}
+              ></span>
+            </li>
+            {renderBackgroundColorList()}
+          </ul>
+          {state.isShowBgPicker && renderColorPicker("bg")}
+          <div className="background-color-text">
+            <Trans>Text color</Trans>
+            <span
+              className="theme-color-clear-button"
+              onClick={() => {
+                ConfigService.setReaderConfig("textColor", "");
+                toast.success(t("Removal successful"));
+                renderBookFunc();
+              }}
+            >
+              <Trans>Clear</Trans>
+            </span>
+          </div>
+          <ul className="background-color-list">
+            <li
+              className="background-color-circle theme-color-add"
+              onClick={() => {
+                handleColorTextPicker(!state.isShowTextPicker);
+              }}
+            >
+              <span
+                className={state.isShowTextPicker ? "icon-check" : "icon-add"}
+              ></span>
+            </li>
+            {renderTextColorList()}
+          </ul>
+          {state.isShowTextPicker && renderColorPicker("text")}
+        </div>
+      )}
     </div>
   );
 };

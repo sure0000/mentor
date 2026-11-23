@@ -1,4 +1,10 @@
 import { useTranslation } from "react-i18next";
+import {
+  DAY_BG,
+  DAY_TEXT,
+  NIGHT_BG,
+  NIGHT_TEXT,
+} from "../../../constants/themeList";
 import { useEffect, useReducer, useState } from "react";
 import { Trans } from "react-i18next";
 import { isElectron } from "react-device-detect";
@@ -90,15 +96,15 @@ const AppearanceSetting = () => {
       (ConfigService.getReaderConfig("appSkin") === "system" &&
         ConfigService.getReaderConfig("isOSNight") === "yes")
     ) {
-      ConfigService.setReaderConfig("backgroundColor", "rgba(44,47,49,1)");
-      ConfigService.setReaderConfig("textColor", "rgba(255,255,255,1)");
+      ConfigService.setReaderConfig("backgroundColor", NIGHT_BG);
+      ConfigService.setReaderConfig("textColor", NIGHT_TEXT);
     } else if (
       skin === "light" ||
       (ConfigService.getReaderConfig("appSkin") === "system" &&
         ConfigService.getReaderConfig("isOSNight") !== "yes")
     ) {
-      ConfigService.setReaderConfig("backgroundColor", "rgba(255,255,255,1)");
-      ConfigService.setReaderConfig("textColor", "rgba(0,0,0,1)");
+      ConfigService.setReaderConfig("backgroundColor", DAY_BG);
+      ConfigService.setReaderConfig("textColor", DAY_TEXT);
     }
 
     reloadManager();
@@ -184,7 +190,9 @@ const AppearanceSetting = () => {
               key={item.value}
               className="lang-setting-option"
             >
-              {item.value === "Built-in font"
+              {item.value === "Built-in font" ||
+              item.value.startsWith('"Source Han') ||
+              item.value.startsWith('"PingFang')
                 ? t(item.label)
                 : item.label}
             </option>

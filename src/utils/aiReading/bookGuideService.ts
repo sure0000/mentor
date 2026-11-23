@@ -3,6 +3,7 @@
 // 每章要点完成即落盘，所以「暂停 / 关闭再开」后继续时自然从断点续上。
 // 任务状态放在模块级，关闭面板不会中断任务；应用退出时主进程会结束子进程。
 import { getStorageLocation } from "../common";
+import { getPrompt } from "./aiGateway";
 import {
   AiTaskError,
   RunningTask,
@@ -13,7 +14,6 @@ import {
 import { ChapterPoints, MAX_CHAPTER_CHARS } from "./chapterPoints";
 import {
   BOOK_GUIDE_SCHEMA,
-  BOOK_GUIDE_SYSTEM,
   BOOK_GUIDE_VERSION,
   BookGuide,
   GuideEstimate,
@@ -204,7 +204,7 @@ export const startGuideJob = async (bookTitle: string, index: BookIndex) => {
     }
     set({ phase: "summary", currentTitle: "" });
     const out = await runStructured({
-      system: BOOK_GUIDE_SYSTEM,
+      system: getPrompt("bookGuide"),
       prompt: buildBookGuidePrompt(
         bookTitle,
         items,

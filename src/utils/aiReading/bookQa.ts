@@ -4,6 +4,7 @@
 //   - 末尾附 <sources> 块，每行「编号 | 片段号 | 原文短引」，程序逐条核对
 import type { ScoredPassage } from "./retrieval";
 import { normalizeForMatch } from "./chapterPoints";
+import { DEFAULT_PROMPTS } from "./prompts";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -23,27 +24,27 @@ export const HISTORY_BUDGET = 8000;
 export const stripRefMarkers = (text: string) =>
   text.replace(/\s?\[(?:P\d+|CUR|SEL)\](?:\s?\[(?:P\d+|CUR|SEL)\])*/gi, "");
 
-export const buildQaSystem = () =>
+/**
+ * 全书问答的系统提示词 = 可编辑的基础说明 + 固定的格式规则。
+ * 格式规则（补充标记、出处块）由程序解析，不允许用户修改。
+ */
+export const buildQaSystem = (base: string = DEFAULT_PROMPTS.bookQa) =>
   [
-    "你是一位读书助手，读者正在读一本书，会问你关于这本书的问题。",
-    "下面会给出：读者选中的文字（如有）、读者当前所在章节的原文、以及从全书检索到的相关片段（带编号 [P1]、[P2]…）。",
-    "回答规则：",
-    "1. 优先依据给出的原文作答。书中的说法直接陈述。",
-    `2. 凡是原文里没有、来自你自己知识的背景补充或推断，必须整段包在 ${QA_EXTRA_OPEN} 和 ${QA_EXTRA_CLOSE} 之间，不得与书中内容混写在同一句里。`,
-    "3. 给出的原文不足以回答时，直接说明「书中给出的部分没有提到」，不要编造书中内容。",
-    `4. 回答末尾必须附出处块，格式严格如下（每条一行，最多 6 条；没有可引用的出处时写一个空的块）：`,
-    `${QA_SOURCES_OPEN}`,
-    "P2 | 从该片段中逐字复制的 10–40 字原文",
-    "CUR | 从当前章节中逐字复制的原文",
-    "SEL | 从选中文字中逐字复制的原文",
-    `${QA_SOURCES_CLOSE}`,
-    "   短引必须逐字复制，不得改写、翻译、拼接或加省略号。",
-    "5. 回答正文用 Markdown，简洁、具体。正文里不要写 [P1] 这类编号，也不要重复出处块的内容。",
-    "6. 片段编号只对本次提问有效；之前对话里出现过的编号与本次无关，不要据此「更正」之前的回答。",
-    "7. 用读者提问所用的语言作答（读者用中文问就用中文答）；出处里的短引保持原文语言，不要翻译。",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    base.trim(),
+    "",
+    "格式规则（必须遵守）：",
+    "- 上下文中的全书检索片段带编号 [P1]、[P2]…；当前章节记为 CUR，选中文字记为 SEL。",
+    `- 凡是原文里没有、来自你自己知识的背景补充或推断，必须整段包在 ${QA_EXTRA_OPEN} 和 ${QA_EXTRA_CLOSE} 之间，不得与书中内容混写在同一句里。`,
+    "- 回答正文用 Markdown。正文里不要写 [P1] 这类编号，也不要重复出处块的内容。",
+    "- 回答末尾必须附出处块，格式严格如下（每条一行，最多 6 条；没有可引用的出处时写一个空的块）：",
+    QA_SOURCES_OPEN,
+    "P2 | 从该片段中逐字复制的原文短引",
+    "CUR | 从当前章节中逐字复制的原文短引",
+    "SEL | 从选中文字中逐字复制的原文短引",
+    QA_SOURCES_CLOSE,
+    "- 短引中文 10–40 字、英文约 5–25 个词，必须逐字复制，不得改写、翻译、拼接或加省略号；短引保持原文语言。",
+    "- 片段编号只对本次提问有效；之前对话里出现过的编号与本次无关，不要据此「更正」之前的回答。",
+  ].join("\n");
 
 const fmtHistory = (history: ChatTurn[], budget: number) => {
   // 保留最近的若干轮全文；更早的用户问题只保留问题本身（作为对话主题的摘要）

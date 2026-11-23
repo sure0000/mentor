@@ -1,22 +1,3 @@
-export const generalSettingList = [
-  {
-    isElectron: true,
-    title: "Disable screen blanking",
-    desc: "When Koodo is running, your computer won't enter sleep mode",
-    propName: "isPreventSleep",
-  },
-  {
-    isElectron: true,
-    title: "Windows always on top",
-    propName: "isAlwaysOnTop",
-  },
-  {
-    isElectron: true,
-    title: "Auto maximize main window",
-    desc: "Main window will be maximized to fit the screen when launching",
-    propName: "isAutoMaximizeWin",
-  },
-];
 export const appearanceSettingList = [
   {
     isElectron: false,
@@ -269,12 +250,6 @@ export const readerSettingList = [
     isPDF: true,
   },
   {
-    title: "Show page border",
-    propName: "isShowPageBorder",
-    group: "layout",
-    isPDF: true,
-  },
-  {
     title: "Hide footer",
     propName: "isHideFooter",
     group: "layout",
@@ -285,12 +260,6 @@ export const readerSettingList = [
     title: "Hide header",
     propName: "isHideHeader",
     group: "layout",
-    isPDF: true,
-  },
-  {
-    title: "Hide mimical background",
-    propName: "isHideBackground",
-    group: "theme",
     isPDF: true,
   },
 ];

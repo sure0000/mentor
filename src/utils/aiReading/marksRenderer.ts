@@ -1,43 +1,37 @@
-// AI 伴读：在书页（阅读器 iframe）上渲染阅读分级与重点划线。
+// AI 伴读：在书页（阅读器 iframe）上渲染术语与核心观点标注。
 // 用 CSS Custom Highlight API：不改动书籍 DOM，不影响引擎分页、已有高亮笔记与选区。
+// 注脚内容不写进书页，点击标注时由 readingMarksLayer 弹出。
 import { normalizeForMatch } from "./chapterPoints";
 import {
+  Annotation,
+  AnnotationKind,
   ChapterMarks,
-  ReadingLevel,
+  annotationKey,
   locateParagraphs,
   locateQuote,
-  segmentKey,
 } from "./readingMarks";
 
-const STYLE_ID = "koodo-ai-reading-marks";
-const NAMES = {
-  skim: "koodo-ai-skim",
-  deep: "koodo-ai-deep",
-  key: "koodo-ai-key",
-} as const;
+// 样式改动时升级 id，旧文档里的样式会被替换
+const STYLE_ID = "koodo-ai-reading-marks-v3";
+const OLD_STYLE_IDS = ["koodo-ai-reading-marks", "koodo-ai-reading-marks-v2"];
+const NAMES: Record<AnnotationKind, string> = {
+  term: "koodo-ai-term",
+  idea: "koodo-ai-idea",
+};
 
-// 重点句：荧光笔式底色 + 实心粗下划线，叠在精读底色之上仍清晰可辨
-const KEY_STYLE = `
-::highlight(${NAMES.key}) {
-  background-color: rgba(255, 140, 50, 0.38);
-  text-decoration: underline solid rgb(220, 70, 40);
-  text-decoration-thickness: 3px;
-  text-underline-offset: 4px;
-}`;
-
+// 只画底部直线，不改文字颜色与底色：术语 = 蓝色，核心观点 = 橙色。
+// PDF 等固定版式的透明文字层同样适用（不改 color 就不会显形重影）。
 const STYLE = `
-::highlight(${NAMES.skim}) { color: rgba(128, 128, 128, 0.75); }
-::highlight(${NAMES.deep}) { background-color: rgba(255, 196, 0, 0.16); }
-${KEY_STYLE}`;
-
-// PDF 等固定版式：文字由 canvas 绘制，上面叠一层透明文字层用于选区。
-// 改文字颜色会让透明层显形并与 canvas 错位形成重影，所以只能用底色，不能改 color。
-const FIXED_LAYOUT_STYLE = `
-::highlight(${NAMES.skim}) { background-color: rgba(128, 128, 128, 0.1); }
-::highlight(${NAMES.deep}) { background-color: rgba(255, 196, 0, 0.16); }
-::highlight(${NAMES.key}) { background-color: rgba(255, 140, 50, 0.38); }`;
-
-const isFixedLayoutDoc = (doc: Document) => !!doc.querySelector(".textLayer");
+::highlight(${NAMES.term}) {
+  text-decoration: underline solid rgb(40, 120, 220);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+::highlight(${NAMES.idea}) {
+  text-decoration: underline solid rgb(230, 120, 20);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}`;
 
 type HighlightCtor = new (...ranges: Range[]) => unknown;
 type HighlightWindow = Window & {
@@ -103,10 +97,11 @@ const makeRange = (doc: Document, map: TextMap, span: [number, number]) => {
   return range;
 };
 
-export type RenderedSegment = { key: string; level: ReadingLevel; title: string; ranges: Range[] };
+/** index + 1 为注脚编号 */
+export type RenderedAnnotation = { key: string; index: number; item: Annotation; ranges: Range[] };
 
 /** 某个文档上当前渲染的伴读标注（点击命中判断用） */
-const rendered = new WeakMap<Document, { docIndex: number; stamp: string; segments: RenderedSegment[] }>();
+const rendered = new WeakMap<Document, { docIndex: number; stamp: string; annotations: RenderedAnnotation[] }>();
 
 export const clearMarks = (doc: Document | null) => {
   if (!doc) return;
@@ -117,23 +112,24 @@ export const clearMarks = (doc: Document | null) => {
 
 const ensureStyle = (doc: Document) => {
   if (doc.getElementById(STYLE_ID)) return;
+  OLD_STYLE_IDS.forEach((id) => doc.getElementById(id)?.remove());
   const style = doc.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = isFixedLayoutDoc(doc) ? FIXED_LAYOUT_STYLE : STYLE;
+  style.textContent = STYLE;
   (doc.head || doc.documentElement).appendChild(style);
 };
 
 /**
  * 在文档上渲染一章的标注。paragraphs 为生成时的段落切分。
  * 同一文档、同一份标注已渲染过时直接跳过（翻页时不重复计算）。
- * 返回定位成功的段落数，便于界面提示。
+ * 返回定位成功的标注数，便于界面提示。
  */
 export const renderMarks = (
   doc: Document,
   marks: ChapterMarks,
   paragraphs: string[]
 ): { located: number; total: number } => {
-  const total = paragraphs.length;
+  const total = marks.annotations.length;
   const stamp = `${marks.docIndex}:${marks.createdAt}:${doc.body?.textContent?.length || 0}`;
   const prev = rendered.get(doc);
   if (prev && prev.stamp === stamp) return { located: -1, total };
@@ -142,58 +138,61 @@ export const renderMarks = (
   ensureStyle(doc);
   const map = buildTextMap(doc);
   const spans = locateParagraphs(map.norm, paragraphs.map(normalizeForMatch));
-  const byLevel: Record<"skim" | "deep", Range[]> = { skim: [], deep: [] };
-  const segments: RenderedSegment[] = [];
-  for (const seg of marks.segments) {
-    const ranges: Range[] = [];
-    for (let p = seg.from; p <= seg.to; p++) {
-      const span = spans[p - 1];
-      const r = span && makeRange(doc, map, span);
-      if (r) ranges.push(r);
-    }
-    if (seg.level !== "light") byLevel[seg.level].push(...ranges);
-    segments.push({ key: segmentKey(seg), level: seg.level, title: seg.title, ranges });
-  }
-  const keyRanges: Range[] = [];
-  for (const line of marks.keyLines) {
-    if (!line.verified) continue;
-    const span = locateQuote(map.norm, normalizeForMatch(line.quote), spans[line.para - 1] || null);
+  const byKind: Record<AnnotationKind, Range[]> = { term: [], idea: [] };
+  const annotations: RenderedAnnotation[] = [];
+  marks.annotations.forEach((a, index) => {
+    if (!a.verified) return;
+    const span = locateQuote(map.norm, normalizeForMatch(a.quote), spans[a.para - 1] || null);
     const r = span && makeRange(doc, map, span);
-    if (r) keyRanges.push(r);
-  }
+    if (!r) return;
+    byKind[a.kind].push(r);
+    annotations.push({ key: annotationKey(a), index, item: a, ranges: [r] });
+  });
   const H = win.Highlight;
-  win.CSS.highlights.set(NAMES.skim, new H(...byLevel.skim));
-  win.CSS.highlights.set(NAMES.deep, new H(...byLevel.deep));
-  const keyHighlight = new H(...keyRanges) as { priority?: number };
-  // 重点句画在精读/略读之上
-  keyHighlight.priority = 1;
-  win.CSS.highlights.set(NAMES.key, keyHighlight);
-  rendered.set(doc, { docIndex: marks.docIndex, stamp, segments });
-  return { located: spans.filter(Boolean).length, total };
+  win.CSS.highlights.set(NAMES.idea, new H(...byKind.idea));
+  const termHighlight = new H(...byKind.term) as { priority?: number };
+  // 术语常落在核心观点句内，画在其上
+  termHighlight.priority = 1;
+  win.CSS.highlights.set(NAMES.term, termHighlight);
+  rendered.set(doc, { docIndex: marks.docIndex, stamp, annotations });
+  return { located: annotations.length, total: marks.annotations.length };
 };
 
-/** 点击位置命中的已渲染区间（只用于精读段落的进一步功能） */
-export const hitSegment = (
+/** 点到划线的容差（px）：下划线画在文字下方几像素处 */
+const HIT_SLOP = 4;
+
+const rectHit = (r: Range, x: number, y: number) => {
+  try {
+    for (const rect of Array.from(r.getClientRects())) {
+      if (
+        x >= rect.left - HIT_SLOP &&
+        x <= rect.right + HIT_SLOP &&
+        y >= rect.top - HIT_SLOP &&
+        y <= rect.bottom + HIT_SLOP
+      ) {
+        return true;
+      }
+    }
+  } catch (e) {
+    // 节点已被引擎替换
+  }
+  return false;
+};
+
+/**
+ * 点击位置命中的标注；术语优先（术语常嵌在核心观点句中）。
+ * 按划线在屏幕上的矩形判断，不用 caretRangeFromPoint：后者在行尾、行间、
+ * 行内元素边界处常返回父元素，导致点在划线上也判为未命中。
+ */
+export const hitAnnotation = (
   doc: Document,
   x: number,
   y: number
-): { docIndex: number; segment: RenderedSegment } | null => {
+): { docIndex: number; annotation: RenderedAnnotation } | null => {
   const info = rendered.get(doc);
   if (!info) return null;
-  const caret = (doc as Document & {
-    caretRangeFromPoint?: (x: number, y: number) => Range | null;
-  }).caretRangeFromPoint?.(x, y);
-  if (!caret) return null;
-  for (const segment of info.segments) {
-    for (const r of segment.ranges) {
-      try {
-        if (r.isPointInRange(caret.startContainer, caret.startOffset)) {
-          return { docIndex: info.docIndex, segment };
-        }
-      } catch (e) {
-        // 节点已被引擎替换
-      }
-    }
-  }
-  return null;
+  const hits = info.annotations.filter((a) => a.ranges.some((r) => rectHit(r, x, y)));
+  const hit = hits.find((a) => a.item.kind === "term") || hits[0];
+  return hit ? { docIndex: info.docIndex, annotation: hit } : null;
 };
+

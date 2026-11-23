@@ -466,7 +466,9 @@ const PopupBox = (props: PopupBoxProps) => {
   const isAtBottom = popupBottom === 0;
   const isAssistantSidebar = isDockedRight && menuMode === "assistant";
 
-  const innerStyle: React.CSSProperties = isDockedRight
+  const innerStyle: React.CSSProperties = isAssistantSidebar
+    ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }
+    : isDockedRight
     ? { position: "absolute", top: 20, left: 0, right: 0, bottom: 0 }
     : { position: "relative", width: "100%", height: "100%" };
 
@@ -536,10 +538,9 @@ const PopupBox = (props: PopupBoxProps) => {
           ></span>
           {isAssistantSidebar && (
             <span
-              className="icon-close popup-pin-handle"
+              className="icon-close popup-pin-handle popup-assist-close"
               onClick={handleCloseDocked}
               title={t("Close")}
-              style={{ right: "10px", fontSize: "14px" }}
             ></span>
           )}
           {!isAssistantSidebar && (

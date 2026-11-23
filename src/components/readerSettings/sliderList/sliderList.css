@@ -57,3 +57,48 @@
   height: 20px;
   border-radius: 5px;
 }
+
+/* WeRead-like compact slider used inside the reader setting panel */
+.panel-slider {
+  margin: 4px 0 14px;
+}
+.panel-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  line-height: 20px;
+  margin-bottom: 6px;
+}
+.panel-slider-value {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.panel-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  background-color: var(--shelf-input-bg);
+  box-sizing: border-box;
+}
+.panel-slider-step {
+  flex: 0 0 auto;
+  width: 18px;
+  text-align: center;
+  font-size: 16px;
+  line-height: 36px;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.75;
+}
+.panel-slider-step:hover {
+  opacity: 1;
+}
+.panel-slider-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto !important;
+}

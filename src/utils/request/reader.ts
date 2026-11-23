@@ -1,5 +1,5 @@
 // 原先这些接口走 Koodo 官方服务器（需 Pro）。二开版本全部改为：
-// - 文本类 AI 能力 → 统一 AI 网关（Claude Code 或用户自配的 OpenAI 兼容接口）
+// - 文本类 AI 能力 → 统一 AI 网关（用户在「设置 > AI 服务」中配置的大模型）
 // - 语音 → 自定义 TTS（OpenAI 兼容 /audio/speech）
 // - 书籍元数据 → Open Library 公共接口（免 Key）
 // 函数签名与返回结构（{ code, data }）保持与旧实现一致，调用方无需大改。
@@ -9,7 +9,9 @@ import {
   AiUnavailableError,
   aiJson,
   aiStreamText,
+  getPrompt,
 } from "../aiReading/aiGateway";
+import { fillPrompt, sourceLangText } from "../aiReading/prompts";
 import { synthesizeSpeech } from "../aiReading/customTts";
 
 type StreamCallback = (result: { text?: string; done?: boolean }) => void;
@@ -53,9 +55,6 @@ const runStream = async (
   return { done: true };
 };
 
-const langName = (code: string) =>
-  !code || code === "auto" || code === "Automatic" ? "" : code;
-
 export const getTransStream = async (
   text: string,
   from: string,
@@ -63,50 +62,31 @@ export const getTransStream = async (
   onMessage: StreamCallback
 ) =>
   runStream(
-    "你是专业翻译。只输出译文，不要解释，保留原文的段落与换行。",
-    (langName(from) ? `源语言：${from}\n` : "") +
-      `目标语言：${to}\n\n待翻译文本：\n${text}`,
+    "",
+    fillPrompt(getPrompt("aiTranslate"), {
+      from: sourceLangText(from),
+      to,
+      text,
+    }),
     onMessage,
     "translate"
   );
 
-export const getAnswerStream = async (
-  text: string,
-  question: string,
-  history: { role: string; content: string }[],
-  mode: string,
-  onMessage: StreamCallback
-) => {
-  const historyText = history
-    .slice(-10)
-    .map((m) => (m.role === "user" ? "【用户】" : "【助手】") + m.content)
-    .join("\n");
-  return runStream(
-    "你是阅读助手，基于用户提供的书籍内容回答问题，回答简洁、准确，使用用户提问的语言。",
-    (text ? `书籍内容：\n${text}\n\n` : "") +
-      (historyText ? `对话记录：\n${historyText}\n\n` : "") +
-      `${mode === "chat" ? "用户说" : "问题"}：${question}`,
-    onMessage,
-    "assistance"
-  );
-};
-
 export const getDictionaryStream = async (
   word: string,
-  from: string,
+  _from: string,
   to: string,
   sentence: string,
   isFullAnalysis: boolean,
   onMessage: StreamCallback
 ) =>
   runStream(
-    "你是词典。用 Markdown 输出：读音、词性与释义（用目标语言）、2 个例句及翻译" +
-      (isFullAnalysis ? "、该词在所给句子中的具体含义" : "") +
-      "。不要输出与词条无关的内容。",
-    `词条：${word}\n` +
-      (langName(from) ? `源语言：${from}\n` : "") +
-      `目标语言：${to}\n` +
-      (sentence ? `所在句子：${sentence}\n` : ""),
+    "",
+    fillPrompt(getPrompt("aiDict"), {
+      word,
+      to,
+      sentence: isFullAnalysis && sentence ? sentence : "（未提供）",
+    }),
     onMessage,
     "dict"
   );

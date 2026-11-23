@@ -5,6 +5,7 @@ import { LocalFileManager } from "./localFile";
 import localforage from "localforage";
 import { Buffer } from "buffer";
 import i18n from "../../i18n";
+import { SANS_FONT_STACK, SERIF_FONT_STACK } from "../../constants/themeList";
 
 declare var window: any;
 
@@ -222,6 +223,8 @@ class FontUtil {
 
     return [
       { label: "Built-in font", value: "Built-in font" },
+      { label: "Serif (Songti)", value: SERIF_FONT_STACK },
+      { label: "Sans-serif (Heiti)", value: SANS_FONT_STACK },
       ...customOptions,
       ...systemFonts,
     ];

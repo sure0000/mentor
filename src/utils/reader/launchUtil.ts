@@ -8,6 +8,10 @@ import {
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import packageJson from "../../../package.json";
 import FontUtil from "../file/fontUtil";
+import {
+  legacyThemeColorMap,
+  SERIF_FONT_STACK,
+} from "../../constants/themeList";
 
 export const syncNativeThemeSource = (appSkin: string) => {
   if (!isElectron) {
@@ -15,6 +19,22 @@ export const syncNativeThemeSource = (appSkin: string) => {
   }
   const ipcRenderer = window.electronAPI;
   ipcRenderer.invoke("set-native-theme-source", appSkin || "system");
+};
+
+// 旧版阅读主题色迁移到新的微信读书风格配色，只处理与旧预设完全一致的值
+const migrateLegacyThemeColors = () => {
+  const bg = ConfigService.getReaderConfig("backgroundColor");
+  const text = ConfigService.getReaderConfig("textColor");
+  if (bg && legacyThemeColorMap[bg]) {
+    ConfigService.setReaderConfig("backgroundColor", legacyThemeColorMap[bg]);
+  }
+  if (text) {
+    const next =
+      text === "rgba(255,255,255,1)"
+        ? legacyThemeColorMap["rgba(255,255,255,1)|text"]
+        : legacyThemeColorMap[text];
+    if (next) ConfigService.setReaderConfig("textColor", next);
+  }
 };
 
 export const initTheme = () => {
@@ -40,9 +60,15 @@ export const initTheme = () => {
     //new user don't need to upgrade
     ConfigService.setItem("isUpgradedConfig", "yes");
     ConfigService.setItem("isUpgradedStorage", "yes");
-    if (!ConfigService.getReaderConfig("isHideBackground")) {
-      ConfigService.setReaderConfig("isHideBackground", "yes");
+    // 新用户默认使用宋体阅读，与微信读书一致
+    if (!ConfigService.getReaderConfig("fontFamily")) {
+      ConfigService.setReaderConfig("fontFamily", SERIF_FONT_STACK);
     }
+  }
+  migrateLegacyThemeColors();
+  // 仿真翻页已移除，旧配置回落到滑动翻页
+  if (ConfigService.getReaderConfig("animation") === "mimical") {
+    ConfigService.setReaderConfig("animation", "sliding");
   }
   syncNativeThemeSource(ConfigService.getReaderConfig("appSkin"));
 

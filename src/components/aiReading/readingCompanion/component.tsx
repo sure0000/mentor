@@ -21,16 +21,20 @@ import { hasAiBackend } from "../../../utils/aiReading/chapterPointsService";
 import {
   FocusRequest,
   MarksJobState,
+  MarksLanguage,
   MarksRenderScope,
-  chapterParagraphs,
   estimateBookMarks,
+  isChapterTaskRunning,
+  getMarksLanguage,
   getMarksRenderScope,
   loadChapterMarks,
   markableChapters,
   pauseMarksJob,
+  setMarksLanguage,
   setMarksRenderScope,
   startMarksJob,
-  subscribeFocusSegment,
+  subscribeChapterTasks,
+  subscribeFocusAnnotation,
   subscribeMarksChanged,
   subscribeMarksJob,
   takePendingFocus,
@@ -44,18 +48,25 @@ import {
   subscribeOpenChapter,
   takePendingChapter,
 } from "../../../utils/aiReading/guideNav";
-import ChapterCompanion, { LevelBar, errorText } from "../chapterCompanion/component";
+import ChapterCompanion, { KindCounts, errorText } from "../chapterCompanion/component";
 import BookOverview from "../bookOverview";
 import "../bookGuide/bookGuide.css";
 import "../bookOverview/bookOverview.css";
 import "../chapterPoints/chapterPoints.css";
 import "./readingCompanion.css";
 
-const SCOPES: { key: MarksRenderScope; label: string }[] = [
-  { key: "chapter", label: "By chapter" },
+const SCOPES: { key: Exclude<MarksRenderScope, "off">; label: string }[] = [
   { key: "book", label: "Whole book" },
-  { key: "off", label: "Off" },
+  { key: "chapter", label: "By chapter" },
 ];
+
+const LANGUAGES: { key: MarksLanguage; label: string }[] = [
+  { key: "zh", label: "Chinese" },
+  { key: "book", label: "Same as book" },
+];
+
+/** 关闭书页标注前的范围，重新打开时恢复（模块内，不持久化） */
+let lastOnScope: Exclude<MarksRenderScope, "off"> = "book";
 
 const INDEX_ERROR_KEYS: Record<string, string> = {
   "unsupported-format": "This format does not support full-book text extraction",
@@ -68,7 +79,7 @@ const formatChars = (n: number) => (n >= 10000 ? (n / 10000).toFixed(1) + "万" 
 const usd = (n: number) => (n < 0 ? "$?" : `$${n.toFixed(n < 0.1 ? 3 : 2)}`);
 
 /**
- * AI 伴读：全书索引、全书导读，以及阅读分级（略读 / 浅读 / 精读）+ 重点划线，
+ * AI 伴读：全书索引、全书导读，以及术语 / 核心观点标注 + 注脚，
  * 按章节或全书渲染到书页
  */
 const ReadingCompanion = () => {
@@ -79,6 +90,8 @@ const ReadingCompanion = () => {
   const [progress, setProgress] = useState<IndexProgress | null>(null);
   const [indexError, setIndexError] = useState("");
   const [scope, setScope] = useState<MarksRenderScope>(getMarksRenderScope);
+  const [language, setLanguage] = useState<MarksLanguage>(getMarksLanguage);
+  const [isLanguageChanged, setIsLanguageChanged] = useState(false);
   const [currentDocIndex, setCurrentDocIndex] = useState(-1);
   const [focus, setFocus] = useState<FocusRequest | null>(() => takePendingFocus());
   const [openDocIndex, setOpenDocIndex] = useState<number | null>(() => {
@@ -154,7 +167,7 @@ const ReadingCompanion = () => {
 
   useEffect(
     () =>
-      subscribeFocusSegment((req) => {
+      subscribeFocusAnnotation((req) => {
         takePendingFocus();
         setFocus(req);
         setIsOverviewOpen(false);
@@ -163,16 +176,26 @@ const ReadingCompanion = () => {
     []
   );
 
+  // 单章后台任务状态变化时刷新列表
+  useEffect(
+    () =>
+      subscribeChapterTasks((s) => {
+        if (s.bookKey === currentBook?.key) setVersion((v) => v + 1);
+      }),
+    [currentBook?.key]
+  );
+
   useEffect(
     () => subscribeMarksJob((s) => setJobState(s && s.bookKey === currentBook?.key ? s : null)),
     [currentBook?.key]
   );
 
-  // 章节伴读生成后刷新列表
+  // 章节伴读生成后刷新列表；书页卡片里「隐藏标注」后同步开关
   useEffect(
     () =>
       subscribeMarksChanged((key) => {
         if (key === currentBook?.key) setVersion((v) => v + 1);
+        if (!key) setScope(getMarksRenderScope());
       }),
     [currentBook?.key]
   );
@@ -214,22 +237,62 @@ const ReadingCompanion = () => {
   }
 
   const handleScope = (s: MarksRenderScope) => {
+    if (s !== "off") lastOnScope = s;
     setScope(s);
     setMarksRenderScope(s);
   };
 
+  const handleLanguage = (l: MarksLanguage) => {
+    if (l === language) return;
+    setLanguage(l);
+    setMarksLanguage(l);
+    setIsLanguageChanged(true);
+  };
+
+  const isMarksOn = scope !== "off";
+
   const scopeBar = (
-    <div className="ai-rc-scope">
-      <span className="ai-guide-hint">{t("Show on page")}</span>
-      {SCOPES.map((s) => (
+    <div className="ai-rc-settings">
+      <div className="ai-rc-setting-row">
+        <span className="ai-rc-setting-label">{t("Show on page")}</span>
         <span
-          key={s.key}
-          className={"ai-rc-scope-item" + (scope === s.key ? " ai-rc-scope-active" : "")}
-          onClick={() => handleScope(s.key)}
+          role="switch"
+          aria-checked={isMarksOn}
+          className={"ai-rc-switch" + (isMarksOn ? " ai-rc-switch-on" : "")}
+          title={isMarksOn ? t("Hide marks") : t("Show marks")}
+          onClick={() => handleScope(isMarksOn ? "off" : lastOnScope)}
         >
-          {t(s.label)}
+          <span className="ai-rc-switch-knob"></span>
         </span>
-      ))}
+        {isMarksOn && (
+          <span className="ai-rc-segmented">
+            {SCOPES.map((s) => (
+              <span
+                key={s.key}
+                className={"ai-rc-segmented-item" + (scope === s.key ? " ai-rc-segmented-active" : "")}
+                onClick={() => handleScope(s.key)}
+              >
+                {t(s.label)}
+              </span>
+            ))}
+          </span>
+        )}
+      </div>
+      <div className="ai-rc-setting-row">
+        <span className="ai-rc-setting-label">{t("Footnote language")}</span>
+        <span className="ai-rc-segmented">
+          {LANGUAGES.map((l) => (
+            <span
+              key={l.key}
+              className={"ai-rc-segmented-item" + (language === l.key ? " ai-rc-segmented-active" : "")}
+              onClick={() => handleLanguage(l.key)}
+            >
+              {t(l.label)}
+            </span>
+          ))}
+        </span>
+      </div>
+      {isLanguageChanged && <div className="ai-guide-hint">{t("AI_COMPANION_LANG_HINT")}</div>}
     </div>
   );
 
@@ -289,7 +352,7 @@ const ReadingCompanion = () => {
       `<br/>${t("Estimated cost")}: $${est.costLow.toFixed(2)} – $${est.costHigh.toFixed(2)}` +
       `<br/><br/><span style="opacity:.7;font-size:13px">${t("AI_GUIDE_ESTIMATE_NOTE")}</span>`;
     if (!(await vexComfirmAsync(message, "Start", "Cancel"))) return;
-    if (scope === "off") handleScope("book");
+    if (scope === "off") handleScope(lastOnScope);
     startMarksJob(currentBook.name || "", index).catch((e) =>
       toast.error(e instanceof Error ? e.message : String(e))
     );
@@ -389,7 +452,15 @@ const ReadingCompanion = () => {
             >
               <span className="ai-guide-item-title">{c.title}</span>
               <span className="ai-guide-item-meta ai-rc-item-meta">
-                {marks ? <LevelBar marks={marks} paragraphs={chapterParagraphs(c)} /> : t("Not generated")}
+                {isChapterTaskRunning(index.bookKey, c.docIndex) ? (
+                  <span>
+                    <span className="icon-loading ai-guide-spin"></span> {t("Generating")}
+                  </span>
+                ) : marks ? (
+                  <KindCounts marks={marks} />
+                ) : (
+                  t("Not generated")
+                )}
               </span>
             </div>
           );

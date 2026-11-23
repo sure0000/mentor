@@ -147,7 +147,6 @@ export const dropdownList = [
     option: [
       { label: "None", value: "none" },
       { label: "Slide", value: "sliding" },
-      { label: "Flip", value: "mimical" },
       { label: "Overlay", value: "overlay" },
     ],
     isPDF: true,

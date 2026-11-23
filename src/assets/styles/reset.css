@@ -82,17 +82,15 @@ body {
   font-family:
     -apple-system,
     BlinkMacSystemFont,
-    Segoe UI,
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    "Fira Sans",
-    "Droid Sans",
-    "Helvetica Neue",
     "PingFang SC",
     "Hiragino Sans GB",
+    "Microsoft YaHei UI",
     "Microsoft YaHei",
+    "Source Han Sans SC",
+    "Noto Sans CJK SC",
+    "Helvetica Neue",
+    "Segoe UI",
+    Roboto,
     sans-serif !important;
   overflow-x: hidden !important;
   /* font-weight: 500; */
@@ -120,17 +118,15 @@ textarea::placeholder {
   font-family:
     -apple-system,
     BlinkMacSystemFont,
-    Segoe UI,
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    "Fira Sans",
-    "Droid Sans",
-    "Helvetica Neue",
     "PingFang SC",
     "Hiragino Sans GB",
+    "Microsoft YaHei UI",
     "Microsoft YaHei",
+    "Source Han Sans SC",
+    "Noto Sans CJK SC",
+    "Helvetica Neue",
+    "Segoe UI",
+    Roboto,
     sans-serif !important;
   font-weight: 500 !important;
   line-height: 1.25 !important;

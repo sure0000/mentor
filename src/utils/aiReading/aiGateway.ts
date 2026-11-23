@@ -1,8 +1,23 @@
 // 统一 AI 网关：替代原先依赖 Koodo 官方服务器的 AI 能力（翻译、词典、整页翻译、
 // 单词释义、书名识别、元数据补全、TTS 分句、AI 伴读等）。
 // 后端为用户在「设置 > AI」中配置的 OpenAI 兼容接口。
-import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
+import {
+  ConfigService,
+  KookitConfig,
+} from "../../assets/lib/kookit-extra-browser.min";
 import { chatStream } from "../request/common";
+import { DEFAULT_PROMPTS, PromptKey } from "./prompts";
+
+/** 读取提示词：用户自定义优先；未设置或等于旧版英文默认值时用内置中文默认 */
+export const getPrompt = (key: PromptKey): string => {
+  const saved = (ConfigService.getReaderConfig(key + "Prompt") || "").trim();
+  const legacy = (
+    (KookitConfig.DefaultPrompts as Record<string, string> | undefined)?.[key] ||
+    ""
+  ).trim();
+  if (!saved || (legacy && saved === legacy)) return DEFAULT_PROMPTS[key];
+  return saved;
+};
 
 export type AiBackend = {
   kind: "custom";

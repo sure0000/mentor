@@ -6,6 +6,7 @@ import { useAppStore } from "../../../store/useAppStore";
 
 export interface SliderListProps {
   item: any;
+  variant?: "default" | "panel";
 }
 
 const SliderList = (props: SliderListProps) => {
@@ -136,6 +137,62 @@ const SliderList = (props: SliderListProps) => {
   const handleAdd = (step: number, mode: string) => {
     updateValueByStep(step, mode, 1);
   };
+
+  if (props.variant === "panel") {
+    const { mode, step, title, maxValue, minValue } = props.item;
+    const isFontSize = mode === "fontSize";
+    return (
+      <div className="panel-slider">
+        <div className="panel-slider-header">
+          <span>
+            <Trans>{title}</Trans>
+          </span>
+          <span className="panel-slider-value">
+            {getDisplayValue(state[mode])}
+          </span>
+        </div>
+        <div className="panel-slider-row">
+          <span
+            className="panel-slider-step"
+            style={isFontSize ? { fontSize: "12px" } : {}}
+            onClick={() => {
+              handleMinus(step, mode);
+              handleRest(mode);
+            }}
+          >
+            {isFontSize ? "A" : "−"}
+          </span>
+          <input
+            className="input-progress panel-slider-input"
+            value={state[mode]}
+            type="range"
+            max={maxValue}
+            min={minValue}
+            step={step}
+            onInput={(event) => {
+              onValueChange(event, mode);
+            }}
+            onChange={(event) => {
+              onValueInput(event, mode);
+            }}
+            onMouseUp={() => {
+              handleRest(mode);
+            }}
+          />
+          <span
+            className="panel-slider-step"
+            style={isFontSize ? { fontSize: "18px" } : {}}
+            onClick={() => {
+              handleAdd(step, mode);
+              handleRest(mode);
+            }}
+          >
+            {isFontSize ? "A" : "+"}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="font-size-setting">

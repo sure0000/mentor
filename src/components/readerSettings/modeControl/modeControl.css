@@ -1,23 +1,37 @@
-.single-control-container {
-  width: 100%;
-  height: 60px;
+/* WeRead-like segmented control */
+.panel-segmented {
   display: flex;
-  justify-content: space-around;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 18px;
+  background-color: var(--shelf-input-bg);
+  margin-bottom: 14px;
 }
-.single-page-icon,
-.two-page-icon {
-  font-size: 60px;
+.panel-segmented-item {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 30px;
+  line-height: 30px;
   text-align: center;
-}
-.single-mode-text,
-.double-mode-text {
-  font-size: 14px;
-  line-height: 27px;
-  opacity: 1;
-  text-align: center;
-}
-.single-mode-container,
-.double-mode-container {
+  font-size: 13px;
+  border-radius: 15px;
   cursor: pointer;
-  text-align: center;
+  user-select: none;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+.panel-segmented-item:hover {
+  opacity: 1;
+}
+.panel-segmented-item.active {
+  opacity: 1;
+  font-weight: 600;
+  color: var(--brand);
+  background-color: var(--panel-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }

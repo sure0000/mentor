@@ -18,8 +18,6 @@ const SettingSwitch = (props: SettingSwitchProps) => {
   const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
   const handleHideFooter = useAppStore((s) => s.handleHideFooter);
   const handleHideHeader = useAppStore((s) => s.handleHideHeader);
-  const handleHideBackground = useAppStore((s) => s.handleHideBackground);
-  const handleShowBorder = useAppStore((s) => s.handleShowBorder);
   const handleBackgroundColor = useAppStore((s) => s.handleBackgroundColor);
   const { t } = useTranslation();
   const [state, setState] = useState<Record<string, any>>({
@@ -40,12 +38,8 @@ const SettingSwitch = (props: SettingSwitchProps) => {
     isStartFromEven: ConfigService.getReaderConfig("isStartFromEven") === "yes",
     isRevertDirection:
       ConfigService.getReaderConfig("revertDirection") === "yes",
-    isHideBackground:
-      ConfigService.getReaderConfig("isHideBackground") === "yes",
     isHideFooter: ConfigService.getReaderConfig("isHideFooter") === "yes",
     isHideHeader: ConfigService.getReaderConfig("isHideHeader") === "yes",
-    isShowPageBorder:
-      ConfigService.getReaderConfig("isShowPageBorder") === "yes",
     isCustomBookCSS: ConfigService.getReaderConfig("isCustomBookCSS") === "yes",
     customBookCSS: ConfigService.getReaderConfig("customBookCSS") || "",
     isSeperateStyle: ConfigService.getAllListConfig(
@@ -194,14 +188,9 @@ const SettingSwitch = (props: SettingSwitchProps) => {
               > = {
                 isHideFooter: handleHideFooter,
                 isHideHeader: handleHideHeader,
-                isHideBackground: handleHideBackground,
-                isShowPageBorder: handleShowBorder,
               };
 
-              if (propName === "isShowPageBorder") {
-                handleShowBorder(!state.isShowPageBorder);
-                handleChange("isShowPageBorder");
-              } else if (propName === "isAllowScript") {
+              if (propName === "isAllowScript") {
                 handleChange(propName);
                 setTimeout(() => {
                   BookUtil.reloadBooks(currentBook);

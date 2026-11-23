@@ -92,12 +92,6 @@ export const CHAPTER_POINTS_SCHEMA = {
   },
 } as const;
 
-export const CHAPTER_POINTS_SYSTEM = [
-  "你是一位认真的读书助手，帮读者抓住一本书中某一章的重点。",
-  "只根据给出的本章原文作答，不要引入书外的观点；原文没写的不要编。",
-  "每条要点和概念都必须附一句原文短引：从本章原文中逐字复制一段连续文字（10–40 字），不得改写、翻译、拼接或加省略号。",
-  "要点要具体，避免「本章介绍了……」这类空话。",
-].join("\n");
 
 export const buildChapterPointsPrompt = (params: {
   bookTitle: string;

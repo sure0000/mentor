@@ -40,8 +40,6 @@ const INVOKE_CHANNELS = new Set([
   "custom-database-command",
   "database-command",
   "close-database",
-  "set-always-on-top",
-  "set-auto-maximize",
   "open-explorer-folder",
   "get-debug-logs",
   "reader-window-minimize",

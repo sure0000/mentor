@@ -240,7 +240,9 @@ const DropdownList = (props: DropdownListProps) => {
                         : subItem.label
                       : item.value === "fontFamily" ||
                           item.value === "subFontFamily"
-                        ? subItem.value === "Built-in font"
+                        ? subItem.value === "Built-in font" ||
+                          subItem.value.startsWith('"Source Han') ||
+                          subItem.value.startsWith('"PingFang')
                           ? t(subItem.label)
                           : subItem.label
                         : t(subItem.label)}

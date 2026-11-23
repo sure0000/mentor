@@ -1,10 +1,9 @@
 // AI 伴读：本章要点的生成与缓存（渲染进程）。
 // 缓存：<数据目录>/ai-reading/<bookKey>/points/<docIndex>.json（FR-SUM-06）
 import { getStorageLocation } from "../common";
-import { aiStreamText, isAiAvailable } from "./aiGateway";
+import { aiStreamText, getPrompt, isAiAvailable } from "./aiGateway";
 import {
   CHAPTER_POINTS_SCHEMA,
-  CHAPTER_POINTS_SYSTEM,
   ChapterPoints,
   buildChapterPointsPrompt,
   extractJson,
@@ -168,7 +167,7 @@ export const generateChapterPoints = async (
     languageLine: languageInstruction(detectBookLanguage(index.chapters)),
   });
   const out = await runStructured({
-    system: CHAPTER_POINTS_SYSTEM,
+    system: getPrompt("chapterPoints"),
     prompt,
     schema: CHAPTER_POINTS_SCHEMA,
     onRunning,

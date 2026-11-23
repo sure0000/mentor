@@ -3,9 +3,10 @@
   justify-content: center;
   align-items: center;
   width: calc(100% - 44px);
-  height: 38px;
-  font-weight: 500;
-  margin: 4px 22px;
+  height: 44px;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 22px;
 }
 .setting-panel-parent {
   position: absolute;
@@ -19,68 +20,47 @@
   opacity: 1;
 }
 
-.setting-panel-tabs {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  width: calc(100% - 30px);
-  margin: 0 15px 4px;
-  padding: 3px;
-  box-sizing: border-box;
-  border-radius: 999px;
-  margin-bottom: 10px;
-}
-.setting-panel-tabs-indicator {
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  border-radius: 999px;
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
-}
-.setting-panel-tab {
-  position: relative;
-  z-index: 1;
-  flex: 1 1 0;
-  min-width: 0;
-  height: 28px;
-  line-height: 28px;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 500;
-  opacity: 0.7;
-  cursor: pointer;
-  border-radius: 999px;
-  box-sizing: border-box;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  user-select: none;
-  transition:
-    opacity 0.15s ease,
-    color 0.2s ease;
-}
-.setting-panel-tab:hover {
-  opacity: 0.9;
-}
-.setting-panel-tab.active {
-  opacity: 1;
-  font-weight: 600;
-}
-
 .setting-panel {
   opacity: 1;
   width: 100%;
-  height: calc(100% - 87px);
-  overflow-y: scroll;
+  height: calc(100% - 44px);
+  overflow-y: auto;
   overflow-x: hidden;
   box-sizing: border-box;
-  padding-top: 5px;
-  padding-bottom: 20px;
-  animation: setting-panel-fade 0.15s ease-in-out 0s 1;
+  padding: 4px 18px 24px;
+}
 
-  /* display: none; */
+/* WeRead-like single column: titled sections separated by thin dividers */
+.setting-panel-section {
+  padding: 12px 0 4px;
+  border-bottom: 1px solid var(--divider);
+}
+.setting-panel-section-title {
+  font-size: 12px;
+  line-height: 18px;
+  opacity: 0.55;
+  margin-bottom: 10px;
+}
+.setting-panel-more-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 44px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.75;
+}
+.setting-panel-more-toggle:hover {
+  opacity: 1;
+}
+.setting-panel-more-icon {
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+.setting-panel-more {
+  margin: 0 -18px;
+  animation: setting-panel-fade 0.15s ease-in-out 0s 1;
 }
 @keyframes setting-panel-fade {
   0% {
@@ -90,19 +70,56 @@
     opacity: 1;
   }
 }
+
+/* Dropdowns inside panel sections: label left, select right */
+.setting-panel-section .paragraph-character-setting {
+  margin: 0;
+  width: 100%;
+}
+.setting-panel-section .paragraph-character-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.setting-panel-section .general-setting-title {
+  font-size: 13px;
+  font-weight: 400;
+  margin: 0;
+}
+.setting-panel-section .general-setting-dropdown {
+  left: 0;
+  width: 140px;
+  height: 30px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  border-radius: 15px;
+  padding: 0 10px;
+  text-align: left;
+}
+.setting-panel-section .general-setting-option {
+  font-size: 13px;
+  font-weight: 400;
+}
+
 .lock-icon {
   position: absolute;
   top: 0px;
   left: 0px;
-  font-size: 20px;
   opacity: 0.3;
-  margin: 10px;
+  margin: 12px;
   cursor: pointer;
-  font-size: 20px;
+  font-size: 18px;
+  z-index: 1;
+}
+.lock-icon:hover {
+  opacity: 0.7;
 }
 .setting-panel-menu {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 14px;
+  right: 14px;
   cursor: pointer;
+  opacity: 0.6;
 }

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { DAY_BG, NIGHT_BG } from "../constants/themeList";
 import BookModel from "../models/Book";
 import PluginModel from "../models/Plugin";
 import NoteModel from "../models/Note";
@@ -113,8 +114,8 @@ const initialReader = {
     : ConfigService.getReaderConfig("appSkin") === "night" ||
         (ConfigService.getReaderConfig("appSkin") === "system" &&
           ConfigService.getReaderConfig("isOSNight") === "yes")
-      ? "rgba(44,47,49,1)"
-      : "rgba(255,255,255,1)",
+      ? NIGHT_BG
+      : DAY_BG,
   noteKey: "",
   originalText: "",
   originalSentence: "",
@@ -138,12 +139,10 @@ const initialReader = {
   isDockedRight: ConfigService.getReaderConfig("isDockedRight") === "yes",
   isHideFooter: ConfigService.getReaderConfig("isHideFooter") === "yes",
   isHideHeader: ConfigService.getReaderConfig("isHideHeader") === "yes",
-  isHideBackground: ConfigService.getReaderConfig("isHideBackground") === "yes",
   isParagraphMode: ConfigService.getReaderConfig("isParagraphMode") === "yes",
   isReadingRuler: ConfigService.getReaderConfig("isReadingRuler") === "yes",
   isSpeedReading: ConfigService.getReaderConfig("isSpeedReading") === "yes",
   isAutoReading: ConfigService.getReaderConfig("isAutoReading") === "yes",
-  isShowPageBorder: ConfigService.getReaderConfig("isShowPageBorder") === "yes",
   textOrientation: ConfigService.getReaderConfig("textOrientation") || "",
   jumpPosition: null as object | null,
 };
@@ -236,7 +235,6 @@ export type AppActionName =
   | "handleFetchPlugins"
   | "handleFetchViewMode"
   | "handleFitPage"
-  | "handleHideBackground"
   | "handleHideFooter"
   | "handleHideHeader"
   | "handleHighlight"
@@ -283,7 +281,6 @@ export type AppActionName =
   | "handleSettingMode"
   | "handleShelf"
   | "handleShowBookmark"
-  | "handleShowBorder"
   | "handleShowPopupNote"
   | "handleSortDisplay"
   | "handleSpeechAutoStart"
@@ -824,8 +821,6 @@ export const useAppStore = create<AppState>()((set, get) => {
     handleNavLock: (isNavLocked: boolean) => setReader({ isNavLocked }),
     handleDockedRight: (isDockedRight: boolean) => setReader({ isDockedRight }),
     handleHideHeader: (isHideHeader: boolean) => setReader({ isHideHeader }),
-    handleHideBackground: (isHideBackground: boolean) =>
-      setReader({ isHideBackground }),
     handleParagraphMode: (isParagraphMode: boolean) =>
       setReader({ isParagraphMode }),
     handleReadingRuler: (isReadingRuler: boolean) =>
@@ -833,8 +828,6 @@ export const useAppStore = create<AppState>()((set, get) => {
     handleSpeedReading: (isSpeedReading: boolean) =>
       setReader({ isSpeedReading }),
     handleAutoReading: (isAutoReading: boolean) => setReader({ isAutoReading }),
-    handleShowBorder: (isShowPageBorder: boolean) =>
-      setReader({ isShowPageBorder }),
     handleFitPage: (isFitPage: boolean) => setReader({ isFitPage }),
     handleMargin: (margin: string) => setReader({ margin }),
     handleSettingLock: (isSettingLocked: boolean) =>

@@ -1,0 +1,101 @@
+.ai-note-card {
+  position: fixed;
+  z-index: 20;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  padding: 10px 14px 10px;
+  border-radius: var(--radius-lg, 12px);
+  background: var(--panel-bg);
+  color: var(--text-color);
+  box-shadow: var(--float-shadow);
+  border-top: 3px solid transparent;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.65;
+  animation: ai-note-in 0.12s ease-out;
+}
+@keyframes ai-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.ai-note-card-term {
+  border-top-color: rgb(40, 120, 220);
+}
+.ai-note-card-idea {
+  border-top-color: rgb(220, 120, 20);
+}
+.ai-note-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.ai-note-card-badge {
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 7px;
+  border-radius: 9px;
+  color: #fff;
+}
+.ai-note-card-badge-term {
+  background: rgb(40, 120, 220);
+}
+.ai-note-card-badge-idea {
+  background: rgb(220, 120, 20);
+}
+.ai-note-card-num {
+  font-size: 12px;
+  color: var(--text-weak);
+}
+.ai-note-card-spacer {
+  flex: 1;
+}
+.ai-note-card-close {
+  font-size: 13px;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--text-weak);
+  border-radius: var(--radius-sm, 4px);
+}
+.ai-note-card-close:hover {
+  color: var(--text-color);
+  background: var(--hover-bg);
+}
+.ai-note-card-word {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.ai-note-card-body {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.ai-note-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--divider);
+  font-size: 12px;
+}
+.ai-note-card-action {
+  padding: 1px 9px;
+  border-radius: 10px;
+  border: 1px solid rgb(220, 120, 20);
+  color: rgb(200, 105, 10);
+  cursor: pointer;
+}
+.ai-note-card-action:hover {
+  background: rgba(220, 120, 20, 0.1);
+}
+.ai-note-card-link {
+  color: var(--text-weak);
+  cursor: pointer;
+}
+.ai-note-card-link:hover {
+  color: var(--brand);
+}

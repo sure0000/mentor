@@ -349,8 +349,6 @@ class BookUtil {
           }?title=${book.name}&file=${book.key}`,
           isAutoFullscreen: ConfigService.getReaderConfig("isAutoFullscreen"),
           isAutoMaximize: ConfigService.getReaderConfig("isAutoMaximize"),
-          isPreventSleep: ConfigService.getReaderConfig("isPreventSleep"),
-          isAlwaysOnTop: ConfigService.getReaderConfig("isAlwaysOnTop"),
         });
       }
     } else {

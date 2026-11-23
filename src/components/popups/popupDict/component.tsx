@@ -4,7 +4,6 @@ import React, { useEffect, useRef, useState } from "react";
 import "./popupDict.css";
 import {
   ConfigService,
-  KookitConfig,
   WordSyncManager,
 } from "../../../assets/lib/kookit-extra-browser.min";
 import Parser from "html-react-parser";
@@ -19,7 +18,8 @@ import {
 import toast from "react-hot-toast";
 import DatabaseService from "../../../utils/storage/databaseService";
 import { getDictionaryStream } from "../../../utils/request/reader";
-import { isAiAvailable } from "../../../utils/aiReading/aiGateway";
+import { getPrompt, isAiAvailable } from "../../../utils/aiReading/aiGateway";
+import { fillPrompt } from "../../../utils/aiReading/prompts";
 import { chatStream } from "../../../utils/request/common";
 import { marked } from "marked";
 import { getIframeDoc } from "../../../utils/reader/docUtil";
@@ -191,11 +191,11 @@ const PopupDict = (props: PopupDictProps) => {
           stateRef.current.dictTarget ||
           ConfigService.getReaderConfig("dictTarget") ||
           getFullTranslationTarget();
-        let systemPrompt =
-          ConfigService.getReaderConfig("aiDictPrompt") ||
-          KookitConfig.DefaultPrompts.aiDict;
-        systemPrompt = systemPrompt.replace("{word}", text);
-        systemPrompt = systemPrompt.replace("{to}", targetLang);
+        const systemPrompt = fillPrompt(getPrompt("aiDict"), {
+          word: text,
+          to: targetLang,
+          sentence: originalSentence || "（未提供）",
+        });
         let config: any = plugin.config || {};
         aiTextAccumulator.current = "";
         updateState({ aiAnswer: "", isAiWaiting: true, isAiStreaming: true });

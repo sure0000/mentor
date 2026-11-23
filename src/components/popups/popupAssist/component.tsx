@@ -2,10 +2,7 @@ import { useLatest } from "../../../utils/hooks/useLatest";
 import { useTranslation } from "react-i18next";
 import React, { useEffect, useRef, useState } from "react";
 import "./popupAssist.css";
-import {
-  ConfigService,
-  KookitConfig,
-} from "../../../assets/lib/kookit-extra-browser.min";
+import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
 import Parser from "html-react-parser";
 import DOMPurify from "dompurify";
 import { Trans } from "react-i18next";
@@ -16,7 +13,8 @@ import { chatStream } from "../../../utils/request/common";
 import { marked } from "marked";
 import { sampleQuestion } from "../../../constants/settingList";
 import { useAppStore } from "../../../store/useAppStore";
-import { aiStreamText } from "../../../utils/aiReading/aiGateway";
+import { aiStreamText, getPrompt } from "../../../utils/aiReading/aiGateway";
+import { fillPrompt } from "../../../utils/aiReading/prompts";
 import QaAnswer from "../../aiReading/qaAnswer";
 import {
   SPOILER_SAFE_KEY,
@@ -105,6 +103,8 @@ const PopupAssist = (props: PopupAssistProps) => {
   const isMounted = useRef(true);
   const chatBoxRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  /** 本次提问携带的引用（发送时从 quote 取出并清空输入区的引用） */
+  const pendingQuote = useRef("");
   const answerTextAccumulator = useRef("");
   const updateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const isHydrating = useRef(false);
@@ -202,22 +202,17 @@ const PopupAssist = (props: PopupAssistProps) => {
     }
     saveHistory(bookKey, stateRef.current.askHistory);
   };
-  // componentDidMount: 加载历史、处理引用文本、初始化 AI 服务
+  // 划线引用保存在 store（reader.quoteText）里，不放组件 state：
+  // 侧边栏停靠后会触发整本书重新渲染，期间 PopupBox / PopupAssist 会卸载再挂载，组件 state 会丢
+  const quote = quoteText.trim();
+  useEffect(() => {
+    if (quote) runAfterUpdate(() => textareaRef.current?.focus());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quote]);
+
+  // componentDidMount: 加载历史、初始化 AI 服务
   useEffect(() => {
     loadChatHistory();
-    if (quoteText) {
-      setState((prev) => ({ ...prev, inputQuestion: quoteText + "\n" }));
-      runAfterUpdate(() => {
-        autoResizeTextarea();
-        const el = textareaRef.current;
-        if (el) {
-          el.focus();
-          const len = el.value.length;
-          el.setSelectionRange(len, len);
-        }
-      });
-      handleQuoteText("");
-    }
     if (!state.aiService) {
       let pluginList = plugins.filter(
         (item) =>
@@ -285,12 +280,16 @@ const PopupAssist = (props: PopupAssistProps) => {
     const lineHeight = parseFloat(style.lineHeight) || 20;
     const paddingTop = parseFloat(style.paddingTop) || 0;
     const paddingBottom = parseFloat(style.paddingBottom) || 0;
-    const maxLines = 5;
+    const maxLines = 10;
     const maxHeight = lineHeight * maxLines + paddingTop + paddingBottom;
     // 先重置为最小高度，让 scrollHeight 反映真实内容高度
     el.style.height = "0px";
     const contentHeight = el.scrollHeight;
-    if (contentHeight >= maxHeight) {
+    const minHeight = lineHeight * 3 + paddingTop + paddingBottom;
+    if (contentHeight < minHeight) {
+      el.style.height = minHeight + "px";
+      el.style.overflowY = "hidden";
+    } else if (contentHeight >= maxHeight) {
       el.style.height = maxHeight + "px";
       el.style.overflowY = "auto";
     } else {
@@ -312,7 +311,8 @@ const PopupAssist = (props: PopupAssistProps) => {
     }
   };
   const handleAnswer = async () => {
-    let answerText = originalText
+    // 有引用时以引用原文为上下文（全书问答里作为「选中文字」）
+    let answerText = (pendingQuote.current || originalText)
       .replace(/(\r\n|\n|\r)/gm, "")
       // Remove common garbage characters
       .replace(
@@ -353,10 +353,7 @@ const PopupAssist = (props: PopupAssistProps) => {
         if (!plugin) {
           return;
         }
-        let systemPrompt =
-          ConfigService.getReaderConfig("aiAssistancePrompt") ||
-          KookitConfig.DefaultPrompts.aiAssistance;
-        systemPrompt = systemPrompt.replace("{text}", text);
+        const systemPrompt = fillPrompt(getPrompt("aiAssistance"), { text });
         let config: any = plugin.config || {};
         let chatHistory = stateRef.current.askHistory;
         // Build messages: system prompt as first user message, then history, then current question
@@ -374,7 +371,7 @@ const PopupAssist = (props: PopupAssistProps) => {
           config.providerId,
           config.apiKey,
           config.modelId,
-          systemPrompt + "\n\nUser question: " + currentQuestion,
+          systemPrompt + "\n\n读者的问题：" + currentQuestion,
           historyMessages,
           (result) => {
             if (result && result.done) {
@@ -515,47 +512,42 @@ const PopupAssist = (props: PopupAssistProps) => {
       toast.success(t("Copied"));
     });
   };
-  const handleRenderHistoryMessage = (message: any[]) => {
-    return message.map((item, index) => {
-      return (
-        <div
-          key={index}
-          className={
-            item.role === "assistant"
-              ? "popup-message-assistant"
-              : "popup-message-user"
-          }
-        >
-          {item.role === "assistant" && item.sources ? (
-            <QaAnswer content={item.content} sources={item.sources} />
-          ) : (
-            Parser(
-              DOMPurify.sanitize(
-                marked.parse(item.content) + "<address></address>"
-              ) || " ",
-              {
-                replace: (_domNode) => {},
-              }
-            )
-          )}
-          {item.role === "assistant" && (
-            <div
-              className="popup-assist-copy-button"
+  const handleRenderHistoryMessage = (message: AiChatMessage[]) => {
+    return message.map((item, index) =>
+      item.role === "user" ? (
+        <div key={index} className="ai-chat-row ai-chat-row-user">
+          <div className="ai-chat-bubble">
+            {Parser(DOMPurify.sanitize(marked.parse(item.content) as string) || " ")}
+          </div>
+        </div>
+      ) : (
+        <div key={index} className="ai-chat-row ai-chat-row-ai">
+          <div className="ai-chat-answer">
+            {item.sources ? (
+              <QaAnswer content={item.content} sources={item.sources} />
+            ) : (
+              Parser(DOMPurify.sanitize(marked.parse(item.content) as string) || " ")
+            )}
+          </div>
+          <div className="ai-chat-actions">
+            <span
+              className="ai-chat-action"
               onClick={() => handleCopyAnswer(plainAnswer(item.content))}
             >
               <span className="icon-copy-line"></span>
-            </div>
-          )}
-          {item.role === "assistant" && index === message.length - 1 && (
-            <div className="popup-assist-disclaimer">
+              {t("Copy")}
+            </span>
+          </div>
+          {index === message.length - 1 && (
+            <div className="ai-chat-disclaimer">
               {t(
                 "AI-generated content is for reference only. Please verify carefully as it does not constitute professional advice."
               )}
             </div>
           )}
         </div>
-      );
-    });
+      )
+    );
   };
   const handleExportChatHistory = () => {
     const messages = stateRef.current.askHistory;
@@ -595,18 +587,24 @@ const PopupAssist = (props: PopupAssistProps) => {
     if (answer || isWaiting) {
       return;
     }
-    handleNewQuestion(inputQuestion);
+    const question = inputQuestion.trim() || (quote ? t("Explain this passage") : "");
+    if (!question) return;
+    handleNewQuestion(question);
     mergeState({ inputQuestion: "" });
-    runAfterUpdate(() => {
-      const el = textareaRef.current;
-      if (el) {
-        el.style.height = "40px";
-        el.style.overflowY = "hidden";
-      }
-    });
+    runAfterUpdate(autoResizeTextarea);
   };
   const handleNewQuestion = (question: string) => {
-    const content = t(question);
+    pendingQuote.current = quote;
+    // 引用以 Markdown 引用块显示在提问气泡里，并随提问进入对话历史
+    const content = quote
+      ? quote
+          .split(/\n+/)
+          .map((line) => "> " + line)
+          .join("\n") +
+        "\n\n" +
+        t(question)
+      : t(question);
+    if (quote) handleQuoteText("");
     setState((prev) => ({
       ...prev,
       askHistory: [
@@ -627,339 +625,247 @@ const PopupAssist = (props: PopupAssistProps) => {
       }
     }, 100);
   };
+  const assistantPlugins = plugins.filter((item) => item.type === "assistant");
+  const isQa = isElectron && isBookQaService(state.aiService);
+  const isAnswering = state.isWaiting || !!state.answer;
+  const hasMessages = state.askHistory.length > 0 || isAnswering;
+
   return (
-      <div className="dict-container">
-        <div
-          className="dict-service-container"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            width: "calc(100% - 50px)",
-            top: "20px",
-            flexWrap: props.isDockedRight ? "wrap" : "nowrap",
+    <div className={"ai-chat" + (props.isDockedRight ? " ai-chat-docked" : "")}>
+      <div className="ai-chat-header">
+        <div className="ai-chat-title">
+          <span className="ai-chat-title-text">{t("Reading Assistant")}</span>
+          {currentBook?.name && (
+            <span className="ai-chat-subtitle">《{currentBook.name}》</span>
+          )}
+        </div>
+        <div className="ai-chat-tools">
+          <span
+            className="ai-chat-tool"
+            data-tooltip-id="my-tooltip"
+            data-tooltip-content={t("Export chat history")}
+            onClick={handleExportChatHistory}
+          >
+            <span className="icon-share"></span>
+          </span>
+          <span
+            className="ai-chat-tool"
+            data-tooltip-id="my-tooltip"
+            data-tooltip-content={t("Clear chat history")}
+            onClick={handleDeleteChatHistory}
+          >
+            <span className="icon-trash-line"></span>
+          </span>
+        </div>
+      </div>
+
+      <div className="ai-chat-meta">
+        <select
+          className="ai-chat-service"
+          value={state.aiService}
+          onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
+            if (event.target.value === "add-new") {
+              handleOpenMenu(false);
+              handleMenuMode("");
+              handleSetting(true);
+              handleSettingMode("ai");
+              return;
+            }
+            handleChangeAiService(event.target.value);
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: props.isDockedRight
-                ? "space-between"
-                : "flex-start",
-              flexShrink: 0,
-              width: props.isDockedRight ? "100%" : undefined,
-              marginTop: props.isDockedRight ? "10px" : "0px",
-            }}
+          <option value={""}>{t("Please select")}</option>
+          {assistantPlugins.map((item) => (
+            <option value={item.key} key={item.key}>
+              {t(item.displayName)}
+            </option>
+          ))}
+          <option value={"add-new"}>{t("Add new plugin")}</option>
+        </select>
+        {isQa && (
+          <label
+            className="ai-chat-spoiler"
+            title={t("Spoiler-safe (only use text before my position)")}
           >
-            <div
-              className="trans-service-selector"
-              style={{ flex: props.isDockedRight ? 1 : undefined }}
-            >
-              <span className={`icon-bookmark trans-icon`}></span>
-              {t("Reading Assistant")}
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              width: props.isDockedRight ? "100%" : undefined,
-              justifyContent: props.isDockedRight
-                ? "space-between"
-                : undefined,
-              marginTop: props.isDockedRight ? "10px" : "0px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <div
-                className="popup-assist-export-button"
-                style={{ fontSize: 18 }}
-                onClick={handleDeleteChatHistory}
-              >
-                <span
-                  data-tooltip-id="my-tooltip"
-                  data-tooltip-content={t("Clear chat history")}
-                >
-                  <span className="icon-trash-line"></span>
-                </span>
-              </div>
-              <div
-                className="popup-assist-export-button"
-                onClick={handleExportChatHistory}
-              >
-                <span
-                  data-tooltip-id="my-tooltip"
-                  data-tooltip-content={t("Export chat history")}
-                >
-                  <span className="icon-share"></span>
-                </span>
-              </div>
-            </div>
-
-            <select
-              className="dict-service-selector"
-              style={{
-                margin: 0,
-                color: "var(--brand)",
-                width: "150px",
+            <input
+              type="checkbox"
+              checked={state.isSpoilerSafe}
+              onChange={(e) => {
+                ConfigService.setReaderConfig(
+                  SPOILER_SAFE_KEY,
+                  e.target.checked ? "yes" : "no"
+                );
+                mergeState({ isSpoilerSafe: e.target.checked });
               }}
-              value={state.aiService}
-              onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
-                if (event.target.value === "add-new") {
-                  handleOpenMenu(false);
-                  handleMenuMode("");
-                  handleSetting(true);
-                  handleSettingMode("ai");
-                  return;
-                }
-                handleChangeAiService(event.target.value);
-              }}
-            >
-              <option
-                value={""}
-                key={"select"}
-                className="add-dialog-shelf-list-option"
-              >
-                {t("Please select")}
-              </option>
-              {plugins
-                .filter((item) => item.type === "assistant")
-                .map((item) => {
-                  return (
-                    <option
-                      value={item.key}
-                      key={item.key}
-                      className="add-dialog-shelf-list-option"
-                    >
-                      {t(item.displayName)}
-                    </option>
-                  );
-                })}
-              <option
-                value={"add-new"}
-                key={"add-new"}
-                className="add-dialog-shelf-list-option"
-              >
-                {t("Add new plugin")}
-              </option>
-            </select>
-          </div>
-        </div>
-
-        {state.isAddNew && (
-          <div
-            style={{
-              marginTop: "150px",
-              textAlign: "center",
-              fontSize: "17px",
-              color: "var(--brand)",
-            }}
-          >
-            <span
-              style={{
-                textDecoration: "underline",
-                cursor: "pointer",
-                textAlign: "center",
-              }}
-              onClick={() => {
-                handleOpenMenu(false);
-                handleMenuMode("");
-                handleSetting(true);
-                handleSettingMode("ai");
-              }}
-            >
-              <Trans>Add new plugin</Trans>
-            </span>
-          </div>
-        )}
-        {!state.isAddNew && (
-          <>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                height: "100%",
-                paddingTop: props.isDockedRight ? "100px" : "60px",
-                paddingBottom: "20px",
-                boxSizing: "border-box",
-              }}
-            >
-              <div
-                className="dict-text-box"
-                style={{
-                  flex: 1,
-                  marginTop: "0px",
-                  width: "calc(100% + 20px)",
-                  height: undefined,
-                  paddingBottom: "0px",
-                  paddingLeft: "0px",
-                  paddingRight: "20px",
-                }}
-                ref={chatBoxRef}
-              >
-                {handleRenderHistoryMessage(state.askHistory)}
-                {state.isWaiting ? (
-                  <div
-                    className="popup-message-assistant"
-                    style={{ float: "left" }}
-                  >
-                    <span
-                      className="icon-loading popup-assistant-loading"
-                      style={{
-                        marginRight: "10px",
-                        marginTop: "5px",
-                      }}
-                    ></span>
-                    <span>{t("Thinking, please wait...")}</span>
-                  </div>
-                ) : state.askHistory.length > 0 ? (
-                  <div className="popup-message-assistant">
-                    {Parser(
-                      DOMPurify.sanitize(
-                        marked.parse(
-                          state.answer
-                            ? plainAnswer(
-                                stripRefMarkers(
-                                  visibleWhileStreaming(state.answer)
-                                )
-                              )
-                            : ""
-                        ) + "<address></address>"
-                      ) || " ",
-                      {
-                        replace: (_domNode) => {},
-                      }
-                    )}
-                  </div>
-                ) : (
-                  <div className="popup-message-assistant">
-                    {t(
-                      "Hi there! What questions do you have about this chapter?"
-                    )}
-                  </div>
-                )}
-              </div>
-              <div
-                style={{
-                  marginLeft: "-25px",
-                  marginRight: "-25px",
-                  marginBottom: "0px",
-                  padding: "0px 25px",
-                }}
-              >
-                {isElectron &&
-                  isBookQaService(state.aiService) && (
-                    <div className="popup-assist-qa-options">
-                      <span>
-                        {hasBookIndex
-                          ? t("Answers draw on the whole book")
-                          : t("Open Reading Companion once to enable whole-book answers")}
-                      </span>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={state.isSpoilerSafe}
-                          onChange={(e) => {
-                            ConfigService.setReaderConfig(
-                              SPOILER_SAFE_KEY,
-                              e.target.checked ? "yes" : "no"
-                            );
-                            mergeState({ isSpoilerSafe: e.target.checked });
-                          }}
-                        />{" "}
-                        {t("Spoiler-safe (only use text before my position)")}
-                      </label>
-                    </div>
-                  )}
-                <div className="popup-assist-shortcut-container">
-                  {sampleQuestion
-                    .filter((item) => item.mode === "ask")
-                    .map((item) => {
-                      return (
-                        <div
-                          className="popup-assist-shortcut"
-                          onClick={() => {
-                            handleNewQuestion(item.question);
-                          }}
-                        >
-                          {item.emoji + " " + t(item.question)}
-                        </div>
-                      );
-                    })}
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-end",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <textarea
-                    ref={textareaRef}
-                    name="url"
-                    placeholder={t("Ask anything about this chapter")}
-                    id="trans-add-content-box"
-                    className="trans-add-content-box"
-                    style={{
-                      height: "40px",
-                      resize: "none",
-                      overflowY: "hidden",
-                      marginRight: "10px",
-                      marginBottom: "0px",
-                    }}
-                    onKeyDown={(
-                      event: React.KeyboardEvent<HTMLTextAreaElement>
-                    ) => {
-                      if (
-                        event.key === "Enter" &&
-                        (event.ctrlKey || event.metaKey) &&
-                        !(event.nativeEvent as any).isComposing
-                      ) {
-                        event.preventDefault();
-                        handleSendQuestion();
-                      }
-                    }}
-                    onContextMenu={() => {
-                      handleContextMenu("trans-add-content-box");
-                    }}
-                    value={state.inputQuestion}
-                    onChange={(
-                      event: React.ChangeEvent<HTMLTextAreaElement>
-                    ) => {
-                      mergeState({ inputQuestion: event.target.value });
-                      runAfterUpdate(autoResizeTextarea);
-                    }}
-                  />
-                  {isElectron &&
-                  isBookQaService(state.aiService) &&
-                  (state.isWaiting || state.answer) ? (
-                    <div
-                      className="popup-assistant-send-button"
-                      onClick={handleStopAnswer}
-                    >
-                      {t("Stop")}
-                    </div>
-                  ) : (
-                    <div
-                      className="popup-assistant-send-button"
-                      onClick={handleSendQuestion}
-                    >
-                      {t("Send")}
-                    </div>
-                  )}
-                </div>
-                {isBookQaService(state.aiService) && state.usage && (
-                  <div className="popup-assist-usage">{state.usage}</div>
-                )}
-              </div>
-            </div>
-          </>
+            />
+            {t("Spoiler-safe")}
+          </label>
         )}
       </div>
+
+      {state.isAddNew ? (
+        <div className="ai-chat-empty">
+          <div className="ai-chat-empty-text">
+            {t("No AI service configured. Please add one in Settings > AI service")}
+          </div>
+          <span
+            className="ai-chat-primary"
+            onClick={() => {
+              handleOpenMenu(false);
+              handleMenuMode("");
+              handleSetting(true);
+              handleSettingMode("ai");
+            }}
+          >
+            <Trans>Add new plugin</Trans>
+          </span>
+        </div>
+      ) : (
+        <>
+          <div className="ai-chat-messages" ref={chatBoxRef}>
+            {!hasMessages && (
+              <div className="ai-chat-welcome">
+                <div className="ai-chat-welcome-title">
+                  {t("Hi there! What questions do you have about this chapter?")}
+                </div>
+                {isQa && (
+                  <div className="ai-chat-welcome-hint">
+                    {hasBookIndex
+                      ? t("Answers draw on the whole book")
+                      : t("Open Reading Companion once to enable whole-book answers")}
+                  </div>
+                )}
+                <div className="ai-chat-suggestions">
+                  {sampleQuestion
+                    .filter((item) => item.mode === "ask")
+                    .map((item) => (
+                      <div
+                        key={item.question}
+                        className="ai-chat-suggestion"
+                        onClick={() => handleNewQuestion(item.question)}
+                      >
+                        <span>{t(item.question)}</span>
+                        <span className="ai-chat-suggestion-arrow">›</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+            {handleRenderHistoryMessage(state.askHistory)}
+            {state.isWaiting ? (
+              <div className="ai-chat-row ai-chat-row-ai">
+                <div className="ai-chat-thinking">
+                  <span className="ai-chat-dot"></span>
+                  <span className="ai-chat-dot"></span>
+                  <span className="ai-chat-dot"></span>
+                  <span>{t("Thinking, please wait...")}</span>
+                </div>
+              </div>
+            ) : state.answer ? (
+              <div className="ai-chat-row ai-chat-row-ai">
+                <div className="ai-chat-answer">
+                  {Parser(
+                    DOMPurify.sanitize(
+                      marked.parse(
+                        plainAnswer(stripRefMarkers(visibleWhileStreaming(state.answer)))
+                      ) as string
+                    ) || " "
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="ai-chat-footer">
+            {hasMessages && !isAnswering && (
+              <div className="ai-chat-quick">
+                {sampleQuestion
+                  .filter((item) => item.mode === "ask")
+                  .map((item) => (
+                    <span
+                      key={item.question}
+                      className="ai-chat-chip"
+                      onClick={() => handleNewQuestion(item.question)}
+                    >
+                      {t(item.question)}
+                    </span>
+                  ))}
+              </div>
+            )}
+            <div className="popup-assist-composer">
+              {quote && (
+                <div className="popup-assist-quote">
+                  <span className="popup-assist-quote-text">{quote}</span>
+                  <span
+                    className="icon-close popup-assist-quote-remove"
+                    title={t("Remove quote")}
+                    onClick={() => handleQuoteText("")}
+                  ></span>
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                name="url"
+                placeholder={
+                  quote
+                    ? t("Ask about the quoted passage")
+                    : t("Ask anything about this chapter")
+                }
+                id="trans-add-content-box"
+                className="popup-assist-input"
+                rows={3}
+                onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                  // Enter 发送，Shift+Enter 换行；输入法组字时不发送
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !(event.nativeEvent as KeyboardEvent).isComposing
+                  ) {
+                    event.preventDefault();
+                    handleSendQuestion();
+                  }
+                }}
+                onContextMenu={() => {
+                  handleContextMenu("trans-add-content-box");
+                }}
+                value={state.inputQuestion}
+                onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => {
+                  mergeState({ inputQuestion: event.target.value });
+                  runAfterUpdate(autoResizeTextarea);
+                }}
+              />
+              <div className="popup-assist-composer-bar">
+                <span className="popup-assist-composer-hint">
+                  {isQa && state.usage
+                    ? state.usage
+                    : t("Enter to send, Shift+Enter for a new line")}
+                </span>
+                {isQa && isAnswering ? (
+                  <div
+                    className="popup-assistant-send-button popup-assistant-stop"
+                    onClick={handleStopAnswer}
+                  >
+                    {t("Stop")}
+                  </div>
+                ) : (
+                  <div
+                    className={
+                      "popup-assistant-send-button" +
+                      (state.inputQuestion.trim() || quote
+                        ? ""
+                        : " popup-assistant-send-disabled")
+                    }
+                    onClick={handleSendQuestion}
+                  >
+                    {t("Send")}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 };
 export default PopupAssist;

@@ -129,13 +129,16 @@ export const vexPromptAsync = (message, placeholder = "", value = "") => {
     });
   });
 };
+const escapeTextareaValue = (text: string) =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 export const vexTextareaAsync = (message, value = "") => {
   return new Promise<string | false>((resolve) => {
     window.vex.dialog.buttons.YES.text = i18n.t("Confirm");
     window.vex.dialog.buttons.NO.text = i18n.t("Cancel");
     const textareaHtml = [
       `<div style="margin-bottom:10px">`,
-      `<textarea name="vex-textarea" style="width:100%;height:200px;">${value}</textarea>`,
+      `<textarea name="vex-textarea" style="width:100%;height:260px;">${escapeTextareaValue(value)}</textarea>`,
       `</div>`,
     ].join("");
     window.vex.dialog.open({

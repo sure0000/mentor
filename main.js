@@ -5,7 +5,6 @@ const {
   Menu,
   ipcMain,
   dialog,
-  powerSaveBlocker,
   nativeTheme: electronNativeTheme,
   screen,
   shell,
@@ -549,15 +548,9 @@ const createMainWin = () => {
   hardenAppContents(mainWin.webContents);
   mainWin.once("ready-to-show", () => {
     if (mainWin && !mainWin.isDestroyed()) {
-      if (store.get("isAutoMaximizeWin") === "yes") {
-        mainWin.maximize();
-      }
       mainWin.show();
     }
   });
-  if (store.get("isAlwaysOnTop") === "yes") {
-    mainWin.setAlwaysOnTop(true);
-  }
 
   if (!isDev) {
     Menu.setApplicationMenu(null);
@@ -884,18 +877,12 @@ const createMainWin = () => {
     });
   });
   ipcMain.handle("open-book", (event, config) => {
-    let { url, isAutoFullscreen, isAutoMaximize, isPreventSleep } = config;
+    let { url, isAutoFullscreen, isAutoMaximize } = config;
     store.set({
       url,
       isAutoFullscreen: isAutoFullscreen || "no",
       isAutoMaximize: isAutoMaximize || "no",
-      isPreventSleep: isPreventSleep || "no",
     });
-    let id;
-    if (isPreventSleep === "yes") {
-      id = powerSaveBlocker.start("prevent-display-sleep");
-      console.info(powerSaveBlocker.isStarted(id));
-    }
     if (readerWindow) {
       readerWindowList.push(readerWindow);
     }
@@ -949,9 +936,6 @@ const createMainWin = () => {
     }
     hardenAppContents(readerWindow.webContents);
     bindReaderWindowState(readerWindow);
-    if (store.get("isAlwaysOnTop") === "yes") {
-      readerWindow.setAlwaysOnTop(true);
-    }
     readerWindowReadyToClose = false;
     readerWindow.on("close", (event) => {
       // --- Step 1: ask renderer to flush reading-time data first ---
@@ -989,9 +973,6 @@ const createMainWin = () => {
               currentDisplay.scaleFactor / primaryDisplay.scaleFactor,
           });
         }
-      }
-      if (isPreventSleep && !readerWindow.isDestroyed()) {
-        id && powerSaveBlocker.stop(id);
       }
       if (mainWin && !mainWin.isDestroyed()) {
         mainWin.webContents.send("reading-finished", {});
@@ -1828,42 +1809,6 @@ const createMainWin = () => {
       });
       fs.createReadStream(filePath).on("error", fail).pipe(extract);
     });
-  });
-  ipcMain.handle("set-always-on-top", async (event, config) => {
-    store.set("isAlwaysOnTop", config.isAlwaysOnTop);
-    if (mainWin && !mainWin.isDestroyed()) {
-      if (config.isAlwaysOnTop === "yes") {
-        mainWin.setAlwaysOnTop(true);
-      } else {
-        mainWin.setAlwaysOnTop(false);
-      }
-    }
-    if (readerWindow && !readerWindow.isDestroyed()) {
-      if (config.isAlwaysOnTop === "yes") {
-        readerWindow.setAlwaysOnTop(true);
-      } else {
-        readerWindow.setAlwaysOnTop(false);
-      }
-    }
-    return "pong";
-  });
-  ipcMain.handle("set-auto-maximize", async (event, config) => {
-    store.set("isAutoMaximizeWin", config.isAutoMaximizeWin);
-    if (mainWin && !mainWin.isDestroyed()) {
-      if (config.isAutoMaximizeWin === "yes") {
-        mainWin.maximize();
-      } else {
-        mainWin.unmaximize();
-      }
-    }
-    if (readerWindow && !readerWindow.isDestroyed()) {
-      if (config.isAlwaysOnTop === "yes") {
-        readerWindow.setAlwaysOnTop(true);
-      } else {
-        readerWindow.setAlwaysOnTop(false);
-      }
-    }
-    return "pong";
   });
   ipcMain.handle("open-explorer-folder", async (event, config) => {
     const { shell } = require("electron");

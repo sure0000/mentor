@@ -1,4 +1,4 @@
-// AI 伴读：阅读分级与重点划线的生成、缓存、全书任务、精读进一步功能（渲染进程）。
+// AI 伴读：术语 / 核心观点标注与注脚的生成、缓存、全书任务、精读进一步功能（渲染进程）。
 // 缓存：<数据目录>/ai-reading/<bookKey>/marks/<docIndex>.json
 import Book from "../../models/Book";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
@@ -11,6 +11,8 @@ import {
   runText,
 } from "./chapterPointsService";
 import { MAX_CHAPTER_CHARS } from "./chapterPoints";
+import { getPrompt } from "./aiGateway";
+import type { PromptKey } from "./prompts";
 import { GuideEstimate, analyzableChapters, estimateGuideCost } from "./bookGuide";
 import { parseSources, stripRefMarkers, stripSources } from "./bookQa";
 import { prepareQa } from "./bookQaService";
@@ -21,17 +23,14 @@ import {
   languageInstruction,
 } from "./indexText";
 import {
-  ACTION_QUESTIONS,
   ActionResult,
   ChapterMarks,
   CompanionAction,
-  MarkSegment,
+  Annotation,
   READING_MARKS_SCHEMA,
-  READING_MARKS_SYSTEM,
+  annotationKey,
   buildReadingMarksPrompt,
   isMarksValid,
-  segmentKey,
-  segmentText,
   splitParagraphs,
   toChapterMarks,
 } from "./readingMarks";
@@ -83,7 +82,7 @@ export const subscribeMarksChanged = (listener: ChangeListener) => {
 export const chapterParagraphs = (chapter: IndexChapter) =>
   splitParagraphs(chapter.text, MAX_CHAPTER_CHARS).paragraphs;
 
-/** 生成一章的阅读分级与重点划线（调用一次 AI），成功后写缓存 */
+/** 生成一章的术语与核心观点标注（调用一次 AI），成功后写缓存 */
 export const generateChapterMarks = async (
   bookTitle: string,
   index: BookIndex,
@@ -99,14 +98,14 @@ export const generateChapterMarks = async (
     .filter((c) => c.inToc)
     .map((c) => c.title);
   const out = await runStructured({
-    system: READING_MARKS_SYSTEM,
+    system: getPrompt("readingMarks"),
     prompt: buildReadingMarksPrompt({
       bookTitle,
       chapterTitle: chapter.title,
       paragraphs,
       truncated,
       previousTitles,
-      languageLine: languageInstruction(detectBookLanguage(index.chapters)),
+      languageLine: marksLanguageLine(detectBookLanguage(index.chapters)),
     }),
     schema: READING_MARKS_SCHEMA,
     onRunning,
@@ -125,10 +124,10 @@ export const generateChapterMarks = async (
   } catch (e) {
     throw new AiTaskError("bad-output", "", out.costUsd);
   }
-  // 重新生成时，保留区间未变的精读进一步结果
+  // 重新生成时，保留原文未变的核心观点的进一步结果
   const old = loadChapterMarks(index.bookKey, chapter);
   if (old?.extras) {
-    const keys = new Set(marks.segments.filter((s) => s.level === "deep").map(segmentKey));
+    const keys = new Set(marks.annotations.filter((a) => a.kind === "idea").map(annotationKey));
     const extras = Object.fromEntries(Object.entries(old.extras).filter(([k]) => keys.has(k)));
     if (Object.keys(extras).length) marks.extras = extras;
   }
@@ -136,26 +135,112 @@ export const generateChapterMarks = async (
   return marks;
 };
 
-// ---- 精读段落：辅助阅读 / 知识关联 / 拓展阅读 ----
+// ---- 单章后台任务：与界面解耦，关闭面板 / 切换章节不会中断 ----
+
+export type ChapterTaskState = {
+  bookKey: string;
+  docIndex: number;
+  chapterTitle: string;
+  phase: "running" | "done" | "error" | "cancelled";
+  error?: Error;
+};
+
+type ChapterTaskListener = (s: ChapterTaskState) => void;
+const chapterTasks = new Map<string, { state: ChapterTaskState; running: RunningTask | null }>();
+const chapterTaskListeners = new Set<ChapterTaskListener>();
+const taskId = (bookKey: string, docIndex: number) => `${bookKey}:${docIndex}`;
+
+const emitChapterTask = (state: ChapterTaskState) => {
+  chapterTaskListeners.forEach((l) => l({ ...state }));
+};
+
+export const subscribeChapterTasks = (listener: ChapterTaskListener) => {
+  chapterTaskListeners.add(listener);
+  return () => {
+    chapterTaskListeners.delete(listener);
+  };
+};
+
+/** 某章当前的后台任务状态（只保留最近一次；完成后仍可读到结果） */
+export const getChapterTask = (bookKey: string, docIndex: number): ChapterTaskState | null => {
+  const t = chapterTasks.get(taskId(bookKey, docIndex));
+  return t ? { ...t.state } : null;
+};
+
+export const isChapterTaskRunning = (bookKey: string, docIndex: number) =>
+  chapterTasks.get(taskId(bookKey, docIndex))?.state.phase === "running";
+
+/** 在后台生成 / 重新生成一章；同一章已在生成时直接返回 */
+export const startChapterTask = (bookTitle: string, index: BookIndex, chapter: IndexChapter) => {
+  const id = taskId(index.bookKey, chapter.docIndex);
+  if (chapterTasks.get(id)?.state.phase === "running") return;
+  const task = {
+    state: {
+      bookKey: index.bookKey,
+      docIndex: chapter.docIndex,
+      chapterTitle: chapter.title,
+      phase: "running",
+    } as ChapterTaskState,
+    running: null as RunningTask | null,
+  };
+  chapterTasks.set(id, task);
+  emitChapterTask(task.state);
+  generateChapterMarks(bookTitle, index, chapter, (r) => (task.running = r))
+    .then(() => {
+      task.state = { ...task.state, phase: "done" };
+    })
+    .catch((e) => {
+      const cancelled = e instanceof AiTaskError && e.code === "cancelled";
+      task.state = {
+        ...task.state,
+        phase: cancelled ? "cancelled" : "error",
+        error: e instanceof Error ? e : new Error(String(e)),
+      };
+    })
+    .finally(() => {
+      task.running = null;
+      emitChapterTask(task.state);
+    });
+};
+
+export const cancelChapterTask = (bookKey: string, docIndex: number) => {
+  chapterTasks.get(taskId(bookKey, docIndex))?.running?.cancel();
+};
+
+const ACTION_PROMPT_KEYS: Record<CompanionAction, PromptKey> = {
+  assist: "companionAssist",
+  relate: "companionRelate",
+  further: "companionFurther",
+};
+
+// ---- 核心观点：辅助阅读 / 知识关联 / 拓展阅读 ----
 
 /**
- * 对一个精读区间运行进一步功能。复用全书问答的上下文（当前章 + 全书检索）与出处核对；
+ * 对一条核心观点运行进一步功能（以观点原句所在段落为选中内容）。复用全书问答的上下文（当前章 + 全书检索）与出处核对；
  * 流式返回，完成后存进该章的 marks 缓存。
  */
 export const runCompanionAction = async (params: {
   book: Book;
   index: BookIndex;
   chapter: IndexChapter;
-  segment: MarkSegment;
+  annotation: Annotation;
   action: CompanionAction;
   onText: (delta: string) => void;
   onRunning?: (task: RunningTask) => void;
 }): Promise<ActionResult> => {
   if (!hasAiBackend()) throw new AiTaskError("no-service");
-  const selection = segmentText(params.segment, chapterParagraphs(params.chapter)).slice(0, 3000);
+  const { annotation } = params;
+  const para = chapterParagraphs(params.chapter)[annotation.para - 1] || "";
+  const selection = [
+    annotation.quote,
+    annotation.footnote ? `（注脚：${annotation.footnote}）` : "",
+    para && para !== annotation.quote ? `\n所在段落：${para}` : "",
+  ]
+    .join("")
+    .slice(0, 3000);
   const qa = prepareQa({
     book: params.book,
-    question: ACTION_QUESTIONS[params.action],
+    question: getPrompt(ACTION_PROMPT_KEYS[params.action]),
     selection,
     history: [],
     currentDocIndex: params.chapter.docIndex,
@@ -176,7 +261,7 @@ export const runCompanionAction = async (params: {
   };
   const marks = loadChapterMarks(params.index.bookKey, params.chapter);
   if (marks) {
-    const key = segmentKey(params.segment);
+    const key = annotationKey(annotation);
     marks.extras = { ...(marks.extras || {}), [key]: { ...(marks.extras?.[key] || {}), [params.action]: result } };
     saveChapterMarks(params.index.bookKey, marks);
   }
@@ -259,7 +344,7 @@ export const startMarksJob = async (bookTitle: string, index: BookIndex) => {
   try {
     for (let i = 0; i < chapters.length; i++) {
       const chapter = chapters[i];
-      if (!loadChapterMarks(index.bookKey, chapter)) {
+      if (!loadChapterMarks(index.bookKey, chapter) && !isChapterTaskRunning(index.bookKey, chapter.docIndex)) {
         if (current.pauseRequested) return set({ phase: "paused" });
         set({ currentTitle: chapter.title });
         try {
@@ -282,6 +367,23 @@ export const startMarksJob = async (bookTitle: string, index: BookIndex) => {
     set({ phase: "error", error: e instanceof Error ? e : new Error(String(e)) });
   }
 };
+
+// ---- 说明语言 ----
+
+/** 注脚与概括的语言：zh（默认）= 一律中文；book = 跟随书籍语言。原文 quote 始终保持原文语言 */
+export type MarksLanguage = "zh" | "book";
+export const MARKS_LANG_KEY = "aiReadingMarksLang";
+
+export const getMarksLanguage = (): MarksLanguage =>
+  ConfigService.getReaderConfig(MARKS_LANG_KEY) === "book" ? "book" : "zh";
+
+export const setMarksLanguage = (lang: MarksLanguage) => {
+  ConfigService.setReaderConfig(MARKS_LANG_KEY, lang);
+};
+
+const marksLanguageLine = (bookLang: "zh" | "en") =>
+  (getMarksLanguage() === "zh" ? "overview 与 footnote 一律使用简体中文。" : languageInstruction(bookLang)) +
+  "quote 必须保持原文语言，逐字复制，不得翻译。";
 
 // ---- 书页渲染设置与面板导航 ----
 
@@ -312,13 +414,13 @@ export const setFocusedDocIndex = (docIndex: number) => {
   if (getMarksRenderScope() === "chapter") notifyMarksChanged("");
 };
 
-/** 从书页点击精读段落时，请求面板打开该段 */
-export type FocusRequest = { docIndex: number; segment: string; action?: CompanionAction };
+/** 从书页点击标注时，请求面板打开该条（annotation 为 annotationKey） */
+export type FocusRequest = { docIndex: number; annotation: string; action?: CompanionAction };
 type FocusListener = (req: FocusRequest) => void;
 let pendingFocus: FocusRequest | null = null;
 const focusListeners = new Set<FocusListener>();
 
-export const requestFocusSegment = (req: FocusRequest) => {
+export const requestFocusAnnotation = (req: FocusRequest) => {
   pendingFocus = req;
   focusListeners.forEach((l) => l(req));
 };
@@ -328,7 +430,7 @@ export const takePendingFocus = () => {
   return v;
 };
 export const hasPendingFocus = () => pendingFocus !== null;
-export const subscribeFocusSegment = (listener: FocusListener) => {
+export const subscribeFocusAnnotation = (listener: FocusListener) => {
   focusListeners.add(listener);
   return () => {
     focusListeners.delete(listener);

@@ -2,6 +2,7 @@
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import Book from "../../models/Book";
 import { loadCachedIndex } from "./bookIndex";
+import { getPrompt } from "./aiGateway";
 import { loadChapterPoints } from "./chapterPointsService";
 import { retrievePassages, ScoredPassage } from "./retrieval";
 import {
@@ -72,7 +73,7 @@ export const prepareQa = (params: {
     ? { docIndex: currentRef?.docIndex ?? -1, chapterTitle: currentRef?.chapterTitle || "", text: params.selection }
     : null;
   return {
-    system: buildQaSystem(),
+    system: buildQaSystem(getPrompt("bookQa")),
     prompt: buildQaPrompt({
       bookTitle: params.book.name,
       question: params.question,
