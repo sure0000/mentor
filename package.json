@@ -1,7 +1,7 @@
 {
   "name": "mentor",
   "main": "main.js",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Mentor — an AI reading companion that helps you understand books in depth",
   "author": {
     "name": "Mentor"
