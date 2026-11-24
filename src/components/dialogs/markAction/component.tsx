@@ -28,7 +28,6 @@ export interface MarkActionProps {
 const collectionUtil = new CollectionUtil(ConfigService);
 
 const MENU_ITEM_HEIGHT = 33;
-const MENU_CONTAINER_PADDING = 5;
 const DEFAULT_MENU_INDEX = 6;
 
 const MarkAction = (
@@ -106,8 +105,8 @@ const MarkAction = (
   };
 
   const menuIndex = getMenuIndex();
-  const submenuTopOffset =
-    MENU_CONTAINER_PADDING + menuIndex * MENU_ITEM_HEIGHT - 34;
+  // 子菜单第一项与「标记为」所在行对齐
+  const submenuTopOffset = menuIndex * MENU_ITEM_HEIGHT;
   return (
     <div
       className="action-dialog-container"
@@ -142,7 +141,6 @@ const MarkAction = (
       <div className="action-dialog-actions-container">
         <div
           className="action-dialog-edit"
-          style={{ paddingLeft: "0px" }}
           onClick={() => {
             handleMarkAsFinished();
           }}
@@ -153,7 +151,6 @@ const MarkAction = (
         </div>
         <div
           className="action-dialog-edit"
-          style={{ paddingLeft: "0px" }}
           onClick={() => {
             handleMarkAsUnread();
           }}

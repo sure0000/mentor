@@ -1031,37 +1031,103 @@ input[type="range"]::-moz-range-thumb {
   top: 72px;
   height: calc(100% - 116px);
 }
+/* 书卡框架：单本书、合集、书架分类共用，差异只在封面内容和底部信息 */
 .book-list-item {
   width: calc(150px * var(--card-scale, 1));
   padding-bottom: calc(14px * var(--card-scale, 1));
+  overflow: visible;
 }
 .book-list-item .book-item-cover {
+  position: relative;
+  box-sizing: border-box;
   width: calc(110px * var(--card-scale, 1));
   margin: calc(18px * var(--card-scale, 1)) calc(20px * var(--card-scale, 1))
-    calc(12px * var(--card-scale, 1));
-  border-radius: var(--radius-sm);
+    calc(10px * var(--card-scale, 1));
+  border-radius: 6px;
   overflow: hidden;
+  background: var(--shelf-input-bg);
+  box-shadow: var(--shelf-cover-shadow);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 .book-list-item .book-item-cover:hover {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
+  box-shadow: var(--shelf-cover-shadow-hover);
+}
+.book-list-item .book-item-image {
+  border-radius: 0;
+}
+/* 拖拽书籍悬停：在封面上显示品牌色描边，单本书（合成合集）与分类一致 */
+.book-list-item.book-drop-target {
+  outline: none;
+}
+.book-list-item.book-drop-target .book-item-cover {
+  transform: scale(1.04);
+  box-shadow:
+    0 0 0 2px var(--brand),
+    0 8px 24px rgba(27, 136, 238, 0.25);
+}
+/* 封面右下角的数量角标（合集 / 分类） */
+.book-cover-badge {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  z-index: 1;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  pointer-events: none;
 }
 .book-item-title {
   width: calc(110px * var(--card-scale, 1));
-  height: 40px;
-  font-size: 14px;
-  line-height: 20px;
+  height: 38px;
+  margin-left: calc(20px * var(--card-scale, 1));
+  font-size: 13px;
+  line-height: 19px;
   font-weight: 500;
+  color: var(--shelf-title);
+}
+.book-item-title-icon {
+  margin-right: 4px;
+  font-size: 13px;
+  color: var(--shelf-meta);
 }
 .reading-progress-icon {
-  margin-top: 4px;
+  margin-top: 2px;
+  margin-left: calc(20px * var(--card-scale, 1));
   font-size: 12px;
+  line-height: 20px;
+  color: var(--shelf-meta);
 }
 .book-list-item .book-more-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  margin-top: 2px;
+  margin-right: calc(16px * var(--card-scale, 1));
+  border-radius: 4px;
   opacity: 0;
-  margin-top: 6px;
+  transition:
+    opacity 0.15s,
+    background-color 0.15s;
 }
-.book-list-item:hover .book-more-action {
+.book-list-item:hover .book-more-action,
+.book-list-item.is-menu-open .book-more-action {
   opacity: 0.8;
+}
+.book-list-item .book-more-action:hover {
+  opacity: 1;
+  background: var(--shelf-hover);
 }
 .manager .book-list-header {
   border-top: none;
@@ -1417,39 +1483,6 @@ input[type="range"]::-moz-range-thumb {
   right: 0;
   top: 34px;
   z-index: 20;
-}
-.shelf-toolbar .book-list-view {
-  width: auto;
-  height: 30px;
-  gap: 2px;
-  margin-left: 4px;
-  padding-left: 8px;
-  border-left: 1px solid var(--divider);
-}
-.shelf-toolbar .card-list-mode {
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 15px;
-  color: var(--shelf-title);
-}
-.shelf-toolbar .card-list-mode:hover {
-  background: var(--shelf-hover);
-}
-/* 书卡：去掉悬浮上移的跳动感，只用阴影提示 */
-.book-list-item .book-item-cover:hover,
-.book-list-cover-item .book-cover-item-cover:hover,
-.shelf-category-cover:hover {
-  transform: none;
-}
-.book-item-title {
-  font-weight: 400;
-}
-.reading-progress-icon {
-  color: var(--shelf-meta);
 }
 
 /* ---------- Book store ---------- */

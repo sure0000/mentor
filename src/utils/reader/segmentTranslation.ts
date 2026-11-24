@@ -14,6 +14,11 @@ export interface TextSegment {
 // 加权长度（CJK 记 2）达到该值才结束一个小段：英文约 1~2 句，中文约 40 字
 export const SEGMENT_MIN_WEIGHT = 80;
 
+// 翻译单位：paragraph 整段一条译文（上下行对照，语境完整、译文更连贯）；sentence 按句子小段
+export type TranslationUnit = "paragraph" | "sentence";
+export const minWeightOf = (unit: TranslationUnit) =>
+  unit === "sentence" ? SEGMENT_MIN_WEIGHT : Infinity;
+
 const CJK_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]/;
 
 const weightOf = (text: string) => {
@@ -98,10 +103,13 @@ export const getLeafBlocks = (root: ParentNode): Element[] => {
 };
 
 /** 从纯文本列表（后台章节，未渲染）得到与 DOM 一致的小段文本 */
-export const getSegmentTexts = (blockTexts: string[]): string[] =>
+export const getSegmentTexts = (
+  blockTexts: string[],
+  unit: TranslationUnit = "sentence"
+): string[] =>
   blockTexts
     .filter(isTranslatableText)
-    .flatMap((text) => splitSegments(text).map((s) => s.text));
+    .flatMap((text) => splitSegments(text, minWeightOf(unit)).map((s) => s.text));
 
 /** 在 block 内文本偏移 index 处插入 marker（index 为 textContent 下标） */
 const insertAt = (doc: Document, block: Element, index: number, marker: Element) => {
@@ -129,13 +137,16 @@ const insertAt = (doc: Document, block: Element, index: number, marker: Element)
 };
 
 /** 给文档中尚未处理的叶子块插入小段标记，返回新插入的标记数量 */
-export const decorateDocument = (doc: Document): number => {
+export const decorateDocument = (
+  doc: Document,
+  unit: TranslationUnit = "sentence"
+): number => {
   if (!doc.body) return 0;
   let count = 0;
   for (const block of getLeafBlocks(doc.body)) {
     if (block.hasAttribute(DECORATED_ATTR)) continue;
     block.setAttribute(DECORATED_ATTR, "1");
-    const segments = splitSegments(block.textContent || "");
+    const segments = splitSegments(block.textContent || "", minWeightOf(unit));
     // 倒序插入：空标记不改变 textContent，但倒序可避免拆分后的节点干扰前面的偏移
     for (let i = segments.length - 1; i >= 0; i--) {
       const marker = doc.createElement(MARKER_TAG);
@@ -188,7 +199,8 @@ const STYLE_ID = "mentor-tr-style";
 export const injectTranslationStyle = (
   doc: Document,
   mode: string,
-  fontSize: number
+  fontSize: number,
+  unit: TranslationUnit = "sentence"
 ) => {
   let style = doc.getElementById(STYLE_ID);
   if (!style) {
@@ -201,11 +213,17 @@ export const injectTranslationStyle = (
       ? `[${DECORATED_ATTR}].mentor-tr-done,[${DECORATED_ATTR}].mentor-tr-done *{font-size:0 !important;}` +
         `[${DECORATED_ATTR}].mentor-tr-done ${MARKER_TAG}::after{font-size:${fontSize}px !important;opacity:1 !important;border-left:none !important;padding-left:0 !important;margin:0 !important;display:inline !important;}`
       : "";
+  // 段落模式：译文作为独立一行紧跟原文段落，继承段落的缩进与对齐，形成上下行对照；
+  // 句子模式：译文插在段内，用左侧竖线与原文区分
+  const blockStyle =
+    unit === "paragraph"
+      ? `margin:0.35em 0 0;padding:0;font-size:0.95em;opacity:0.7;text-indent:inherit;`
+      : `margin:0.25em 0 0.7em;padding-left:0.75em;border-left:2px solid currentColor;` +
+        `opacity:0.72;font-size:0.9em;text-indent:0;`;
   style.textContent =
     `${MARKER_TAG}{display:inline;font-style:normal;font-weight:normal;text-decoration:none;}` +
-    `${MARKER_TAG}::after{display:block;content:attr(data-t);margin:0.25em 0 0.7em;padding-left:0.75em;` +
-    `border-left:2px solid currentColor;opacity:0.72;font-size:0.9em;line-height:1.65;` +
-    `text-indent:0;text-align:start;white-space:normal;}` +
+    `${MARKER_TAG}::after{display:block;content:attr(data-t);${blockStyle}line-height:1.65;` +
+    `text-align:start;white-space:normal;}` +
     `${MARKER_TAG}.mentor-tr-loading::after{content:"···";border-left-color:transparent;opacity:0.35;animation:mentor-tr-blink 1.2s ease-in-out infinite;}` +
     `${MARKER_TAG}.mentor-tr-failed::after{content:"×";border-left-color:transparent;opacity:0.3;}` +
     `@keyframes mentor-tr-blink{0%,100%{opacity:0.15}50%{opacity:0.5}}` +

@@ -18,6 +18,7 @@ import {
   getMarkers,
   getSegmentTexts,
   injectTranslationStyle,
+  TranslationUnit,
 } from "./segmentTranslation";
 
 declare var window: any;
@@ -47,6 +48,9 @@ export const getFullTranslationMode = (bookKey?: string): string => {
   const mode = ConfigService.getReaderConfig("fullTranslationMode") || "no";
   return mode === "both" || mode === "target" ? mode : "no";
 };
+
+export const getTranslationUnit = (): TranslationUnit =>
+  ConfigService.getReaderConfig("fullTranslationUnit") === "sentence" ? "sentence" : "paragraph";
 
 const isEnabled = (bookKey?: string) =>
   getFullTranslationMode(bookKey) !== "no" && isAiAvailable("translate");
@@ -154,19 +158,27 @@ const chunk = (texts: string[]): string[][] => {
 
 /** 翻译一批文本并写入指定章节缓存；失败的文本记录到 failed */
 const translateBatch = async (
-  bookKey: string,
+  book: Book,
   chapter: string,
   texts: string[],
   failed: Set<string>
 ): Promise<boolean> => {
   const lang = getFullTranslationTarget();
-  const res = await getBatchTrans(texts, "Automatic", lang);
+  const context = [book.name, book.author].filter(Boolean).join(" / ");
+  const res = await getBatchTrans(texts, "Automatic", lang, context);
   const results = res?.data?.texts;
   if (!results) {
+    // LLM 偶尔合并/拆分条目导致数量对不上：拆成两半重试，避免整批失败
+    if (res?.msg === "length-mismatch" && texts.length > 1) {
+      const mid = Math.ceil(texts.length / 2);
+      const a = await translateBatch(book, chapter, texts.slice(0, mid), failed);
+      const b = await translateBatch(book, chapter, texts.slice(mid), failed);
+      return a && b;
+    }
     texts.forEach((t) => failed.add(t));
     return false;
   }
-  const cache = getCache(bookKey, chapter);
+  const cache = getCache(book.key, chapter);
   if (!cache[lang]) cache[lang] = {};
   texts.forEach((text, i) => {
     const translated = results[i];
@@ -177,7 +189,7 @@ const translateBatch = async (
     failed.delete(text);
     cache[lang][text] = translated;
   });
-  saveCache(bookKey, chapter);
+  saveCache(book.key, chapter);
   return true;
 };
 
@@ -289,7 +301,7 @@ const translateAhead = async (s: Session, doc: Document) => {
   const pending = pendingOf(s.book.key, chapter, texts, s.failed);
   for (const batch of chunk(pending)) {
     if (session !== s || currentChapter(s.rendition) !== chapter) return;
-    await translateBatch(s.book.key, chapter, batch, s.failed);
+    await translateBatch(s.book, chapter, batch, s.failed);
     await fillDoc(s, doc);
   }
 };
@@ -301,8 +313,9 @@ export const handleTranslationRender = async () => {
   const mode = getFullTranslationMode(s.book.key);
   const fontSize = parseFloat(ConfigService.getReaderConfig("fontSize") || "18");
   for (const doc of getDocs(s)) {
-    injectTranslationStyle(doc, mode, fontSize);
-    await mutateKeepingPosition(s, doc, () => decorateDocument(doc) > 0);
+    const unit = getTranslationUnit();
+    injectTranslationStyle(doc, mode, fontSize, unit);
+    await mutateKeepingPosition(s, doc, () => decorateDocument(doc, unit) > 0);
     await fillDoc(s, doc);
     await enqueue(s, () => translateAhead(s, doc));
   }
@@ -314,6 +327,24 @@ export const attachFullTranslation = (rendition: any, book: Book) => {
     if (session?.rendition === rendition) session = null;
   };
 };
+
+/* ---------------- 版式书（PDF）对照翻译面板 ---------------- */
+
+/** 翻译一组段落（复用同一缓存目录），返回 原文 → 译文；chapter 为页码等稳定标识 */
+export const translateParagraphs = async (
+  book: Book,
+  chapter: string,
+  texts: string[],
+  failed: Set<string>
+): Promise<Record<string, string>> => {
+  for (const batch of chunk(pendingOf(book.key, chapter, texts, failed))) {
+    await translateBatch(book, chapter, batch, failed);
+  }
+  return getCachedTranslations(book.key, chapter);
+};
+
+export const getCachedTranslations = (bookKey: string, chapter: string) =>
+  getCache(bookKey, chapter)[getFullTranslationTarget()] || {};
 
 /* ---------------- 本章 / 全书 ---------------- */
 
@@ -351,7 +382,7 @@ const runJob = async (
     for (const batch of chunk(c.pending)) {
       if (token !== jobToken || session !== s) return;
       batch.forEach((t) => s.failed.delete(t));
-      await enqueue(s, () => translateBatch(s.book.key, c.chapter, batch, s.failed));
+      await enqueue(s, () => translateBatch(s.book, c.chapter, batch, s.failed));
       done += batch.length;
       if (token !== jobToken) return;
       setJob({ bookKey: s.book.key, scope, done, total, status: "running" });
@@ -383,7 +414,10 @@ const startJob = async (scope: TranslationJobScope) => {
       const count = getChapterCount(s.rendition);
       for (let i = 0; i < count; i++) {
         if (token !== jobToken) return true;
-        const texts = getSegmentTexts(await getChapterBlockTexts(s.rendition, i));
+        const texts = getSegmentTexts(
+          await getChapterBlockTexts(s.rendition, i),
+          getTranslationUnit()
+        );
         if (texts.length) chapters.push({ chapter: String(i), texts });
       }
       // 从当前章开始译，读者最先看到的内容最先完成

@@ -11,8 +11,24 @@ import {
   teardownOverlayTurn,
 } from "../../utils/reader/overlayTurn";
 import ImageViewer from "../../components/imageViewer";
-import { addPageShadow, enablePdfTextSelection, getIframeDoc } from "../../utils/reader/docUtil";
+import {
+  addPageShadow,
+  enablePdfTextSelection,
+  getIframeDoc,
+} from "../../utils/reader/docUtil";
+import {
+  capturePageAreaSnapshot,
+  dissolvePageAreaSnapshot,
+  morphPageAreaSnapshot,
+  releasePageAreaSnapshot,
+  takePageAreaSnapshot,
+} from "../../utils/reader/pageSnapshot";
 import PopupBox from "../../components/popups/popupBox";
+import {
+  clearQuoteMark,
+  requestQuoteRelocate,
+  restoreQuoteMark,
+} from "../../utils/reader/quoteMark";
 import Note from "../../models/Note";
 import { isNightReaderBg } from "../../constants/themeList";
 import PageWidget from "../pageWidget";
@@ -76,7 +92,6 @@ export interface ViewerProps {
 }
 
 export interface ViewerState {
-
   isDisablePopup: boolean;
   chapter: string;
   pageOffset: string;
@@ -183,6 +198,134 @@ const Viewer = (props: ViewerProps) => {
     setState((prev) => ({ ...prev, ...patch }));
   const resizeHandlerRef = useRef<(() => void) | null>(null);
   const pendingRerenderRef = useRef(false);
+  // AI 问书侧边栏停靠/取消停靠后正文会按新宽度重排，重排完成时做一次淡入，
+  // 过渡掉新旧排版的直接切换。只做淡入、不预先隐藏正文，任何情况下都不会白屏
+  const pageAreaRef = useRef<HTMLDivElement>(null);
+  const relayoutFadeRef = useRef(false);
+  // 重排前留存旧页面的静态快照，等新排版绘制完成再淡出，消除中间的空窗
+  const pageSnapshotRef = useRef<HTMLElement | null>(null);
+  const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const morphEndRef = useRef(0);
+  const settlePageSnapshot = () => {
+    if (snapshotTimerRef.current) {
+      clearTimeout(snapshotTimerRef.current);
+      snapshotTimerRef.current = null;
+    }
+    const overlay = pageSnapshotRef.current;
+    pageSnapshotRef.current = null;
+    if (!overlay) return;
+    // 不做交叉淡出：新旧排版宽度/位置不同，半透明叠加会露出旧 PDF 文字的残影。
+    // 重排与滑动动画并行进行，新页可能先画好；等动画走完再替换，避免中途跳位。
+    // 再等两帧让新页 canvas 绘制上屏后直接撤掉快照
+    const wait = Math.max(0, morphEndRef.current - performance.now());
+    const isCapture = overlay.dataset.kind === "capture";
+    setTimeout(() => {
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          isCapture
+            ? dissolvePageAreaSnapshot(overlay, pageAreaRef.current)
+            : releasePageAreaSnapshot(overlay, false)
+        )
+      );
+    }, wait);
+  };
+  /**
+   * 可重排书籍的快照要等正文彻底定型再撤：renderTo 之后还有 handleRest 里的
+   * 默认 CSS / 阅读字体 / 跳回阅读位置，以及 rendered 回调里的样式与高亮，
+   * 字体文件加载完还会再排一次。这里等字体就绪，再等正文 DOM 连续 150ms 无变化
+   * （样式注入、高亮包裹、翻页滚动都会触发变化），最多等 1200ms
+   */
+  const waitReflowSettled = async () => {
+    const docs = getIframeDoc(propsRef.current.currentBook).filter(
+      (doc): doc is Document => !!doc
+    );
+    await Promise.race([
+      Promise.all(docs.map((doc) => doc.fonts?.ready)),
+      new Promise((resolve) => setTimeout(resolve, 600)),
+    ]);
+    await new Promise<void>((resolve) => {
+      let quietTimer: ReturnType<typeof setTimeout>;
+      const observers: MutationObserver[] = [];
+      const finish = () => {
+        clearTimeout(quietTimer);
+        clearTimeout(maxTimer);
+        observers.forEach((observer) => observer.disconnect());
+        docs.forEach((doc) =>
+          doc.removeEventListener("scroll", bump, true)
+        );
+        resolve();
+      };
+      const bump = () => {
+        clearTimeout(quietTimer);
+        quietTimer = setTimeout(finish, 150);
+      };
+      const maxTimer = setTimeout(finish, 1200);
+      docs.forEach((doc) => {
+        const observer = new MutationObserver(bump);
+        observer.observe(doc.documentElement, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          characterData: true,
+        });
+        observers.push(observer);
+        doc.addEventListener("scroll", bump, true);
+      });
+      bump();
+    });
+  };
+  /**
+   * 固定版式书籍在停靠变化的同一帧拍快照，并让快照与侧边栏同步滑到新版心位置；
+   * 真实重排（popupBox 在侧边栏动画结束后触发）在快照下面完成，再无缝替换
+   */
+  const startDockMorph = (next: {
+    margin: string;
+    scale: string;
+    readerMode: string;
+    isNavLocked: boolean;
+    isSettingLocked: boolean;
+    isFitPage: boolean;
+    isDockedRight: boolean;
+  }) => {
+    const pageArea = pageAreaRef.current;
+    if (!pageArea || !isPaginatedBook(propsRef.current.currentBook)) return;
+    if (snapshotTimerRef.current) {
+      clearTimeout(snapshotTimerRef.current);
+      snapshotTimerRef.current = null;
+    }
+    releasePageAreaSnapshot(pageSnapshotRef.current, false);
+    pageSnapshotRef.current = takePageAreaSnapshot();
+    if (!pageSnapshotRef.current) return;
+    const { pageOffset, pageWidth } = getPageWidth(
+      next.readerMode,
+      next.scale,
+      parseInt(next.margin),
+      next.isNavLocked,
+      getRightPanelInset(next.isSettingLocked, next.isDockedRight),
+      next.isFitPage
+    );
+    // pageOffset 可能是 calc() 表达式，用同一包含块里的探针元素量出新版心的屏幕位置
+    const probe = document.createElement("div");
+    probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;top:0;height:1px;left:${pageOffset};width:${pageWidth}`;
+    (pageArea.parentElement || document.body).appendChild(probe);
+    const target = probe.getBoundingClientRect();
+    probe.remove();
+    morphPageAreaSnapshot(pageSnapshotRef.current, {
+      left: target.left,
+      width: target.width,
+    });
+    morphEndRef.current = performance.now() + 300;
+    // 兜底：若之后没有触发重排（如拖出侧边栏后迟迟不松手），到点收掉快照
+    snapshotTimerRef.current = setTimeout(settlePageSnapshot, 3000);
+  };
+  const fadeInPageArea = () => {
+    const el = pageAreaRef.current;
+    if (!el || typeof el.animate !== "function") return;
+    el.animate([{ opacity: 0 }, { opacity: 1 }], {
+      duration: 280,
+      easing: "ease-out",
+    });
+  };
   const prevWidthPropsRef = useRef({
     margin,
     scale,
@@ -284,12 +427,10 @@ const Viewer = (props: ViewerProps) => {
     } else {
       window.currentBookKey = "";
     }
-    propsRef.current.handleHtmlBook(null);
     if (stateRef.current.rendition) {
       // 停止旧渲染实例的自动滚动定时器，避免重渲染后旧循环继续占用滚动容器
       stateRef.current.rendition.autoScroll?.(0, "no");
       stateRef.current.rendition.autoScrollPDF?.("no");
-      stateRef.current.rendition.removeContent();
     }
     let result;
     let isCacheExsit = await BookUtil.isBookExist("cache-" + key, "zip", path);
@@ -519,6 +660,67 @@ const Viewer = (props: ViewerProps) => {
       },
       Kookit
     );
+    // 停靠变化引起的重排：先按旧尺寸拍一张快照盖在阅读区上，新排版绘制完成后再淡出。
+    // 必须在页宽变化和内容清除之前拍，否则拿到的是被挤压/已清空的画面
+    if (
+      relayoutFadeRef.current &&
+      isPaginatedBook(propsRef.current.currentBook)
+    ) {
+      // 仅固定版式（正文是 canvas/img）适合快照；可重排书籍拍下来只有零散图片，反而更怪。
+      // 停靠那一刻已拍好并正在随侧边栏滑动的快照直接沿用，不要重拍
+      if (snapshotTimerRef.current) {
+        clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
+      }
+      if (!pageSnapshotRef.current) {
+        pageSnapshotRef.current = takePageAreaSnapshot();
+      }
+    } else if (relayoutFadeRef.current && !pageSnapshotRef.current) {
+      // EPUB / TXT 等可重排书籍：正文是 DOM 文字，借主进程截图拿到旧画面盖住阅读区，
+      // 避免「旧正文被挤进新宽度 → 清空 → 新排版」这几帧的闪烁
+      const overlay = await capturePageAreaSnapshot();
+      if (overlay) {
+        // 截图只保留新版心可见范围内的部分，不能盖住正在滑入的侧边栏 / 目录面板
+        const props = propsRef.current;
+        const leftInset = props.isNavLocked ? 300 : 0;
+        const rightInset = getRightPanelInset(
+          props.isSettingLocked,
+          props.isDockedRight
+        );
+        const left = parseFloat(overlay.style.left);
+        const right = left + parseFloat(overlay.style.width);
+        const clipLeft = Math.max(left, leftInset);
+        const clipRight = Math.min(right, window.innerWidth - rightInset);
+        if (clipRight - clipLeft > 4) {
+          const content = overlay.firstElementChild as HTMLElement | null;
+          if (content) content.style.left = `${left - clipLeft}px`;
+          overlay.style.left = `${clipLeft}px`;
+          overlay.style.width = `${clipRight - clipLeft}px`;
+          pageSnapshotRef.current = overlay;
+        } else {
+          overlay.remove();
+        }
+      }
+    }
+    // 页宽（受 AI 侧边栏 / 设置面板停靠影响）在这里才落地，且必须早于 renderTo，
+    // 引擎按 #page-area 的当前宽度排版；旧内容在下一行才清除，尽量缩短空白时间
+    flushSync(() => {
+      updateState(
+        getPageWidth(
+          propsRef.current.readerMode,
+          propsRef.current.scale,
+          parseInt(propsRef.current.margin),
+          propsRef.current.isNavLocked,
+          getRightPanelInset(
+            propsRef.current.isSettingLocked,
+            propsRef.current.isDockedRight
+          ),
+          propsRef.current.isFitPage
+        )
+      );
+    });
+    propsRef.current.handleHtmlBook(null);
+    stateRef.current.rendition?.removeContent();
     if (propsRef.current.currentBook.format === "TXT") {
       let bookLocation = ConfigService.getObjectConfig(
         propsRef.current.currentBook.key,
@@ -533,7 +735,24 @@ const Viewer = (props: ViewerProps) => {
       await rendition.renderTo(document.getElementById("page-area"));
     }
 
+    if (pageSnapshotRef.current && !snapshotTimerRef.current) {
+      // 兜底：某些固定版式绘完不一定触发 rendered，到点也把快照收掉
+      snapshotTimerRef.current = setTimeout(settlePageSnapshot, 3000);
+    }
     await handleRest(rendition);
+    // 问书引用的文字在重排后可能被挤到别的页：重新标记，不在可视区就跳过去
+    await restoreQuoteMark(propsRef.current.currentBook, rendition);
+    const reflowSnapshot = pageSnapshotRef.current;
+    if (
+      reflowSnapshot &&
+      reflowSnapshot.dataset.kind === "capture" &&
+      !isPaginatedBook(propsRef.current.currentBook)
+    ) {
+      waitReflowSettled().then(() => {
+        // 期间又触发了新一轮重排（快照已被替换）就交给新一轮处理
+        if (pageSnapshotRef.current === reflowSnapshot) settlePageSnapshot();
+      });
+    }
     if (
       ConfigService.getReaderConfig("isAutoReading") === "yes" &&
       propsRef.current.readerMode === "scroll"
@@ -622,6 +841,14 @@ const Viewer = (props: ViewerProps) => {
       );
     }
     rendition.on("rendered", async () => {
+      if (relayoutFadeRef.current) {
+        relayoutFadeRef.current = false;
+        // 有旧页快照时由快照完成过渡，正文本身不再做淡入，避免两段淡变叠加。
+        // 可重排书籍的快照在 handleRenderBook 末尾等正文定型后再撤
+        if (!pageSnapshotRef.current) fadeInPageArea();
+        else if (isPaginatedBook(propsRef.current.currentBook))
+          settlePageSnapshot();
+      }
       handleLocation();
       let bookLocation: {
         text: string;
@@ -674,6 +901,8 @@ const Viewer = (props: ViewerProps) => {
       // rendition.tranformText();
       handleBindGesture();
       await handleHighlight(rendition);
+      // 翻页 / 换章后新文档里补上问书引用的标记（定位只在重排结束时做）
+      restoreQuoteMark(propsRef.current.currentBook, null);
       lock = true;
       setTimeout(() => {
         lock = false;
@@ -775,8 +1004,7 @@ const Viewer = (props: ViewerProps) => {
           event.preventDefault();
         }
 
-        if (!stateRef.current.isDisablePopup)
-          return;
+        if (!stateRef.current.isDisablePopup) return;
 
         if (
           !doc!.getSelection() ||
@@ -829,9 +1057,9 @@ const Viewer = (props: ViewerProps) => {
             parseInt(propsRef.current.margin),
             propsRef.current.isNavLocked,
             getRightPanelInset(
-          propsRef.current.isSettingLocked,
-          propsRef.current.isDockedRight
-        ),
+              propsRef.current.isSettingLocked,
+              propsRef.current.isDockedRight
+            ),
             propsRef.current.isFitPage
           )
         );
@@ -863,6 +1091,9 @@ const Viewer = (props: ViewerProps) => {
     }
     watchDpr();
     return () => {
+      if (snapshotTimerRef.current) clearTimeout(snapshotTimerRef.current);
+      releasePageAreaSnapshot(pageSnapshotRef.current, false);
+      pageSnapshotRef.current = null;
       dprQuery?.removeEventListener("change", onDprChange);
       teardownOverlayTurn();
       if (resizeHandlerRef.current) {
@@ -873,6 +1104,10 @@ const Viewer = (props: ViewerProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    // 关闭问书 / 切到其他弹窗后撤掉引用标记
+    if (menuMode !== "assistant") clearQuoteMark();
+  }, [menuMode]);
   useEffect(() => {
     const nextProps = {
       margin,
@@ -885,6 +1120,28 @@ const Viewer = (props: ViewerProps) => {
     };
     const prevProps = prevWidthPropsRef.current;
     prevWidthPropsRef.current = nextProps;
+    const isDockedChange = nextProps.isDockedRight !== prevProps.isDockedRight;
+    const isPanelChange =
+      isDockedChange ||
+      nextProps.isNavLocked !== prevProps.isNavLocked ||
+      nextProps.isSettingLocked !== prevProps.isSettingLocked;
+    const isOnlyPanelChange =
+      isPanelChange &&
+      nextProps.margin === prevProps.margin &&
+      nextProps.scale === prevProps.scale &&
+      nextProps.readerMode === prevProps.readerMode &&
+      nextProps.isFitPage === prevProps.isFitPage;
+    if (isPanelChange) requestQuoteRelocate();
+    if (isOnlyPanelChange) {
+      // AI 侧边栏停靠/取消停靠、目录 / 设置面板固定：页宽等重排真正开始时再改（见 handleRenderBook），
+      // 否则旧正文会先被挤进新宽度、再被新排版替换，看起来就是闪一下
+      relayoutFadeRef.current = true;
+      startDockMorph(nextProps);
+      // 不再等侧边栏动画结束才重排：快照盖着阅读区，重排与滑动动画并行，
+      // 新页通常在动画结束前后就已画好
+      handleRenderBook();
+      return;
+    }
     if (
       nextProps.margin !== prevProps.margin ||
       nextProps.scale !== prevProps.scale ||
@@ -892,8 +1149,13 @@ const Viewer = (props: ViewerProps) => {
       nextProps.isNavLocked !== prevProps.isNavLocked ||
       nextProps.isSettingLocked !== prevProps.isSettingLocked ||
       nextProps.isFitPage !== prevProps.isFitPage ||
-      nextProps.isDockedRight !== prevProps.isDockedRight
+      isDockedChange
     ) {
+      if (isDockedChange) {
+        relayoutFadeRef.current = true;
+        // 停靠变化的重排统一由这里触发（popupBox 不再延时调用 renderBookFunc）
+        setTimeout(() => handleRenderBook(), 0);
+      }
       updateState(
         getPageWidth(
           nextProps.readerMode,
@@ -933,7 +1195,8 @@ const Viewer = (props: ViewerProps) => {
           } as any)}
         />
       ) : null}
-      {htmlBook &&
+      {(htmlBook ||
+        (menuMode === "assistant" && (isDockedRight || isOpenMenu))) &&
       (isDockedRight ||
         (isOpenMenu &&
           (menuMode === "dict" ||
@@ -942,7 +1205,7 @@ const Viewer = (props: ViewerProps) => {
             menuMode === "note"))) ? (
         <PopupBox
           {...({
-            rendition: htmlBook.rendition,
+            rendition: htmlBook?.rendition,
             rect: state.rect,
             chapterDocIndex: state.chapterDocIndex,
             chapter: state.chapter,
@@ -967,6 +1230,7 @@ const Viewer = (props: ViewerProps) => {
             : "html-viewer-page"
         }
         id="page-area"
+        ref={pageAreaRef}
         style={
           readerMode === "scroll" && document.body.clientWidth >= 570
             ? {
@@ -983,32 +1247,31 @@ const Viewer = (props: ViewerProps) => {
               }
         }
       ></div>
-      {isPaperLayout(readerMode, currentBook, isFitPage) &&
-        state.pageWidth && (
-          <>
-            <div
-              className="reader-desk"
-              style={{
-                left: isNavLocked ? 300 : 0,
-                right: getRightPanelInset(isSettingLocked, isDockedRight),
-                backgroundColor: `color-mix(in srgb, ${backgroundColor} 90%, #000)`,
-              }}
-            ></div>
-            <div
-              className="reader-paper"
-              style={{
-                left: `calc(${state.pageOffset} - ${PAPER_PADDING}px)`,
-                width: `calc(${state.pageWidth} + ${PAPER_PADDING * 2}px)`,
-                backgroundColor,
-                filter: `brightness(${
-                  ConfigService.getReaderConfig("brightness") || 1
-                }) invert(${
-                  ConfigService.getReaderConfig("isInvert") === "yes" ? 1 : 0
-                })`,
-              }}
-            ></div>
-          </>
-        )}
+      {isPaperLayout(readerMode, currentBook, isFitPage) && state.pageWidth && (
+        <>
+          <div
+            className="reader-desk"
+            style={{
+              left: isNavLocked ? 300 : 0,
+              right: getRightPanelInset(isSettingLocked, isDockedRight),
+              backgroundColor: `color-mix(in srgb, ${backgroundColor} 90%, #000)`,
+            }}
+          ></div>
+          <div
+            className="reader-paper"
+            style={{
+              left: `calc(${state.pageOffset} - ${PAPER_PADDING}px)`,
+              width: `calc(${state.pageWidth} + ${PAPER_PADDING * 2}px)`,
+              backgroundColor,
+              filter: `brightness(${
+                ConfigService.getReaderConfig("brightness") || 1
+              }) invert(${
+                ConfigService.getReaderConfig("isInvert") === "yes" ? 1 : 0
+              })`,
+            }}
+          ></div>
+        </>
+      )}
       <PageWidget />
     </>
   );

@@ -4,14 +4,9 @@ import toast from "react-hot-toast";
 import { useAppStore } from "../../store/useAppStore";
 import { useLatest } from "../../utils/hooks/useLatest";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
-import {
-  getFullTranslationTarget,
-  isRateLimitedResult,
-  openInBrowser,
-  throttle,
-} from "../../utils/common";
+import { openInBrowser, throttle } from "../../utils/common";
 import { isAiAvailable } from "../../utils/aiReading/aiGateway";
-import { getBatchTrans } from "../../utils/request/reader";
+import { useBatchTranslation } from "../../utils/hooks/useBatchTranslation";
 import {
   buildCategoryUrl,
   buildPaperSearchUrls,
@@ -54,9 +49,6 @@ const SORTS: { id: PaperSort; title: string }[] = [
   { id: "latest", title: "Latest" },
 ];
 
-// 标题翻译缓存：目标语言 + 原标题 → 译文，切换分类/排序后回来不必重复请求
-const titleTransCache = new Map<string, string>();
-const TITLE_BATCH_SIZE = 25;
 const TRANSLATE_TITLE_CONFIG = "isTranslatePaperTitle";
 
 const formatCount = (count: number) =>
@@ -85,9 +77,6 @@ const PaperStore = ({ modeSwitch }: Props) => {
   const [isTranslateTitle, setIsTranslateTitle] = useState(
     () => ConfigService.getReaderConfig(TRANSLATE_TITLE_CONFIG) === "yes"
   );
-  // 译文更新时递增，触发重新渲染（译文本身存在 titleTransCache 里）
-  const [, setTransVersion] = useState(0);
-  const translatingRef = useRef(new Set<string>());
   const stateRef = useLatest(state);
   const requestIdRef = useRef(0);
 
@@ -270,50 +259,22 @@ const PaperStore = ({ modeSwitch }: Props) => {
   }, []);
 
   // 开启标题翻译后，翻译列表中还没有译文的标题（加载更多时只翻新增的部分）
-  useEffect(() => {
-    if (!isTranslateTitle || !isAiAvailable("translate")) return;
-    const lang = getFullTranslationTarget();
-    const pending = Array.from(
-      new Set(
-        state.papers
-          .map((p) => p.title)
-          .filter(
-            (title) =>
-              title &&
-              !titleTransCache.has(lang + title) &&
-              !translatingRef.current.has(lang + title)
-          )
-      )
-    );
-    for (let i = 0; i < pending.length; i += TITLE_BATCH_SIZE) {
-      const batch = pending.slice(i, i + TITLE_BATCH_SIZE);
-      batch.forEach((title) => translatingRef.current.add(lang + title));
-      getBatchTrans(batch, "Automatic", lang)
-        .then((res) => {
-          const results = res?.data?.texts;
-          if (!results) return;
-          batch.forEach((title, j) => {
-            const translated = (results[j] || "").trim();
-            if (translated && !isRateLimitedResult(translated)) {
-              titleTransCache.set(lang + title, translated);
-            }
-          });
-          setTransVersion((v) => v + 1);
-        })
-        .finally(() =>
-          batch.forEach((title) => translatingRef.current.delete(lang + title))
-        );
-    }
-  }, [isTranslateTitle, state.papers]);
+  const paperTitles = useMemo(
+    () => state.papers.map((p) => p.title),
+    [state.papers]
+  );
+  const {
+    getTrans: getTitleTrans,
+    retranslate: retranslateTitles,
+    isPending: isTitleTransPending,
+  } = useBatchTranslation(paperTitles, isTranslateTitle);
 
   const { papers, isLoading, isLoadingMore, error, categoryIndex, searchQuery } =
     state;
 
   const renderPaper = (paper: Paper) => {
     const isExpanded = expandedId === paper.id;
-    const translatedTitle = isTranslateTitle
-      ? titleTransCache.get(getFullTranslationTarget() + paper.title)
-      : "";
+    const translatedTitle = getTitleTrans(paper.title);
     const authors =
       paper.authors.length > 4
         ? paper.authors.slice(0, 4).join(", ") + " " + t("et al.")
@@ -326,7 +287,7 @@ const PaperStore = ({ modeSwitch }: Props) => {
         >
           {paper.title}
         </div>
-        {translatedTitle && translatedTitle !== paper.title && (
+        {translatedTitle && (
           <div
             className="paper-store-title-trans"
             onClick={() => setExpandedId(isExpanded ? "" : paper.id)}
@@ -418,8 +379,20 @@ const PaperStore = ({ modeSwitch }: Props) => {
             }
             onClick={toggleTranslateTitle}
           >
+            {isTitleTransPending && (
+              <span className="book-store-trans-spinner" />
+            )}
             <Trans>Translate titles</Trans>
           </span>
+          {isTranslateTitle && !isTitleTransPending && (
+            <span
+              className="book-store-retranslate"
+              title={t("Translate again from scratch")}
+              onClick={retranslateTitles}
+            >
+              {t("Retranslate")}
+            </span>
+          )}
         </div>
         <div className="book-store-search">
           <select

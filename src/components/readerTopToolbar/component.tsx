@@ -64,6 +64,9 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
   const handleOpenMenu = useAppStore((s) => s.handleOpenMenu);
   const isCompanionOpen = useAppStore((s) => s.reader.isCompanionOpen);
   const handleCompanionPanel = useAppStore((s) => s.handleCompanionPanel);
+  const handlePdfTranslationPanel = useAppStore(
+    (s) => s.handlePdfTranslationPanel
+  );
   const handleReadingState = useAppStore((s) => s.handleReadingState);
   const handleFetchBookmarks = useAppStore((s) => s.handleFetchBookmarks);
   const handleShowBookmark = useAppStore((s) => s.handleShowBookmark);
@@ -240,17 +243,22 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
     label: string;
     onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   }[] = [
-    ...(isTextBook
+    // 翻译：所有可读文字的书共用一个入口，PDF 的覆盖/侧边对照在同一个浮层里切换
+    ...(currentBook
       ? [
           {
             key: "trans",
             icon: "icon-trans",
-            label: "Full text translation",
+            label: "Translate",
             onClick: openDialog(
               handleStudyLangDialog,
               ".study-lang-dialog-container"
             ),
           },
+        ]
+      : []),
+    ...(isTextBook
+      ? [
           {
             key: "assist",
             icon: "icon-light-bulb",
@@ -495,7 +503,10 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
             data-tooltip-id="my-tooltip"
             data-tooltip-content={t("Reading Companion")}
             data-tooltip-place="left"
-            onClick={() => handleCompanionPanel(!isCompanionOpen)}
+            onClick={() => {
+              handlePdfTranslationPanel(false);
+              handleCompanionPanel(!isCompanionOpen);
+            }}
           >
             <span
               className={`icon-highlight-line reader-setting-icon`}
@@ -551,7 +562,7 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
             zIndex: 14,
             display: "flex",
             opacity: props.isNearEdge ? 1 : 0,
-            transition: "opacity 0.3s ease",
+            transition: "opacity 0.3s ease, right 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
             color: ConfigService.getReaderConfig("textColor") || "",
           }}
         >

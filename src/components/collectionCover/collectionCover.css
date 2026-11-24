@@ -2,13 +2,15 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  gap: 1px;
   overflow: hidden;
   border-radius: 2px;
   background-color: transparent;
 }
 .collection-cover-cell {
   overflow: hidden;
+  border-radius: 2px;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -41,4 +43,8 @@
     rgba(128, 128, 128, 0.12),
     rgba(128, 128, 128, 0.3)
   );
+}
+.collection-cover-cell-blank {
+  border-radius: 2px;
+  background: rgba(128, 128, 128, 0.1);
 }

@@ -18,6 +18,7 @@ import {
   handleTranslationRender,
 } from "../../utils/reader/fullTranslation";
 import { useAppStore } from "../../store/useAppStore";
+import { attachPdfOverlay } from "../../utils/reader/pdfOverlayTranslation";
 
 export interface PageWidgetState {
   isSingle: boolean;
@@ -282,6 +283,7 @@ const PageWidget = () => {
     if (nextHtmlBook && nextHtmlBook !== prevHtmlBook && !prevHtmlBook) {
       const rendition = nextHtmlBook.rendition;
       attachFullTranslation(rendition, currentBook);
+      if (isReadingRawPDF(currentBook)) attachPdfOverlay(rendition, currentBook);
       (async () => {
         await methodsRef.current.handlePageNum(rendition);
         await methodsRef.current.handleChapterWords(rendition);

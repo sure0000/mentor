@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./actionDialog.css";
-import { Trans } from "react-i18next";
 import { useAppStore } from "../../../store/useAppStore";
 import toast from "react-hot-toast";
 import MoreAction from "../moreAction";
@@ -35,7 +34,6 @@ export interface ActionDialogState {
 }
 
 const collectionUtil = new CollectionUtil(ConfigService);
-declare var window: any;
 
 // 主菜单与子菜单是两个独立的 DOM 节点，鼠标移入子菜单时主菜单会先收到
 // mouseleave。延迟关闭可以给子菜单的 mouseenter 留出取消关闭的时机。
@@ -162,15 +160,111 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
   };
 
   const isCollection = collectionUtil.isCollection(currentBook.key);
-  const collection = isCollection
-    ? collectionUtil.getCollection(currentBook.key)
-    : null;
+  const isTop =
+    ConfigService.getAllListConfig("topBooks").indexOf(currentBook.key) > -1;
+
+  const openSubmenu = (
+    patch: Pick<ActionDialogState, "isShowMark" | "isShowExport">
+  ) => {
+    updateState({
+      ...patch,
+      isExceed: shouldSubmenuOpenLeft(props.left, CONTEXT_MENU_WIDTH),
+    });
+  };
+
+  // 菜单按用途分组：查看 → 整理 → 状态与批量 → 危险操作。
+  // 子菜单按行号定位，所以这里的顺序就是子菜单锚点的依据。
+  type MenuItem = {
+    key: string;
+    icon: string;
+    label: string;
+    onClick?: () => void;
+    submenu?: "mark" | "more";
+    danger?: boolean;
+    divider?: boolean;
+    hidden?: boolean;
+  };
+  const items: MenuItem[] = (
+    [
+      {
+        key: "detail",
+        icon: "icon-idea-line",
+        label: "Details",
+        onClick: handleDetailBook,
+      },
+      {
+        key: "edit",
+        icon: "icon-edit-line",
+        label: "Edit",
+        onClick: handleEditBook,
+      },
+      {
+        key: "move",
+        icon: "icon-folder",
+        label: "Move to category",
+        onClick: handleAddShelf,
+        divider: true,
+      },
+      {
+        key: "collection",
+        icon: "icon-stack",
+        label: "Add to collection",
+        onClick: handleAddCollection,
+        hidden: isCollection,
+      },
+      {
+        key: "top",
+        icon: "icon-pin",
+        label: isTop ? "Unpin from top" : "Pin to top",
+        onClick: isTop ? handleCancelTopBook : handleTopBook,
+      },
+      {
+        key: "mark",
+        icon: "icon-check",
+        label: "Mark as",
+        submenu: "mark",
+        divider: true,
+      },
+      {
+        key: "select",
+        icon: "icon-select",
+        label: "Multiple selection",
+        onClick: handleMultiSelect,
+      },
+      {
+        key: "more",
+        icon: "icon-more",
+        label: "More actions",
+        submenu: "more",
+        hidden: isCollection,
+      },
+      {
+        key: "dissolve",
+        icon: "icon-close",
+        label: "Dissolve collection",
+        onClick: handleDissolveCollection,
+        divider: true,
+        hidden: !isCollection,
+      },
+      {
+        key: "delete",
+        icon: "icon-trash-line",
+        label: isCollection ? "Delete collection" : "Delete",
+        onClick: handleDeleteBook,
+        danger: true,
+        divider: !isCollection,
+      },
+    ] as MenuItem[]
+  ).filter((item) => !item.hidden);
+  const markIndex = items.findIndex((item) => item.submenu === "mark");
+  const moreIndex = items.findIndex((item) => item.submenu === "more");
+
   const moreActionProps = {
     left: props.left,
     top: props.top,
     isShowExport: state.isShowExport,
     isExceed: state.isExceed,
-    menuItemIndex: 9,
+    menuItemIndex: moreIndex,
     handleMoreAction: handleMoreAction,
     handleMenuEnter: cancelClose,
     handleMenuLeave: scheduleClose,
@@ -183,8 +277,58 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
     handleMarkAction: handleMarkAction,
     handleMenuEnter: cancelClose,
     handleMenuLeave: scheduleClose,
-    menuItemIndex: isCollection ? 6 : 7,
+    menuItemIndex: markIndex,
   };
+
+  const renderItem = (item: MenuItem) => {
+    const isSubmenuOpen =
+      (item.submenu === "mark" && state.isShowMark) ||
+      (item.submenu === "more" && state.isShowExport);
+    const className =
+      (item.danger ? "action-dialog-delete is-danger" : "action-dialog-edit") +
+      (item.divider ? " action-menu-divider" : "") +
+      (isSubmenuOpen ? " is-submenu-open" : "");
+    const submenuHandlers = item.submenu
+      ? {
+          onMouseEnter: () =>
+            openSubmenu(
+              item.submenu === "mark"
+                ? { isShowMark: true, isShowExport: false }
+                : { isShowMark: false, isShowExport: true }
+            ),
+          onMouseLeave: (event: React.MouseEvent) => {
+            updateState(
+              item.submenu === "mark"
+                ? { isShowMark: false }
+                : { isShowExport: false }
+            );
+            event.stopPropagation();
+          },
+        }
+      : {
+          // 移到普通项上时收起已展开的子菜单
+          onMouseEnter: () => {
+            if (state.isShowMark || state.isShowExport) {
+              updateState({ isShowMark: false, isShowExport: false });
+            }
+          },
+        };
+    return (
+      <div
+        key={item.key}
+        className={className}
+        onClick={item.onClick}
+        {...submenuHandlers}
+      >
+        <span className={`${item.icon} action-menu-icon`}></span>
+        <p className="action-name">{t(item.label)}</p>
+        {item.submenu && (
+          <span className="icon-dropdown action-menu-arrow"></span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       <div
@@ -199,213 +343,7 @@ const ActionDialog = (props: Pick<ActionDialogProps, "left" | "top">) => {
         style={{ left: props.left, top: props.top }}
       >
         <div className="action-dialog-actions-container">
-          <div
-            className="action-dialog-add"
-            onClick={() => {
-              handleAddShelf();
-            }}
-          >
-            <span className="icon-bookshelf-line view-icon"></span>
-            <p className="action-name">
-              <Trans>Move to category</Trans>
-            </p>
-          </div>
-          {!isCollection && (
-            <div
-              className="action-dialog-add"
-              onClick={() => {
-                handleAddCollection();
-              }}
-            >
-              <span
-                className="icon-stack view-icon"
-                style={{ fontSize: "18px" }}
-              ></span>
-              <p className="action-name">
-                <Trans>Add to collection</Trans>
-              </p>
-            </div>
-          )}
-          <div
-            className="action-dialog-add"
-            onClick={() => {
-              handleMultiSelect();
-            }}
-          >
-            <span className="icon-select view-icon"></span>
-            <p className="action-name">
-              <Trans>Multiple selection</Trans>
-            </p>
-          </div>
-          <div
-            className="action-dialog-add"
-            onClick={() => {
-              if (
-                ConfigService.getAllListConfig("topBooks").indexOf(
-                  currentBook.key
-                ) > -1
-              ) {
-                handleCancelTopBook();
-              } else {
-                handleTopBook();
-              }
-            }}
-          >
-            <span
-              className="icon-sort-desc view-icon"
-              style={{ display: "inline-block", transform: "rotate(180deg)" }}
-            ></span>
-            <p className="action-name">
-              {ConfigService.getAllListConfig("topBooks").indexOf(
-                currentBook.key
-              ) > -1 ? (
-                <Trans>Unpin from top</Trans>
-              ) : (
-                <Trans>Pin to top</Trans>
-              )}
-            </p>
-          </div>
-          <div
-            className="action-dialog-delete"
-            onClick={() => {
-              handleDeleteBook();
-            }}
-          >
-            <span className="icon-trash-line view-icon"></span>
-            <p className="action-name">
-              {isCollection ? (
-                <Trans>Delete collection</Trans>
-              ) : (
-                <Trans>Delete</Trans>
-              )}
-            </p>
-          </div>
-          <div
-            className="action-dialog-edit"
-            onClick={() => {
-              handleEditBook();
-            }}
-          >
-            <span className="icon-edit-line view-icon"></span>
-            <p className="action-name">
-              <Trans>Edit</Trans>
-            </p>
-          </div>
-          <div
-            className="action-dialog-edit"
-            onMouseEnter={(event) => {
-              updateState({
-                isShowMark: true,
-                isShowExport: false,
-                isExceed: shouldSubmenuOpenLeft(props.left, CONTEXT_MENU_WIDTH),
-              });
-              const e = event || window.event;
-              let x = e.clientX;
-              if (x > document.body.clientWidth - 300) {
-                updateState({ isExceed: true });
-              } else {
-                updateState({ isExceed: false });
-              }
-            }}
-            onMouseLeave={(event) => {
-              updateState({ isShowMark: false });
-              event.stopPropagation();
-            }}
-            style={{ display: "flex", justifyContent: "space-between" }}
-          >
-            <p className="action-name" style={{ marginLeft: "0px" }}>
-              <span
-                className="icon-check view-icon"
-                style={{
-                  display: "inline-block",
-                  marginRight: "12px",
-                  marginLeft: "3px",
-                  fontSize: "14px",
-                }}
-              ></span>
-              <Trans>Mark as</Trans>
-            </p>
-            <span
-              className="icon-dropdown icon-export-all"
-              style={{ left: "95px" }}
-            ></span>
-          </div>
-          <div
-            className="action-dialog-edit"
-            onClick={() => {
-              handleDetailBook();
-            }}
-          >
-            <span
-              className="icon-idea-line view-icon"
-              style={{ fontSize: "18px" }}
-            ></span>
-            <p className="action-name" style={{ marginLeft: "12px" }}>
-              <Trans>Details</Trans>
-            </p>
-          </div>
-          {isCollection && (
-            <div
-              className="action-dialog-delete"
-              onClick={() => {
-                handleDissolveCollection();
-              }}
-            >
-              <span
-                className="icon-close view-icon"
-                style={{ fontSize: "15px" }}
-              ></span>
-              <p className="action-name">
-                <Trans>Dissolve collection</Trans>
-              </p>
-            </div>
-          )}
-          {!isCollection && (
-            <div
-              className="action-dialog-edit"
-              onMouseEnter={(event) => {
-                updateState({
-                  isShowExport: true,
-                  isShowMark: false,
-                  isExceed: shouldSubmenuOpenLeft(
-                    props.left,
-                    CONTEXT_MENU_WIDTH
-                  ),
-                });
-                const e = event || window.event;
-                let x = e.clientX;
-                if (x > document.body.clientWidth - 300) {
-                  updateState({ isExceed: true });
-                } else {
-                  updateState({ isExceed: false });
-                }
-              }}
-              onMouseLeave={(event) => {
-                updateState({ isShowExport: false });
-                event.stopPropagation();
-              }}
-              style={{ display: "flex", justifyContent: "space-between" }}
-            >
-              <p className="action-name" style={{ marginLeft: "0px" }}>
-                <span
-                  className="icon-more view-icon"
-                  style={{
-                    display: "inline-block",
-                    marginRight: "12px",
-                    marginLeft: "3px",
-                    transform: "rotate(90deg)",
-                    fontSize: "14px",
-                  }}
-                ></span>
-                <Trans>More actions</Trans>
-              </p>
-
-              <span
-                className="icon-dropdown icon-export-all"
-                style={{ left: "95px" }}
-              ></span>
-            </div>
-          )}
+          {items.map(renderItem)}
         </div>
       </div>
       <MarkAction {...(markActionProps as any)} />

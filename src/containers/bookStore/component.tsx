@@ -28,7 +28,65 @@ import {
   fetchDoubanDetail,
   fetchDoubanList,
 } from "../../utils/request/douban";
-import type { DoubanBook, DoubanDetail } from "../../utils/request/douban";
+import type {
+  DoubanBook,
+  DoubanDetail,
+  DoubanList,
+} from "../../utils/request/douban";
+import {
+  GOODREADS_RATING_MAX,
+  buildGoodreadsSearchUrl,
+  fetchGoodreadsDetail,
+  fetchGoodreadsList,
+  goodreadsCategories,
+  splitSummaryParagraphs,
+} from "../../utils/request/goodreads";
+import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
+import { isAiAvailable } from "../../utils/aiReading/aiGateway";
+import { useBatchTranslation } from "../../utils/hooks/useBatchTranslation";
+
+type StoreSourceId = "douban" | "goodreads";
+
+// 书单来源：豆瓣与 Goodreads 解析出的数据结构一致，只是地址和评分制不同
+interface StoreSource {
+  name: string;
+  categories: { title: string; url: string }[];
+  buildSearchUrl: (query: string) => string;
+  fetchList: (url: string) => Promise<DoubanList>;
+  fetchDetail: (book: DoubanBook) => Promise<DoubanDetail>;
+  ratingMax: number;
+  // 外文书单默认双语展示书名和简介
+  isForeign: boolean;
+}
+
+const STORE_SOURCES: Record<StoreSourceId, StoreSource> = {
+  douban: {
+    name: "Douban",
+    categories: doubanCategories,
+    buildSearchUrl: (query) => buildDoubanSearchUrl(query),
+    fetchList: fetchDoubanList,
+    fetchDetail: fetchDoubanDetail,
+    ratingMax: 10,
+    isForeign: false,
+  },
+  goodreads: {
+    name: "Goodreads",
+    categories: goodreadsCategories,
+    buildSearchUrl: buildGoodreadsSearchUrl,
+    fetchList: fetchGoodreadsList,
+    fetchDetail: fetchGoodreadsDetail,
+    ratingMax: GOODREADS_RATING_MAX,
+    isForeign: true,
+  },
+};
+
+const STORE_SOURCE_CONFIG = "bookStoreSource";
+// 默认开启，用户手动关闭后记为 "no"
+const BILINGUAL_CONFIG = "isBookStoreBilingual";
+
+const getHtmlText = (html: string) =>
+  new DOMParser().parseFromString(html, "text/html").body.textContent?.trim() ||
+  "";
 
 interface BookStoreState {
   // 分类下标；-1 表示当前为搜索结果
@@ -80,9 +138,9 @@ const StoreCover = ({ src, title }: { src: string; title: string }) => {
   );
 };
 
-// 豆瓣式五星：10 分制换算成 0~5 颗星，按半星取整
-const RatingStars = ({ rating }: { rating: number }) => {
-  const percent = Math.round(rating) * 10;
+// 五星展示：按评分制换算成 0~5 颗星，按半星取整
+const RatingStars = ({ rating, max }: { rating: number; max: number }) => {
+  const percent = Math.round((rating * 10) / max) * 10;
   return (
     <span className="book-store-stars">
       <span className="book-store-stars-fill" style={{ width: percent + "%" }}>
@@ -96,9 +154,11 @@ const RatingStars = ({ rating }: { rating: number }) => {
 const RatingLine = ({
   rating,
   votes,
+  max,
 }: {
   rating: number | null;
   votes: number;
+  max: number;
 }) => {
   const { t } = useTranslation();
   if (rating === null) {
@@ -108,7 +168,7 @@ const RatingLine = ({
   }
   return (
     <div className="book-store-rating">
-      <RatingStars rating={rating} />
+      <RatingStars rating={rating} max={max} />
       <span className="book-store-rating-value">{rating.toFixed(1)}</span>
       {votes > 0 && (
         <span className="book-store-rating-votes">
@@ -146,6 +206,16 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     error: "",
   });
   const [detailState, setDetailState] = useState<DetailState | null>(null);
+  const [sourceId, setSourceId] = useState<StoreSourceId>(() =>
+    ConfigService.getReaderConfig(STORE_SOURCE_CONFIG) === "goodreads"
+      ? "goodreads"
+      : "douban"
+  );
+  const [isBilingual, setIsBilingual] = useState(
+    () => ConfigService.getReaderConfig(BILINGUAL_CONFIG) !== "no"
+  );
+  const source = STORE_SOURCES[sourceId];
+  const sourceRef = useLatest(source);
   const stateRef = useLatest(state);
   // 切换分类/搜索时丢弃旧请求的结果
   const requestIdRef = useRef(0);
@@ -164,7 +234,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
       error: "",
     });
     try {
-      const list = await fetchDoubanList(url);
+      const list = await sourceRef.current.fetchList(url);
       if (requestId !== requestIdRef.current) return;
       mergeState({ books: list.books, nextUrl: list.nextUrl, isLoading: false });
     } catch (err) {
@@ -175,7 +245,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
   };
 
   const loadCategory = (categoryIndex: number) => {
-    const category = doubanCategories[categoryIndex];
+    const category = sourceRef.current.categories[categoryIndex];
     if (!category) return;
     loadList(category.url, { categoryIndex, searchQuery: "" });
   };
@@ -183,7 +253,23 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
   const handleSearch = () => {
     const query = stateRef.current.searchQuery.trim();
     if (!query) return;
-    loadList(buildDoubanSearchUrl(query), { categoryIndex: -1 });
+    loadList(sourceRef.current.buildSearchUrl(query), { categoryIndex: -1 });
+  };
+
+  const switchSource = (id: StoreSourceId) => {
+    if (id === sourceId) return;
+    ConfigService.setReaderConfig(STORE_SOURCE_CONFIG, id);
+    setSourceId(id);
+  };
+
+  const toggleBilingual = () => {
+    if (!isBilingual && !isAiAvailable("translate")) {
+      toast(t("No AI service configured. Please add one in Settings > AI service"));
+      return;
+    }
+    const next = !isBilingual;
+    ConfigService.setReaderConfig(BILINGUAL_CONFIG, next ? "yes" : "no");
+    setIsBilingual(next);
   };
 
   const loadMore = async () => {
@@ -192,7 +278,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     const requestId = requestIdRef.current;
     mergeState({ isLoadingMore: true });
     try {
-      const list = await fetchDoubanList(nextUrl);
+      const list = await sourceRef.current.fetchList(nextUrl);
       if (requestId !== requestIdRef.current) return;
       setState((prev) => {
         const seen = new Set(prev.books.map((b) => b.id));
@@ -294,7 +380,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     });
     let detail: DoubanDetail;
     try {
-      detail = await fetchDoubanDetail(book);
+      detail = await sourceRef.current.fetchDetail(book);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // 详情加载失败时仍用列表里的书名去书源查找
@@ -359,7 +445,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
       const file = await downloadOPDSFile(title, link);
       toast.dismiss("book-store-download");
       await importBookFunc(file);
-      // 书源封面与文件内容对应；没有时再用豆瓣封面
+      // 书源封面与文件内容对应；没有时再用书单封面
       await applyStoreCover(
         file,
         edition.coverUrl ||
@@ -376,11 +462,37 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     }
   };
 
+  // 首次进入和切换书单来源时加载第一个分类
   useEffect(() => {
+    setDetailState(null);
     loadCategory(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sourceId]);
 
+  // 外文书单默认双语：翻译卡片书名，以及打开的详情里的书名和简介段落
+  const isTranslating = source.isForeign && isBilingual;
+  const summaryParagraphs = useMemo(
+    () =>
+      detailState?.detail?.summary
+        ? splitSummaryParagraphs(
+            DOMPurify.sanitize(detailState.detail.summary, {
+              FORBID_TAGS: ["a", "img", "style"],
+            })
+          )
+        : [],
+    [detailState?.detail?.summary]
+  );
+  const transTexts = useMemo(() => {
+    const texts = state.books.map((b) => b.title);
+    if (detailState?.detail?.title) texts.push(detailState.detail.title);
+    return texts.concat(summaryParagraphs.map(getHtmlText));
+  }, [state.books, detailState?.detail?.title, summaryParagraphs]);
+  const {
+    getTrans,
+    retranslate,
+    hasError: transError,
+    isPending: isTransPending,
+  } = useBatchTranslation(transTexts, isTranslating);
   const renderEdition = (edition: SourceEdition) => {
     const { book, links } = edition;
     const downloadingHref = detailState?.downloadingHref;
@@ -498,6 +610,11 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
               <div className="book-store-detail-title">
                 {detail?.title || book.title}
               </div>
+              {getTrans(detail?.title || book.title) && (
+                <div className="book-store-detail-sub">
+                  {getTrans(detail?.title || book.title)}
+                </div>
+              )}
               {detail?.originalTitle && (
                 <div className="book-store-detail-sub">
                   {detail.originalTitle}
@@ -513,12 +630,18 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
                   {[detail.publisher, detail.pubDate].filter(Boolean).join(" / ")}
                 </div>
               )}
-              <RatingLine rating={rating} votes={votes} />
+              <RatingLine
+                rating={rating}
+                votes={votes}
+                max={source.ratingMax}
+              />
               <span
                 className="book-store-link-button is-plain"
                 onClick={() => openInBrowser(book.url)}
               >
-                <Trans>View on Douban</Trans>
+                {sourceId === "douban"
+                  ? t("View on Douban")
+                  : t("View on {{name}}", { name: source.name })}
               </span>
             </div>
           </div>
@@ -540,12 +663,27 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
                   <Trans>Introduction</Trans>
                 </div>
                 <div className="book-store-detail-summary">
-                  {Parser(
-                    // 去掉链接，避免点击相对地址导致主窗口跳转
-                    DOMPurify.sanitize(detail.summary, {
-                      FORBID_TAGS: ["a", "img", "style"],
-                    })
-                  )}
+                  {isTranslating
+                    ? // 逐段双语对照，译文在原文下方
+                      summaryParagraphs.map((html, i) => {
+                        const translated = getTrans(getHtmlText(html));
+                        return (
+                          <div key={i} className="book-store-summary-para">
+                            <div>{Parser(html)}</div>
+                            {translated && (
+                              <div className="book-store-summary-trans">
+                                {translated}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    : Parser(
+                        // 去掉链接，避免点击相对地址导致主窗口跳转
+                        DOMPurify.sanitize(detail.summary, {
+                          FORBID_TAGS: ["a", "img", "style"],
+                        })
+                      )}
                 </div>
               </>
             )}
@@ -562,8 +700,19 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     <div className="book-store-container">
       <div className="book-store-toolbar">
         {modeSwitch}
+        <select
+          className="book-store-source-select"
+          value={sourceId}
+          onChange={(e) => switchSource(e.target.value as StoreSourceId)}
+        >
+          {(Object.keys(STORE_SOURCES) as StoreSourceId[]).map((id) => (
+            <option key={id} value={id}>
+              {t(STORE_SOURCES[id].name)}
+            </option>
+          ))}
+        </select>
         <div className="book-store-tabs">
-          {doubanCategories.map((c, i) => (
+          {source.categories.map((c, i) => (
             <span
               key={c.url}
               className={
@@ -575,6 +724,33 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
             </span>
           ))}
         </div>
+        {source.isForeign && (
+          <span
+            className={
+              "paper-store-trans-toggle" + (isBilingual ? " is-active" : "")
+            }
+            title={transError ? t("Translation failed") : ""}
+            onClick={toggleBilingual}
+          >
+            {isTransPending && <span className="book-store-trans-spinner" />}
+            <Trans>Bilingual</Trans>
+            {transError && (
+              <span className="book-store-trans-error">
+                {" · "}
+                {t("Translation failed")}
+              </span>
+            )}
+          </span>
+        )}
+        {source.isForeign && isBilingual && !isTransPending && (
+          <span
+            className="book-store-retranslate"
+            title={t("Translate again from scratch")}
+            onClick={retranslate}
+          >
+            {t("Retranslate")}
+          </span>
+        )}
         <div className="book-store-search">
           <input
             type="text"
@@ -630,13 +806,24 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
                 <div className="book-store-card-title" title={book.title}>
                   {book.title}
                 </div>
+                {getTrans(book.title) && (
+                  <div
+                    className="book-store-card-trans"
+                    title={getTrans(book.title)}
+                  >
+                    {getTrans(book.title)}
+                  </div>
+                )}
                 <div className="book-store-card-author" title={book.abstract}>
                   {book.abstract}
                 </div>
                 <div className="book-store-card-rating">
                   {book.rating !== null ? (
                     <>
-                      <RatingStars rating={book.rating} />
+                      <RatingStars
+                        rating={book.rating}
+                        max={source.ratingMax}
+                      />
                       <span className="book-store-rating-value">
                         {book.rating.toFixed(1)}
                       </span>

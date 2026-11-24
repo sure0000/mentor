@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSegmentTexts, splitSegments } from "./segmentTranslation";
+import { getSegmentTexts, minWeightOf, splitSegments } from "./segmentTranslation";
 
 describe("splitSegments", () => {
   it("keeps a short paragraph as one segment", () => {
@@ -29,6 +29,11 @@ describe("splitSegments", () => {
     expect(splitSegments(text)).toHaveLength(1);
   });
 
+  it("keeps a long paragraph whole in paragraph mode", () => {
+    const text = "This is a fairly ordinary sentence that has some words in it. ".repeat(6).trim();
+    expect(splitSegments(text, minWeightOf("paragraph")).map((s) => s.text)).toEqual([text]);
+  });
+
   it("returns nothing for blank text", () => {
     expect(splitSegments("   ")).toEqual([]);
   });
@@ -37,5 +42,10 @@ describe("splitSegments", () => {
 describe("getSegmentTexts", () => {
   it("skips image placeholders and empty blocks", () => {
     expect(getSegmentTexts(["img", "", "Hi."])).toEqual(["Hi."]);
+  });
+
+  it("returns one text per block in paragraph mode", () => {
+    const long = "Some sentence with enough words to pass the threshold. ".repeat(4).trim();
+    expect(getSegmentTexts([long, "Hi."], "paragraph")).toEqual([long, "Hi."]);
   });
 });

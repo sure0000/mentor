@@ -132,6 +132,7 @@ const initialReader = {
   isSpeechOpen: false,
   isAnnotationOpen: false,
   isCompanionOpen: false,
+  isPdfTranslationOpen: false,
   speechStartText: "",
   isSpeechAutoStart: false,
   isNavLocked: ConfigService.getReaderConfig("isNavLocked") === "yes",
@@ -209,6 +210,7 @@ export type AppActionName =
   | "handleChangeDirection"
   | "handleCloudSyncFunc"
   | "handleCompanionPanel"
+  | "handlePdfTranslationPanel"
   | "handleCollectionDetailDialog"
   | "handleCollectionDialog"
   | "handleCollectionDialogBooks"
@@ -628,30 +630,6 @@ export const useAppStore = create<AppState>()((set, get) => {
               pluginList.push(dictPlugin);
             }
           }
-          if (ConfigService.getReaderConfig("aiAssistanceModel")) {
-            const modelKey = ConfigService.getReaderConfig("aiAssistanceModel");
-            const entry = ConfigService.getObjectConfig(
-              modelKey,
-              "aiModelConfig",
-              null
-            );
-            if (entry && entry.key) {
-              let assistPlugin = new PluginModel(
-                "custom-ai-assistant-plugin",
-                "assistant",
-                "Custom AI Assistance",
-                "assistant",
-                "1.0.0",
-                "",
-                entry.config || {},
-                officialTranList,
-                [],
-                "",
-                ""
-              );
-              pluginList.push(assistPlugin);
-            }
-          }
           {
             // 二开：原「官方 AI」插件改为走统一 AI 网关（自定义 LLM 接口），
             // 沿用原 key 以兼容用户已保存的服务选择。
@@ -801,6 +779,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       setReader({ isAnnotationOpen }),
     handleCompanionPanel: (isCompanionOpen: boolean) =>
       setReader({ isCompanionOpen }),
+    handlePdfTranslationPanel: (isPdfTranslationOpen: boolean) =>
+      setReader({ isPdfTranslationOpen }),
     handleSpeechStartText: (speechStartText: string) =>
       setReader({ speechStartText }),
     handleSpeechAutoStart: (isSpeechAutoStart: boolean) =>

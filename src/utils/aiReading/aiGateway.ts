@@ -2,6 +2,7 @@
 // 单词释义、书名识别、元数据补全、TTS 分句、AI 伴读等）。
 // 后端为用户在「设置 > AI」中配置的 OpenAI 兼容接口。
 import {
+  CommonTool,
   ConfigService,
   KookitConfig,
 } from "../../assets/lib/kookit-extra-browser.min";
@@ -101,6 +102,8 @@ export const aiStreamText = (params: {
   prompt: string;
   onText: (delta: string) => void;
   purpose?: "translate" | "dict" | "assistance";
+  /** 失败时不弹 toast，由调用方自行处理 */
+  silent?: boolean;
 }): AiStreamHandle => {
   const backend = resolveAiBackend(params.purpose);
   if (!backend) {
@@ -117,7 +120,8 @@ export const aiStreamText = (params: {
     (r: { text?: string }) => {
       if (!controller.signal.aborted && r && r.text) params.onText(r.text);
     },
-    controller.signal
+    controller.signal,
+    params.silent
   ).then(() => undefined);
   return { cancel: () => controller.abort(), done };
 };
@@ -127,10 +131,55 @@ export const aiText = async (params: {
   system: string;
   prompt: string;
   purpose?: "translate" | "dict" | "assistance";
+  silent?: boolean;
 }): Promise<string> => {
   let text = "";
   await aiStreamText({ ...params, onText: (d) => (text += d) }).done;
   return text;
+};
+
+/**
+ * 真正的一次性请求（stream: false），返回完整文本。
+ * 批量翻译这类「只要结果、不需要逐字显示」的场景用它：
+ * 流式请求一旦服务端提前结束，上层只能拿到空字符串，连失败原因都读不到。
+ */
+export const aiChatText = async (params: {
+  system: string;
+  prompt: string;
+  purpose?: "translate" | "dict" | "assistance";
+}): Promise<string> => {
+  const backend = resolveAiBackend(params.purpose);
+  if (!backend) throw new AiUnavailableError();
+  const response = await fetch(backend.endpoint + "/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + backend.apiKey,
+    },
+    body: JSON.stringify({
+      model: backend.modelId,
+      messages: [
+        ...(params.system ? [{ role: "system", content: params.system }] : []),
+        { role: "user", content: params.prompt },
+      ],
+      stream: false,
+      ...CommonTool.getDisableThinkingParams(backend.providerId || ""),
+    }),
+  });
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${raw.slice(0, 300)}`);
+  }
+  let content: unknown;
+  try {
+    content = JSON.parse(raw)?.choices?.[0]?.message?.content;
+  } catch {
+    throw new Error(`Invalid response: ${raw.slice(0, 300)}`);
+  }
+  if (typeof content !== "string" || !content.trim()) {
+    throw new Error(`Empty response: ${raw.slice(0, 300)}`);
+  }
+  return content;
 };
 
 /** 从模型输出里取出第一个 JSON 对象或数组（容忍代码块与前后说明文字） */
@@ -152,6 +201,7 @@ export const aiJson = async <T>(params: {
   system: string;
   prompt: string;
   purpose?: "translate" | "dict" | "assistance";
+  silent?: boolean;
 }): Promise<T> => {
   const text = await aiText({
     ...params,
@@ -159,5 +209,10 @@ export const aiJson = async <T>(params: {
       params.system +
       "\n\n只输出一个 JSON 值，不要输出解释、不要使用 Markdown 代码块。",
   });
-  return parseJsonLoose(text) as T;
+  try {
+    return parseJsonLoose(text) as T;
+  } catch (error) {
+    console.warn("aiJson parse failed:", text.length, text.slice(0, 300));
+    throw error;
+  }
 };

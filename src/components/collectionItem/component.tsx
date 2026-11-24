@@ -1,8 +1,9 @@
 import React from "react";
+import "../bookCardItem/bookCardItem.css";
 import "./collectionItem.css";
 import ActionDialog from "../dialogs/actionDialog";
 import CollectionCover from "../collectionCover";
-import { Trans } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { useCollectionItem } from "./useCollectionItem";
 import {
@@ -26,6 +27,7 @@ export interface CollectionItemProps {
 declare var window: any;
 
 const CollectionItem: React.FC<CollectionItemProps> = (props) => {
+  const { t } = useTranslation();
   const isOpenActionDialog = useAppStore((s) => s.book.isOpenActionDialog);
   const currentBook = useAppStore((s) => s.book.currentBook);
   const isSelectBook = useAppStore((s) => s.manager.isSelectBook);
@@ -116,9 +118,9 @@ const CollectionItem: React.FC<CollectionItemProps> = (props) => {
     <>
       {percentage && !isNaN(parseFloat(percentage))
         ? percentage === "0"
-          ? "New"
+          ? t("Unread")
           : percentage === "1"
-            ? "Done"
+            ? t("Finished")
             : (parseFloat(percentage) * 100).toFixed(2)
         : "0"}
       {percentage &&
@@ -131,7 +133,7 @@ const CollectionItem: React.FC<CollectionItemProps> = (props) => {
     <div
       className={
         "collection-cover-wrapper" +
-        (isDropTarget ? " collection-drop-target" : "")
+        (isDropTarget && viewMode !== "card" ? " collection-drop-target" : "")
       }
       style={{ width: `${width}px`, height: `${height}px` }}
     >
@@ -141,7 +143,9 @@ const CollectionItem: React.FC<CollectionItemProps> = (props) => {
         width={width}
         height={height}
       />
-      <span className="collection-count-badge">{count}</span>
+      {viewMode !== "card" && (
+        <span className="collection-count-badge">{count}</span>
+      )}
     </div>
   );
   const renderActionDialog = () =>
@@ -330,7 +334,9 @@ const CollectionItem: React.FC<CollectionItemProps> = (props) => {
   return (
     <>
       <div
-        className="book-list-item"
+        className={
+          "book-list-item" + (isDropTarget ? " book-drop-target" : "")
+        }
         draggable
         onDragStart={handleBookDragStart}
         onContextMenu={(event) => {
@@ -357,39 +363,36 @@ const CollectionItem: React.FC<CollectionItemProps> = (props) => {
           style={{
             height: `${137 * scale}px`,
             alignItems: "center",
-            overflow: "hidden",
+            justifyContent: "center",
           }}
         >
-          {renderCover(105 * scale, 137 * scale)}
+          {/* 与书架分类一致：浅底框内放 2x2 拼图，右下角显示数量 */}
+          {renderCover(110 * scale - 12, 137 * scale - 12)}
+          <span className="book-cover-badge">{count}</span>
         </div>
         {isSelectBook || isHover ? (
           <span
-            className="icon-message book-selected-icon"
+            className={
+              "book-select-check" + (props.isSelected ? " is-selected" : "")
+            }
+            data-tooltip-id="my-tooltip"
+            data-tooltip-content={t("Multiple selection")}
             onMouseEnter={() => {
               setIsHover(true);
             }}
             onClick={(event) => {
               handleSelectIconClick(event);
             }}
-            style={
-              props.isSelected
-                ? { opacity: 1 }
-                : {
-                    color: "#eee",
-                  }
-            }
-          ></span>
+          >
+            <span className="icon-check"></span>
+          </span>
         ) : null}
 
-        <p className="book-item-title">
-          <span className="icon-stack collection-title-icon"></span>
+        <p className="book-item-title" title={collection.name}>
+          <span className="icon-stack book-item-title-icon"></span>
           {collection.name}
         </p>
-        <div className="reading-progress-icon">
-          <div style={{ position: "relative", left: "4px" }}>
-            {renderPercentage()}
-          </div>
-        </div>
+        <div className="reading-progress-icon">{renderPercentage()}</div>
 
         <span
           className="icon-more book-more-action"

@@ -105,6 +105,10 @@
   width: 100%;
   box-sizing: border-box;
   z-index: -10;
+  transition:
+    right 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    left 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   display: flex;
   justify-content: center;
   align-items: center;

@@ -1,0 +1,97 @@
+.pdf-trans-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 400px;
+  max-width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 12px 0 16px;
+  background: var(--panel-bg);
+  box-shadow: 0px 0px 7px rgba(0, 0, 0, 0.2);
+  animation: pdf-trans-panel-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 16;
+  -webkit-app-region: no-drag;
+}
+.pdf-trans-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 32px;
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+.pdf-trans-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.pdf-trans-close {
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.pdf-trans-close:hover {
+  opacity: 1;
+}
+.pdf-trans-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 6px 20px 10px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+.pdf-trans-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pdf-trans-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 20px;
+}
+.pdf-trans-item {
+  margin-bottom: 14px;
+  line-height: 1.65;
+  font-size: 14px;
+}
+.pdf-trans-source {
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+.pdf-trans-target {
+  font-size: 15px;
+}
+.pdf-trans-loading,
+.pdf-trans-failed {
+  opacity: 0.35;
+}
+.pdf-trans-empty {
+  opacity: 0.5;
+  font-size: 13px;
+  text-align: center;
+  margin-top: 40px;
+}
+.pdf-trans-retry {
+  color: var(--brand);
+  cursor: pointer;
+  font-size: 13px;
+}
+@keyframes pdf-trans-panel-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}

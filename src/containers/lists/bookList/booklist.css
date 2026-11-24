@@ -232,3 +232,11 @@
   background: var(--brand-soft);
   box-shadow: inset 0 0 0 2px var(--brand);
 }
+/* 原先由 ViewMode 组件的 CSS 提供；书架只保留卡片模式后移到这里 */
+.book-list-item-box {
+  position: relative;
+  top: 0px;
+  width: 100%;
+  height: 100%;
+  overflow-y: scroll;
+}

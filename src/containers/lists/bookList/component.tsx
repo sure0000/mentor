@@ -3,8 +3,6 @@ import { useTranslation } from "react-i18next";
 import React, { useEffect, useRef, useState } from "react";
 import "./booklist.css";
 import BookCardItem from "../../../components/bookCardItem";
-import BookListItem from "../../../components/bookListItem";
-import BookCoverItem from "../../../components/bookCoverItem";
 import CollectionItem from "../../../components/collectionItem";
 import BookModel from "../../../models/Book";
 import {
@@ -12,7 +10,6 @@ import {
   CollectionUtil,
 } from "../../../assets/lib/kookit-extra-browser.min";
 import { Navigate } from "react-router-dom";
-import ViewMode from "../../../components/viewMode";
 import SelectBook from "../../../components/selectBook";
 import Book from "../../../models/Book";
 import { isElectron } from "react-device-detect";
@@ -72,7 +69,6 @@ const BookList = () => {
   const searchResults = useAppStore((s) => s.manager.searchResults);
   const isSearch = useAppStore((s) => s.manager.isSearch);
   const isSelectBook = useAppStore((s) => s.manager.isSelectBook);
-  const viewMode = useAppStore((s) => s.manager.viewMode);
   const isSortDisplay = useAppStore((s) => s.manager.isSortDisplay);
   const handleSortDisplay = useAppStore((s) => s.handleSortDisplay);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
@@ -490,15 +486,26 @@ const BookList = () => {
 
   const renderCategoryFolders = () => {
     if (isSearch || shelfTitle || state.readingStatusFilter) return null;
-    return getCategoryList().map((name) => (
-      <ShelfCategoryItem
-        key={name}
-        name={name}
-        bookKeys={getCategoryBookKeys(name)}
-        cardScale={viewMode === "card" ? state.cardScale : 1}
-        onOpen={(category) => handleShelf(category)}
-      />
-    ));
+    return getCategoryList().map((name) => {
+      // 与进入分类后的列表走同一套过滤：剔除已删除/不存在的书，合集折叠为一项，
+      // 否则封面上的数量会和分类内实际显示的数量对不上
+      const categoryBooks = filterByCategory(books, name);
+      const displayCount = resolveCollectionItems(categoryBooks).length;
+      const existingKeys = new Set(categoryBooks.map((book: Book) => book.key));
+      const coverKeys = getCategoryBookKeys(name).filter((key) =>
+        existingKeys.has(key)
+      );
+      return (
+        <ShelfCategoryItem
+          key={name}
+          name={name}
+          bookKeys={coverKeys}
+          count={displayCount}
+          cardScale={state.cardScale}
+          onOpen={(category) => handleShelf(category)}
+        />
+      );
+    });
   };
 
   const renderShelfToolbar = () => {
@@ -611,7 +618,6 @@ const BookList = () => {
           </span>
           {isSortDisplay && <SortDialog />}
         </div>
-        <ViewMode />
         </div>
       </li>
     );
@@ -675,60 +681,26 @@ const BookList = () => {
           allBooks: displayedBooks,
           bookIndex: index,
         };
-        return viewMode === "list" ? (
+        return (
           <CollectionItem
             key={item.key}
-            {...({ ...collectionProps, viewMode: "list" } as any)}
-          />
-        ) : viewMode === "card" ? (
-          <CollectionItem
-            key={item.key}
-            {...({
-              ...collectionProps,
-              viewMode: "card",
-              cardScale: state.cardScale,
-            } as any)}
-          />
-        ) : (
-          <CollectionItem
-            key={item.key}
-            {...({ ...collectionProps, viewMode: "cover" } as any)}
+            {...collectionProps}
+            viewMode="card"
+            cardScale={state.cardScale}
           />
         );
       }
       if (!item.format || item.format === "COLLECTION") {
         return null;
       }
-      return viewMode === "list" ? (
-        <BookListItem
-          key={index}
-          {...({
-            book: item,
-            isSelected: selectedBooks.indexOf(item.key) > -1,
-            allBooks: displayedBooks,
-            bookIndex: index,
-          } as any)}
-        />
-      ) : viewMode === "card" ? (
+      return (
         <BookCardItem
           key={index}
-          {...({
-            book: item,
-            cardScale: state.cardScale,
-            isSelected: selectedBooks.indexOf(item.key) > -1,
-            allBooks: displayedBooks,
-            bookIndex: index,
-          } as any)}
-        />
-      ) : (
-        <BookCoverItem
-          key={index}
-          {...({
-            book: item,
-            isSelected: selectedBooks.indexOf(item.key) > -1,
-            allBooks: displayedBooks,
-            bookIndex: index,
-          } as any)}
+          book={item}
+          cardScale={state.cardScale}
+          isSelected={selectedBooks.indexOf(item.key) > -1}
+          allBooks={displayedBooks}
+          bookIndex={index}
         />
       );
     });

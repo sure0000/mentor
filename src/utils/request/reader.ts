@@ -7,9 +7,11 @@ import i18n from "../../i18n";
 import toast from "react-hot-toast";
 import {
   AiUnavailableError,
+  aiChatText,
   aiJson,
   aiStreamText,
   getPrompt,
+  parseJsonLoose,
 } from "../aiReading/aiGateway";
 import { fillPrompt, sourceLangText } from "../aiReading/prompts";
 import { synthesizeSpeech } from "../aiReading/customTts";
@@ -120,22 +122,43 @@ export const getTTSAudio = async (
 export const getBatchTrans = async (
   texts: string[],
   _from: string,
-  to: string
+  to: string,
+  context?: string,
+  // 静默模式下失败不弹提示，由调用方自行降级（如书城双语）
+  silent = false
 ): Promise<ApiResult<{ texts: string[] }>> => {
   try {
-    const result = await aiJson<string[]>({
+    // 批量翻译只关心最终结果，用非流式请求：流式一旦提前结束就只能拿到空字符串，
+    // 连服务端返回了什么错误都读不到
+    const text = await aiChatText({
       purpose: "translate",
       system:
-        "你是专业翻译。输入是 JSON 字符串数组，逐条翻译为目标语言，" +
-        "输出同样长度、同样顺序的 JSON 字符串数组。",
-      prompt: `目标语言：${to}\n\n${JSON.stringify(texts)}`,
+        "你是资深的书籍译者。输入是 JSON 字符串数组，数组元素是同一本书中按顺序相邻的段落或句子。" +
+        "请逐条翻译为目标语言，要求：\n" +
+        "1. 结合前后文理解含义，译文通顺自然、符合目标语言的阅读习惯，不要逐词硬译；\n" +
+        "2. 人名、地名、术语在各条之间保持一致，保留原文的语气与文风；\n" +
+        "3. 每条只翻译该条自身内容，不得合并、拆分、省略或增补，不要添加注释；\n" +
+        "4. 已是目标语言、纯数字或无需翻译的内容原样返回；\n" +
+        "5. 输出与输入同样长度、同样顺序的 JSON 字符串数组。" +
+        "\n\n只输出一个 JSON 数组，不要输出解释、不要使用 Markdown 代码块。",
+      prompt:
+        `目标语言：${to}\n` +
+        (context ? `书籍信息：${context}\n` : "") +
+        `\n${JSON.stringify(texts)}`,
     });
+    const result = parseJsonLoose(text) as string[];
     if (!Array.isArray(result) || result.length !== texts.length) {
+      console.warn(
+        "getBatchTrans length mismatch:",
+        texts.length,
+        Array.isArray(result) ? result.length : typeof result
+      );
       return { code: 500, msg: "length-mismatch" };
     }
     return { code: 200, data: { texts: result.map((t) => String(t ?? "")) } };
   } catch (error) {
-    notifyUnavailable(error);
+    console.warn("getBatchTrans failed:", String(error));
+    if (!silent) notifyUnavailable(error);
     return { code: 500, msg: String(error) };
   }
 };

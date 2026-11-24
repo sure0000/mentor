@@ -615,3 +615,55 @@
     text-align: center;
   }
 }
+
+/* 外文书单双语：卡片译名与简介逐段对照 */
+.book-store-card-trans {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--shelf-title);
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.book-store-summary-para + .book-store-summary-para {
+  margin-top: 10px;
+}
+.book-store-summary-trans {
+  margin-top: 4px;
+  color: var(--shelf-title);
+  opacity: 0.8;
+}
+.book-store-trans-error {
+  color: #e5484d;
+}
+
+/* 翻译中：开关文字前的小转圈 */
+.book-store-trans-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: book-store-trans-spin 0.8s linear infinite;
+}
+@keyframes book-store-trans-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 手动重译：清掉当前列表的译文缓存后重新请求 */
+.book-store-retranslate {
+  font-size: 12px;
+  color: var(--shelf-meta);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.book-store-retranslate:hover {
+  color: var(--brand);
+}

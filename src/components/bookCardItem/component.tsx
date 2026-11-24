@@ -227,31 +227,30 @@ const BookCardItem: React.FC<BookCardProps> = (props) => {
         </div>
         {isSelectBook || isHover ? (
           <span
-            className="icon-message book-selected-icon"
+            className={
+              "book-select-check" + (props.isSelected ? " is-selected" : "")
+            }
+            data-tooltip-id="my-tooltip"
+            data-tooltip-content={t("Multiple selection")}
             onMouseEnter={() => {
               setIsHover(true);
             }}
             onClick={(event) => {
               handleSelectIconClick(event);
             }}
-            style={
-              props.isSelected
-                ? { opacity: 1 }
-                : {
-                    color: "#eee",
-                  }
-            }
-          ></span>
+          >
+            <span className="icon-check"></span>
+          </span>
         ) : null}
 
-        <p className="book-item-title">
+        <p className="book-item-title" title={props.book.name}>
           {!isBookOffline && (
             <span className="icon-cloud book-download-action"></span>
           )}
           {props.book.name}
         </p>
         <div className="reading-progress-icon">
-          <div style={{ position: "relative", left: "4px" }}>
+          <div>
             {percentage && !isNaN(parseFloat(percentage))
               ? percentage === "0"
                 ? t("Unread")

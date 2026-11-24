@@ -1,5 +1,6 @@
 // 豆瓣读书没有开放 API，书单与评分从公开网页解析。
 // 页面结构变化会导致解析失败，解析函数都尽量容错并在缺字段时返回空值。
+import { DETAIL_TTL, LIST_TTL, readCache, writeCache } from "./storeCache";
 
 export const DOUBAN_BOOK_HOST = "https://book.douban.com";
 
@@ -221,19 +222,24 @@ const fetchHtml = async (url: string): Promise<string> => {
 };
 
 export const fetchDoubanList = async (url: string): Promise<DoubanList> => {
+  const cacheKey = "douban-list:" + url;
+  const cached = readCache<DoubanList>(cacheKey, LIST_TTL);
+  if (cached) return cached;
   const html = await fetchHtml(url);
-  return url.includes("search.douban.com")
+  const list = url.includes("search.douban.com")
     ? parseDoubanSearch(html, url)
     : parseDoubanList(html, url);
+  // 解析失败的空结果不缓存，避免下次打开还是空列表
+  if (list.books.length) writeCache(cacheKey, list);
+  return list;
 };
 
 // 同一本书反复打开详情时不重复请求，降低触发豆瓣反爬的概率
-const detailCache = new Map<string, DoubanDetail>();
-
 export const fetchDoubanDetail = async (book: DoubanBook): Promise<DoubanDetail> => {
-  const cached = detailCache.get(book.id);
+  const cacheKey = "douban-detail:" + book.id;
+  const cached = readCache<DoubanDetail>(cacheKey, DETAIL_TTL);
   if (cached) return cached;
   const detail = parseDoubanSubject(await fetchHtml(book.url));
-  detailCache.set(book.id, detail);
+  writeCache(cacheKey, detail);
   return detail;
 };

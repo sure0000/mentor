@@ -1,45 +1,95 @@
+/*
+ * 书籍 / 合集 / 分类共用的右键菜单样式（含「标记为」「更多操作」子菜单）。
+ * 菜单项固定 33px 高、容器上下 5px 内边距，与 utils/common.ts 中的
+ * CONTEXT_MENU_ITEM_HEIGHT / CONTEXT_MENU_PADDING 一致，子菜单定位依赖这两个值。
+ */
 .action-dialog-container {
   width: 200px;
-  /* height: 340px; */
-  opacity: 1;
   position: fixed;
   z-index: 9;
-  animation: popup 0.1s ease-in-out 0s 1;
-  border-radius: 5px;
+  box-sizing: border-box;
+  border-radius: 10px;
   overflow: hidden;
-  overflow-x: hidden;
+  animation: action-menu-in 0.12s ease-out;
+  transform-origin: top left;
 }
-.view-icon {
-  font-size: 16px;
+@keyframes action-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 .action-dialog-actions-container {
-  font-size: 15px;
-  text-align: center;
-  line-height: 14px;
-  opacity: 1;
   padding: 5px;
-  /* position: absolute;
-  top: 83px;
-  left: 29px; */
+  text-align: left;
 }
 .action-dialog-add,
 .action-dialog-delete,
 .action-dialog-edit {
-  cursor: pointer;
+  position: relative;
   display: flex;
   align-items: center;
-  padding: 4px 15px;
+  gap: 10px;
+  height: 33px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--shelf-title);
   white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+/* 分组分隔线：画在组首项顶部，不占高度，避免打乱子菜单的定位计算 */
+.action-menu-divider::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: var(--divider);
+  pointer-events: none;
+}
+.view-icon,
+.action-menu-icon {
+  flex: none;
+  width: 16px;
+  font-size: 15px;
+  line-height: 1;
+  text-align: center;
+  color: var(--shelf-meta);
+}
+.action-name {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-left: 10px;
-  border-radius: 3px;
+  font-size: 13px;
+  line-height: 33px;
+  font-weight: 400;
+  text-align: left;
 }
-
-.action-name {
-  font-size: 15px;
-  text-align: center;
-  line-height: 25px;
-  margin-left: 15px;
-  font-weight: 500;
+/* 带子菜单的项：右侧显示 › */
+.action-menu-arrow {
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--shelf-meta);
+  transform: rotate(-90deg);
+}
+.action-dialog-container .action-dialog-delete.is-danger,
+.action-dialog-container .action-dialog-delete.is-danger .view-icon,
+.action-dialog-container .action-dialog-delete.is-danger .action-menu-icon {
+  color: #e5484d;
+}
+.action-dialog-container .action-dialog-delete.is-danger:hover {
+  background-color: rgba(229, 72, 77, 0.1);
+}
+.action-dialog-container .is-submenu-open {
+  background-color: var(--shelf-hover);
 }

@@ -49,7 +49,9 @@ export const chatStream = async (
   prompt: string,
   chat: any[],
   onMessage: (result) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  // 静默模式下失败只记日志不弹提示，由调用方自行降级
+  silent = false
 ) => {
   const messages = [...chat, { role: "user", content: prompt }].slice(-5);
   const chatUrl = url + "/chat/completions";
@@ -66,6 +68,7 @@ export const chatStream = async (
 
   return new Promise<{ done: boolean }>((resolve, reject) => {
     let settled = false;
+    let receivedMessage = false;
     const source = new SSE(chatUrl, {
       headers,
       payload,
@@ -144,12 +147,26 @@ export const chatStream = async (
       flushText(output);
     };
 
+    // sse.js 结束时会先清空 source.xhr，这里提前保留引用以便读取非流式响应
+    let xhr: XMLHttpRequest | null = null;
     source.addEventListener("open", () => {
+      xhr = (source as unknown as { xhr: XMLHttpRequest | null }).xhr;
       console.info("ChatStream connection established.");
+      // 空响应排查：区分「请求被中断」和「服务端返回空内容」两种情况
+      xhr?.addEventListener("load", () =>
+        console.warn(
+          "ChatStream load:",
+          xhr?.status,
+          xhr?.responseText.length,
+          xhr?.getResponseHeader("content-type")
+        )
+      );
+      xhr?.addEventListener("abort", () => console.warn("ChatStream aborted"));
     });
 
     source.addEventListener("message", (e: any) => {
       if (!e.data) return;
+      receivedMessage = true;
       if (e.data.trim() === "[DONE]") {
         finish();
         return;
@@ -174,11 +191,17 @@ export const chatStream = async (
         return;
       }
       settled = true;
-      console.error("ChatStream error:", e);
-      toast.error(e.data ? JSON.stringify(e.data) : "Unknown error", {
-        id: "chat-stream-error",
-        duration: 5000,
-      });
+      console.error(
+        "ChatStream error:",
+        e?.responseCode,
+        typeof e?.data === "string" ? e.data.slice(0, 500) : e?.data
+      );
+      if (!silent) {
+        toast.error(e.data ? JSON.stringify(e.data) : "Unknown error", {
+          id: "chat-stream-error",
+          duration: 5000,
+        });
+      }
       source.close();
       reject(e);
     });
@@ -187,6 +210,24 @@ export const chatStream = async (
     // 否则上层 stopUpdateInterval 不会被调用，自动滚底定时器会一直运行
     source.addEventListener("readystatechange", () => {
       if (source.readyState === SSE.CLOSED) {
+        // 一条 SSE 消息都没收到就结束：服务端多半返回了非流式的错误 JSON（常见为限流）
+        const raw = xhr?.responseText || "";
+        if (!settled && !receivedMessage && raw.trim()) {
+          settled = true;
+          console.error("ChatStream non-SSE response:", raw.slice(0, 500));
+          let msg = raw.slice(0, 200);
+          try {
+            const json = JSON.parse(raw);
+            msg = json?.error?.message || json?.message || json?.msg || msg;
+          } catch {
+            // 非 JSON 时直接用原文
+          }
+          if (!silent) {
+            toast.error(String(msg), { id: "chat-stream-error", duration: 5000 });
+          }
+          reject(new Error(String(msg)));
+          return;
+        }
         finish();
       }
     });

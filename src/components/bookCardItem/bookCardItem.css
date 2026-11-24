@@ -179,3 +179,38 @@
   left: 200px;
   z-index: 10;
 }
+/* 多选勾选框：悬停封面或处于多选模式时出现在封面右上角 */
+.book-select-check {
+  position: absolute;
+  top: calc(22px * var(--card-scale, 1));
+  right: calc(26px * var(--card-scale, 1));
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  background: rgba(0, 0, 0, 0.3);
+  color: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.book-select-check:hover {
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.85);
+}
+.book-select-check.is-selected {
+  border-color: var(--brand, #1b88ee);
+  background: var(--brand, #1b88ee);
+  color: #fff;
+}
+.collection-detail-book-wrapper .book-select-check {
+  display: none;
+}

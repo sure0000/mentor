@@ -108,7 +108,6 @@ const PopupBox = (props: PopupBoxProps) => {
   const isNavLocked = useAppStore((s) => s.reader.isNavLocked);
   const isSettingLocked = useAppStore((s) => s.reader.isSettingLocked);
   const storeIsDockedRight = useAppStore((s) => s.reader.isDockedRight);
-  const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
   const handleOpenMenu = useAppStore((s) => s.handleOpenMenu);
   const handleMenuMode = useAppStore((s) => s.handleMenuMode);
   const handleNoteKey = useAppStore((s) => s.handleNoteKey);
@@ -158,12 +157,8 @@ const PopupBox = (props: PopupBoxProps) => {
 
   const syncDockedToRedux = (docked: boolean, persist = true) => {
     if (persist) saveDockedToConfig(docked);
+    // 停靠变化后的正文重排由 Viewer 监听 isDockedRight 统一触发
     handleDockedRight(docked);
-    if (docked) {
-      setTimeout(() => {
-        renderBookFunc();
-      }, 300);
-    }
   };
 
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -302,13 +297,8 @@ const PopupBox = (props: PopupBoxProps) => {
     });
     savePositionToConfig(popupLeft, popupBottom);
 
-    // 从固定右侧状态拖出后松手（未重新吸附），刷新书籍布局
-    if (wasDocked.current) {
-      wasDocked.current = false;
-      setTimeout(() => {
-        renderBookFunc();
-      }, 300);
-    }
+    // 从固定右侧状态拖出：拖出时 isDockedRight 已变为 false，Viewer 已重排
+    wasDocked.current = false;
   };
 
   const expandPreview = () => {
@@ -371,7 +361,6 @@ const PopupBox = (props: PopupBoxProps) => {
         expandPreview();
       }
       syncDockedToRedux(false);
-      renderBookFunc();
     } else {
       // 当前未固定 → 直接固定到右侧
       previewDelta.current = { width: 0, height: 0 };
@@ -420,9 +409,6 @@ const PopupBox = (props: PopupBoxProps) => {
     handleClose();
     updateState({ isDockedRight: false });
     syncDockedToRedux(false);
-    setTimeout(() => {
-      renderBookFunc();
-    }, 300);
   };
 
   useEffect(() => {
@@ -469,8 +455,8 @@ const PopupBox = (props: PopupBoxProps) => {
   const innerStyle: React.CSSProperties = isAssistantSidebar
     ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }
     : isDockedRight
-    ? { position: "absolute", top: 20, left: 0, right: 0, bottom: 0 }
-    : { position: "relative", width: "100%", height: "100%" };
+      ? { position: "absolute", top: 20, left: 0, right: 0, bottom: 0 }
+      : { position: "relative", width: "100%", height: "100%" };
 
   const containerStyle: React.CSSProperties = isDockedRight
     ? {
@@ -485,6 +471,7 @@ const PopupBox = (props: PopupBoxProps) => {
         borderRadius: 0,
         marginLeft: 0,
         transition: "none",
+        animation: "popup-dock-in 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
       }
     : {
         marginLeft:

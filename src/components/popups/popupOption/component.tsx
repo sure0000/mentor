@@ -25,6 +25,7 @@ import {
   openExternalUrl,
 } from "../../../utils/common";
 import { createHighlight } from "../../../utils/reader/noteUtil";
+import { captureQuoteAnchor } from "../../../utils/reader/quoteMark";
 import { Tooltip } from "react-tooltip";
 import { useAppStore } from "../../../store/useAppStore";
 
@@ -162,6 +163,8 @@ const PopupOption = (props: PopupOptionProps) => {
     const text = getSelection(currentBook);
     if (!text) return;
 
+    // 侧边栏停靠后正文会重排、原选区消失，先记下引文以便重排后重新标记和定位
+    captureQuoteAnchor(currentBook);
     handleQuoteText(text);
     handleMenuMode("assistant");
     handleOpenMenu(true);

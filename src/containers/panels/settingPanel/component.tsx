@@ -51,9 +51,7 @@ const SettingPanel = () => {
       "isSettingLocked",
       !isSettingLocked ? "yes" : "no"
     );
-    setTimeout(() => {
-      renderBookFunc();
-    }, 300);
+    // 固定 / 取消固定后的正文重排由 Viewer 监听 isNavLocked / isSettingLocked 统一触发
   };
 
   const handleClearAllStyle = () => {

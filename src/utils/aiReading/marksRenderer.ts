@@ -34,7 +34,7 @@ const STYLE = `
 }`;
 
 type HighlightCtor = new (...ranges: Range[]) => unknown;
-type HighlightWindow = Window & {
+export type HighlightWindow = Window & {
   Highlight?: HighlightCtor;
   CSS?: { highlights?: Map<string, unknown> };
 };
@@ -45,9 +45,9 @@ export const isMarksRenderSupported = (doc: Document | null) => {
 };
 
 /** 页面文本的规范化串，以及每个规范化字符对应的 (文本节点, 偏移) */
-type TextMap = { norm: string; nodes: Text[]; offsets: number[]; nodeIdx: number[] };
+export type TextMap = { norm: string; nodes: Text[]; offsets: number[]; nodeIdx: number[] };
 
-const buildTextMap = (doc: Document): TextMap => {
+export const buildTextMap = (doc: Document): TextMap => {
   const map: TextMap = { norm: "", nodes: [], offsets: [], nodeIdx: [] };
   if (!doc.body) return map;
   const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
@@ -78,7 +78,7 @@ const buildTextMap = (doc: Document): TextMap => {
   return map;
 };
 
-const makeRange = (doc: Document, map: TextMap, span: [number, number]) => {
+export const makeRange = (doc: Document, map: TextMap, span: [number, number]) => {
   const [s, e] = span;
   if (e <= s || e > map.norm.length) return null;
   const startNode = map.nodes[map.nodeIdx[s]];

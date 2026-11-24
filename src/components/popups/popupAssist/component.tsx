@@ -1,20 +1,20 @@
 import { useLatest } from "../../../utils/hooks/useLatest";
 import { useTranslation } from "react-i18next";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./popupAssist.css";
 import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
 import Parser from "html-react-parser";
 import DOMPurify from "dompurify";
-import { Trans } from "react-i18next";
 import { handleContextMenu } from "../../../utils/common";
 import toast from "react-hot-toast";
 import { saveAs } from "file-saver";
-import { chatStream } from "../../../utils/request/common";
 import { marked } from "marked";
 import { sampleQuestion } from "../../../constants/settingList";
 import { useAppStore } from "../../../store/useAppStore";
-import { aiStreamText, getPrompt } from "../../../utils/aiReading/aiGateway";
-import { fillPrompt } from "../../../utils/aiReading/prompts";
+import {
+  aiStreamText,
+  isAiAvailable,
+} from "../../../utils/aiReading/aiGateway";
 import QaAnswer from "../../aiReading/qaAnswer";
 import {
   SPOILER_SAFE_KEY,
@@ -33,6 +33,7 @@ import {
 } from "../../../utils/aiReading/bookQa";
 import { getCurrentDocIndex } from "../../../utils/aiReading/readerAdapter";
 import { isElectron } from "react-device-detect";
+import { clearQuoteMark } from "../../../utils/reader/quoteMark";
 
 export type AiChatMessage = {
   role: "user" | "assistant";
@@ -46,8 +47,6 @@ export interface PopupAssistProps {
 }
 
 export interface PopupAssistState {
-  aiService: string;
-  isAddNew: boolean;
   isWaiting: boolean;
   question: string;
   askHistory: AiChatMessage[];
@@ -64,9 +63,6 @@ const AI_ASK_HISTORY_KEY = "aiAskHistory";
 const plainAnswer = (text: string) =>
   text.split(QA_EXTRA_OPEN).join("").split(QA_EXTRA_CLOSE).join("");
 
-const isBookQaService = (service: string) =>
-  service === "custom-ai-assistant-plugin";
-
 const PopupAssist = (props: PopupAssistProps) => {
   const currentBook = useAppStore((s) => s.book.currentBook);
   const originalText = useAppStore((s) => s.reader.originalText);
@@ -81,15 +77,20 @@ const PopupAssist = (props: PopupAssistProps) => {
   const { t } = useTranslation();
   const [state, setState] = useState<PopupAssistState>({
     answer: "",
-    aiService: ConfigService.getReaderConfig("aiService") || "",
-    isAddNew: false,
     isWaiting: false,
     question: "",
-    askHistory: [],
+    // 历史在首次渲染就带上，避免先显示欢迎页再被历史替换的闪动
+    askHistory: currentBook?.key
+      ? ConfigService.getObjectConfig(currentBook.key, AI_ASK_HISTORY_KEY, [])
+      : [],
     inputQuestion: "",
     usage: "",
     isSpoilerSafe: isSpoilerSafe(),
   });
+
+  // 问书直接使用「设置 > AI 服务」里配置的模型，无需再选择插件；
+  // 保存设置后会刷新插件列表，这里借此重新判断是否已配置
+  const isAiConfigured = useMemo(() => isAiAvailable("assistance"), [plugins]);
 
   const stateRef = useLatest(state);
   // 是否已有全书索引（切到问书页签或换书时重新检查）
@@ -108,9 +109,7 @@ const PopupAssist = (props: PopupAssistProps) => {
   const answerTextAccumulator = useRef("");
   const updateInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const isHydrating = useRef(false);
-  const pendingTimeouts = useRef<Set<ReturnType<typeof setTimeout>>>(
-    new Set()
-  );
+  const pendingTimeouts = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   const mergeState = (patch: Partial<PopupAssistState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -163,10 +162,7 @@ const PopupAssist = (props: PopupAssistProps) => {
     }, 150);
   };
 
-  const stopUpdateInterval = (
-    finalAnswer?: string,
-    callback?: () => void
-  ) => {
+  const stopUpdateInterval = (finalAnswer?: string, callback?: () => void) => {
     if (updateInterval.current) {
       clearInterval(updateInterval.current);
       updateInterval.current = null;
@@ -210,25 +206,9 @@ const PopupAssist = (props: PopupAssistProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quote]);
 
-  // componentDidMount: 加载历史、初始化 AI 服务
+  // componentDidMount: 加载历史
   useEffect(() => {
     loadChatHistory();
-    if (!state.aiService) {
-      let pluginList = plugins.filter(
-        (item) =>
-          item.type === "assistant" && !item.key.startsWith("official-ai-")
-      );
-      if (pluginList.length > 0) {
-        mergeState({
-          aiService: pluginList[0].key,
-        });
-        ConfigService.setReaderConfig("aiService", pluginList[0].key);
-      } else {
-        mergeState({
-          isAddNew: true,
-        });
-      }
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -322,95 +302,11 @@ const PopupAssist = (props: PopupAssistProps) => {
       // Remove consecutive spaces
       .replace(/\s{2,}/g, " ")
       .trim();
-    if (
-      (!ConfigService.getReaderConfig("aiService") ||
-        plugins.findIndex(
-          (item) => item.key === ConfigService.getReaderConfig("aiService")
-        ) === -1)
-    ) {
-      mergeState({ isAddNew: true });
-    }
     if (!answerText) {
-      answerText = await htmlBook.rendition.chapterText();
+      // 重排期间 htmlBook 会被清空，取不到章节文本时按无上下文提问
+      answerText = (await htmlBook?.rendition?.chapterText()) || "";
     }
-    handleDoAnswer(answerText);
-  };
-  const handleDoAnswer = async (text: string) => {
-    try {
-      const service = ConfigService.getReaderConfig("aiService");
-      if (isElectron && isBookQaService(service)) {
-        await handleBookQaAnswer(text);
-        return;
-      }
-      if (
-        ConfigService.getReaderConfig("aiService") &&
-        ConfigService.getReaderConfig("aiService") ===
-          "custom-ai-assistant-plugin"
-      ) {
-        let plugin = plugins.find(
-          (item) => item.key === "custom-ai-assistant-plugin"
-        );
-        if (!plugin) {
-          return;
-        }
-        const systemPrompt = fillPrompt(getPrompt("aiAssistance"), { text });
-        let config: any = plugin.config || {};
-        let chatHistory = stateRef.current.askHistory;
-        // Build messages: system prompt as first user message, then history, then current question
-        const historyMessages = chatHistory.slice(0, -1); // exclude the latest user message we just added
-        const currentQuestion =
-          chatHistory[chatHistory.length - 1]?.content ||
-          stateRef.current.question;
-        if (!currentQuestion) {
-          return;
-        }
-        answerTextAccumulator.current = "";
-        startUpdateInterval();
-        await chatStream(
-          config.endpoint,
-          config.providerId,
-          config.apiKey,
-          config.modelId,
-          systemPrompt + "\n\n读者的问题：" + currentQuestion,
-          historyMessages,
-          (result) => {
-            if (result && result.done) {
-              return;
-            }
-            if (result && result.text) {
-              if (!answerTextAccumulator.current) {
-                mergeState({ isWaiting: false });
-              }
-              answerTextAccumulator.current += result.text;
-            }
-          }
-        );
-        stopUpdateInterval(answerTextAccumulator.current);
-        const finalAnswer = answerTextAccumulator.current;
-        answerTextAccumulator.current = "";
-        setState((prev) => ({
-          ...prev,
-          askHistory: [
-            ...prev.askHistory,
-            { role: "assistant", content: finalAnswer },
-          ],
-          answer: "",
-          question: "",
-          isWaiting: false,
-        }));
-        runAfterUpdate(scrollToBottomIfNeeded);
-      }
-    } catch (error) {
-      toast.error(
-        t("Error happened") +
-          ": " +
-          (error instanceof Error ? error.message : String(error))
-      );
-      console.error(error);
-      mergeState({
-        answer: t("Error happened"),
-      });
-    }
+    await handleBookQaAnswer(answerText);
   };
   /**
    * AI 伴读：全书问答（FR-QA）。上下文 = 选中文字 + 当前章节 + 全书检索片段；
@@ -426,7 +322,8 @@ const PopupAssist = (props: PopupAssistProps) => {
       ? await htmlBook.rendition.chapterText()
       : "";
     const selection =
-      chapterOrSelection && chapterOrSelection !== chapterText &&
+      chapterOrSelection &&
+      chapterOrSelection !== chapterText &&
       chapterOrSelection.length < 3000
         ? chapterOrSelection
         : "";
@@ -492,21 +389,6 @@ const PopupAssist = (props: PopupAssistProps) => {
   const handleStopAnswer = () => {
     cancelAnswer.current?.();
   };
-  const handleChangeAiService = (aiService: string) => {
-    let plugin = plugins.find((item) => item.key === aiService);
-    if (!plugin) {
-      return;
-    }
-    mergeState({
-      aiService: aiService,
-      isAddNew: false,
-    });
-    runAfterUpdate(() => {
-      ConfigService.setReaderConfig("aiService", aiService);
-      if (!plugin) return;
-      handleAnswer();
-    });
-  };
   const handleCopyAnswer = (content: string) => {
     navigator.clipboard.writeText(content || "").then(() => {
       toast.success(t("Copied"));
@@ -517,7 +399,9 @@ const PopupAssist = (props: PopupAssistProps) => {
       item.role === "user" ? (
         <div key={index} className="ai-chat-row ai-chat-row-user">
           <div className="ai-chat-bubble">
-            {Parser(DOMPurify.sanitize(marked.parse(item.content) as string) || " ")}
+            {Parser(
+              DOMPurify.sanitize(marked.parse(item.content) as string) || " "
+            )}
           </div>
         </div>
       ) : (
@@ -526,7 +410,9 @@ const PopupAssist = (props: PopupAssistProps) => {
             {item.sources ? (
               <QaAnswer content={item.content} sources={item.sources} />
             ) : (
-              Parser(DOMPurify.sanitize(marked.parse(item.content) as string) || " ")
+              Parser(
+                DOMPurify.sanitize(marked.parse(item.content) as string) || " "
+              )
             )}
           </div>
           <div className="ai-chat-actions">
@@ -587,7 +473,8 @@ const PopupAssist = (props: PopupAssistProps) => {
     if (answer || isWaiting) {
       return;
     }
-    const question = inputQuestion.trim() || (quote ? t("Explain this passage") : "");
+    const question =
+      inputQuestion.trim() || (quote ? t("Explain this passage") : "");
     if (!question) return;
     handleNewQuestion(question);
     mergeState({ inputQuestion: "" });
@@ -625,8 +512,6 @@ const PopupAssist = (props: PopupAssistProps) => {
       }
     }, 100);
   };
-  const assistantPlugins = plugins.filter((item) => item.type === "assistant");
-  const isQa = isElectron && isBookQaService(state.aiService);
   const isAnswering = state.isWaiting || !!state.answer;
   const hasMessages = state.askHistory.length > 0 || isAnswering;
 
@@ -660,53 +545,31 @@ const PopupAssist = (props: PopupAssistProps) => {
       </div>
 
       <div className="ai-chat-meta">
-        <select
-          className="ai-chat-service"
-          value={state.aiService}
-          onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
-            if (event.target.value === "add-new") {
-              handleOpenMenu(false);
-              handleMenuMode("");
-              handleSetting(true);
-              handleSettingMode("ai");
-              return;
-            }
-            handleChangeAiService(event.target.value);
-          }}
+        <label
+          className="ai-chat-spoiler"
+          title={t("Spoiler-safe (only use text before my position)")}
         >
-          <option value={""}>{t("Please select")}</option>
-          {assistantPlugins.map((item) => (
-            <option value={item.key} key={item.key}>
-              {t(item.displayName)}
-            </option>
-          ))}
-          <option value={"add-new"}>{t("Add new plugin")}</option>
-        </select>
-        {isQa && (
-          <label
-            className="ai-chat-spoiler"
-            title={t("Spoiler-safe (only use text before my position)")}
-          >
-            <input
-              type="checkbox"
-              checked={state.isSpoilerSafe}
-              onChange={(e) => {
-                ConfigService.setReaderConfig(
-                  SPOILER_SAFE_KEY,
-                  e.target.checked ? "yes" : "no"
-                );
-                mergeState({ isSpoilerSafe: e.target.checked });
-              }}
-            />
-            {t("Spoiler-safe")}
-          </label>
-        )}
+          <input
+            type="checkbox"
+            checked={state.isSpoilerSafe}
+            onChange={(e) => {
+              ConfigService.setReaderConfig(
+                SPOILER_SAFE_KEY,
+                e.target.checked ? "yes" : "no"
+              );
+              mergeState({ isSpoilerSafe: e.target.checked });
+            }}
+          />
+          {t("Spoiler-safe")}
+        </label>
       </div>
 
-      {state.isAddNew ? (
+      {!isAiConfigured ? (
         <div className="ai-chat-empty">
           <div className="ai-chat-empty-text">
-            {t("No AI service configured. Please add one in Settings > AI service")}
+            {t(
+              "No AI service configured. Please add one in Settings > AI service"
+            )}
           </div>
           <span
             className="ai-chat-primary"
@@ -717,7 +580,7 @@ const PopupAssist = (props: PopupAssistProps) => {
               handleSettingMode("ai");
             }}
           >
-            <Trans>Add new plugin</Trans>
+            {t("Setting")}
           </span>
         </div>
       ) : (
@@ -726,15 +589,17 @@ const PopupAssist = (props: PopupAssistProps) => {
             {!hasMessages && (
               <div className="ai-chat-welcome">
                 <div className="ai-chat-welcome-title">
-                  {t("Hi there! What questions do you have about this chapter?")}
+                  {t(
+                    "Hi there! What questions do you have about this chapter?"
+                  )}
                 </div>
-                {isQa && (
-                  <div className="ai-chat-welcome-hint">
-                    {hasBookIndex
-                      ? t("Answers draw on the whole book")
-                      : t("Open Reading Companion once to enable whole-book answers")}
-                  </div>
-                )}
+                <div className="ai-chat-welcome-hint">
+                  {hasBookIndex
+                    ? t("Answers draw on the whole book")
+                    : t(
+                        "Open Reading Companion once to enable whole-book answers"
+                      )}
+                </div>
                 <div className="ai-chat-suggestions">
                   {sampleQuestion
                     .filter((item) => item.mode === "ask")
@@ -767,7 +632,9 @@ const PopupAssist = (props: PopupAssistProps) => {
                   {Parser(
                     DOMPurify.sanitize(
                       marked.parse(
-                        plainAnswer(stripRefMarkers(visibleWhileStreaming(state.answer)))
+                        plainAnswer(
+                          stripRefMarkers(visibleWhileStreaming(state.answer))
+                        )
                       ) as string
                     ) || " "
                   )}
@@ -799,7 +666,10 @@ const PopupAssist = (props: PopupAssistProps) => {
                   <span
                     className="icon-close popup-assist-quote-remove"
                     title={t("Remove quote")}
-                    onClick={() => handleQuoteText("")}
+                    onClick={() => {
+                      handleQuoteText("");
+                      clearQuoteMark();
+                    }}
                   ></span>
                 </div>
               )}
@@ -814,7 +684,9 @@ const PopupAssist = (props: PopupAssistProps) => {
                 id="trans-add-content-box"
                 className="popup-assist-input"
                 rows={3}
-                onKeyDown={(event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                onKeyDown={(
+                  event: React.KeyboardEvent<HTMLTextAreaElement>
+                ) => {
                   // Enter 发送，Shift+Enter 换行；输入法组字时不发送
                   if (
                     event.key === "Enter" &&
@@ -836,11 +708,11 @@ const PopupAssist = (props: PopupAssistProps) => {
               />
               <div className="popup-assist-composer-bar">
                 <span className="popup-assist-composer-hint">
-                  {isQa && state.usage
+                  {state.usage
                     ? state.usage
                     : t("Enter to send, Shift+Enter for a new line")}
                 </span>
-                {isQa && isAnswering ? (
+                {isAnswering ? (
                   <div
                     className="popup-assistant-send-button popup-assistant-stop"
                     onClick={handleStopAnswer}

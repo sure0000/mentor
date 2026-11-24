@@ -26,11 +26,13 @@ import ReaderTopToolbar from "../../components/readerTopToolbar";
 import ChapterEndPrompt from "../../components/aiReading/chapterEndPrompt";
 import ReadingMarksLayer from "../../components/aiReading/readingMarksLayer";
 import CompanionPanel from "../../components/aiReading/companionPanel";
+import PdfTranslationPanel from "../../components/pdfTranslationPanel";
 import { READING_PANEL_TOGGLE_EVENT } from "../../utils/reader/mouseEvent";
 import {
   getIsFitPage,
   getRightPanelInset,
   isPaginatedBook,
+  isReadingRawPDF,
   POPUP_BOX_MODES,
   scrollContents,
   throttle,
@@ -895,6 +897,7 @@ const Reader = () => {
       <ChapterEndPrompt />
       <ReadingMarksLayer />
       {isElectron && <CompanionPanel />}
+      {currentBook && isReadingRawPDF(currentBook) && <PdfTranslationPanel />}
       {isOpenPopupOptionDialog && (
         <>
           <PopupOptionDialog />

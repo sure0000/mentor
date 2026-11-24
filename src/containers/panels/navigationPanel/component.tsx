@@ -101,7 +101,6 @@ const NavigationPanel = (props: NavigationPanelProps) => {
   const htmlBook = useAppStore((s) => s.reader.htmlBook);
   const backgroundColor = useAppStore((s) => s.reader.backgroundColor);
   const isNavLocked = useAppStore((s) => s.reader.isNavLocked);
-  const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
   const handleFetchBookmarks = useAppStore((s) => s.handleFetchBookmarks);
   const handleSearch = useAppStore((s) => s.handleSearch);
   const handleNavLock = useAppStore((s) => s.handleNavLock);
@@ -223,9 +222,7 @@ const NavigationPanel = (props: NavigationPanelProps) => {
   const handleLock = () => {
     handleNavLock(!isNavLocked);
     ConfigService.setReaderConfig("isNavLocked", !isNavLocked ? "yes" : "no");
-    setTimeout(() => {
-      renderBookFunc();
-    }, 300);
+    // 固定 / 取消固定后的正文重排由 Viewer 监听 isNavLocked / isSettingLocked 统一触发
   };
 
   const toggleChapter = (docIndex: number) => {

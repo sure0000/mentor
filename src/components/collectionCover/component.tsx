@@ -18,6 +18,7 @@ export interface CollectionCoverItem {
 }
 
 const MAX_COVER_COUNT = 4;
+const CELL_GAP = 4;
 
 const CollectionCover: React.FC<CollectionCoverProps> = (props) => {
   const { bookKeys, refreshBookKey, width, height } = props;
@@ -71,8 +72,8 @@ const CollectionCover: React.FC<CollectionCoverProps> = (props) => {
   }, [latestKeyStr, refreshBookKey]);
 
   const count = latestKeys.length;
-  const cellWidth = (width - 1) / 2;
-  const cellHeight = (height - 1) / 2;
+  const cellWidth = (width - CELL_GAP) / 2;
+  const cellHeight = (height - CELL_GAP) / 2;
   const emptyCoverScale = Math.max(cellWidth / 105, cellHeight / 137);
   const renderCell = (key: string) => {
     const item = items[key];
@@ -108,12 +109,21 @@ const CollectionCover: React.FC<CollectionCoverProps> = (props) => {
   return (
     <div
       className="collection-cover"
-      style={{ width: `${width}px`, height: `${height}px` }}
+      style={{ width: `${width}px`, height: `${height}px`, gap: CELL_GAP }}
     >
       {count === 0 ? (
         <div className="collection-cover-placeholder"></div>
       ) : (
-        latestKeys.map((key) => renderCell(key))
+        <>
+          {latestKeys.map((key) => renderCell(key))}
+          {/* 不足 4 本时补齐空格子，避免 2x2 网格出现空洞 */}
+          {Array.from({ length: MAX_COVER_COUNT - count }).map((_, index) => (
+            <div
+              className="collection-cover-cell collection-cover-cell-blank"
+              key={`blank-${index}`}
+            ></div>
+          ))}
+        </>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
+import "../actionDialog/actionDialog.css";
 import "./moreAction.css";
 import { Trans } from "react-i18next";
 import { useAppStore } from "../../../store/useAppStore";
@@ -89,14 +90,14 @@ const MoreAction = (
   const moreMenuLeft = props.left + (props.isExceed ? -SUBMENU_GAP : SUBMENU_GAP);
   // “更多操作”在主菜单中的实际行位置，子菜单必须以这一行为锚点，
   // 而不是沿用写死的偏移，否则靠近底部时子菜单会被推到触发行上方。
+  // 子菜单整体上移一个容器内边距，使其第一项与触发行在同一水平线上
   const moreMenuTriggerTop =
     props.top +
-    CONTEXT_MENU_PADDING +
     (props.menuItemIndex ?? DEFAULT_MENU_INDEX) * CONTEXT_MENU_ITEM_HEIGHT;
   const moreMenuPos = getSubmenuPosition(
     moreMenuLeft,
     moreMenuTriggerTop,
-    CONTEXT_MENU_ITEM_HEIGHT,
+    CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_PADDING * 2,
     CONTEXT_MENU_WIDTH,
     moreMenuHeight
   );
@@ -163,15 +164,13 @@ const MoreAction = (
     // 格式子菜单以“导出笔记/导出高亮/导出查词历史”所在行的实际渲染位置为锚点，
     // 主菜单向上翻转时也要保持一致的对齐。
     const formatTriggerTop =
-      moreMenuPos.top +
-      CONTEXT_MENU_PADDING +
-      EXPORT_MENU_ITEM_INDEX[type] * CONTEXT_MENU_ITEM_HEIGHT;
+      moreMenuPos.top + EXPORT_MENU_ITEM_INDEX[type] * CONTEXT_MENU_ITEM_HEIGHT;
     const formatSubmenuPos = getSubmenuPosition(
       props.left +
         (props.isExceed ? -SUBMENU_GAP : SUBMENU_GAP) +
         SUBMENU_GAP,
       formatTriggerTop,
-      CONTEXT_MENU_ITEM_HEIGHT,
+      CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_PADDING * 2,
       120,
       formatSubmenuHeight
     );
@@ -204,8 +203,7 @@ const MoreAction = (
             <div
               key={fmt}
               className="action-dialog-edit"
-              style={{ paddingLeft: "0px" }}
-              onClick={() => handleExport(fmt)}
+                onClick={() => handleExport(fmt)}
             >
               <p className="action-name">{formatLabels[fmt]}</p>
             </div>
@@ -244,7 +242,6 @@ const MoreAction = (
         <div className="action-dialog-actions-container">
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onClick={async () => {
               props.handleMoreAction(false);
               handleActionDialog(false);
@@ -267,7 +264,6 @@ const MoreAction = (
           </div>
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onClick={() => {
               BookUtil.fetchBook(
                 currentBook.key,
@@ -288,7 +284,6 @@ const MoreAction = (
           </div>
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onClick={async () => {
               const isCoverExist = await CoverUtil.isCoverExist(
                 currentBook
@@ -336,7 +331,6 @@ const MoreAction = (
           </div>
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onMouseEnter={() => {
               setState((prev) => ({ ...prev, exportSubmenu: "notes" }));
             }}
@@ -346,12 +340,11 @@ const MoreAction = (
           >
             <p className="action-name export-action-name">
               <Trans>Export notes</Trans>
-              <span className="icon-dropdown icon-export-all"></span>
+              <span className="icon-dropdown action-menu-arrow"></span>
             </p>
           </div>
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onMouseEnter={() => {
               setState((prev) => ({ ...prev, exportSubmenu: "highlights" }));
             }}
@@ -361,12 +354,11 @@ const MoreAction = (
           >
             <p className="action-name export-action-name">
               <Trans>Export highlights</Trans>
-              <span className="icon-dropdown icon-export-all"></span>
+              <span className="icon-dropdown action-menu-arrow"></span>
             </p>
           </div>
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onMouseEnter={() => {
               setState((prev) => ({ ...prev, exportSubmenu: "words" }));
             }}
@@ -376,12 +368,11 @@ const MoreAction = (
           >
             <p className="action-name export-action-name">
               <Trans>Export dictionary history</Trans>
-              <span className="icon-dropdown icon-export-all"></span>
+              <span className="icon-dropdown action-menu-arrow"></span>
             </p>
           </div>
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onClick={() => {
               if (
                 currentBook.format === "PDF" ||
@@ -447,7 +438,6 @@ const MoreAction = (
           </div>
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onClick={async () => {
               await BookUtil.deleteBook("cache-" + currentBook.key, "zip");
               toast.success(t("Deletion successful"));
@@ -459,7 +449,6 @@ const MoreAction = (
           </div>
           <div
             className="action-dialog-edit"
-            style={{ paddingLeft: "0px" }}
             onClick={() => {
               const link = `mentor://open-book?bookKey=${currentBook.key}`;
               navigator.clipboard.writeText(link).then(() => {
@@ -476,8 +465,7 @@ const MoreAction = (
           {isElectron && (
             <div
               className="action-dialog-edit"
-              style={{ paddingLeft: "0px" }}
-              onClick={async () => {
+                onClick={async () => {
                 const fs = window.electronAPI.fs;
                 const path = window.electronAPI.path;
                 const localBookPath = currentBook.path;

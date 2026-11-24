@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
+import "../bookCardItem/bookCardItem.css";
+import "../dialogs/actionDialog/actionDialog.css";
 import "./shelfCategoryItem.css";
 import CollectionCover from "../collectionCover";
 import DeleteDialog from "../dialogs/deleteDialog";
@@ -21,17 +23,22 @@ import { clampMenuPosition, estimateMenuHeight } from "../../utils/common";
 
 export interface ShelfCategoryItemProps {
   name: string;
+  /** 用于拼封面的书籍 key（已剔除不存在的书） */
   bookKeys: string[];
+  /** 分类内实际显示的条目数（合集算一项） */
+  count: number;
   cardScale: number;
   onOpen: (name: string) => void;
 }
 
+// 与书卡封面尺寸一致（110 x 137，见 bookCardItem.css），保证分类与书籍在同一网格中对齐
 const COVER_WIDTH = 110;
-const COVER_HEIGHT = 150;
-const MENU_WIDTH = 140;
+const COVER_HEIGHT = 137;
+const COVER_PADDING = 6;
+const MENU_WIDTH = 170;
 
 const ShelfCategoryItem: React.FC<ShelfCategoryItemProps> = (props) => {
-  const { name, bookKeys, cardScale, onOpen } = props;
+  const { name, bookKeys, count, cardScale, onOpen } = props;
   const { t } = useTranslation();
   const refreshBookKey = useAppStore((s) => s.manager.refreshBookKey);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
@@ -49,7 +56,7 @@ const ShelfCategoryItem: React.FC<ShelfCategoryItemProps> = (props) => {
 
   const openMenu = (x: number, y: number) => {
     setMenuPosition(
-      clampMenuPosition(x, y, MENU_WIDTH, estimateMenuHeight(2))
+      clampMenuPosition(x, y, MENU_WIDTH, estimateMenuHeight(3))
     );
   };
   const closeMenu = () => setMenuPosition(null);
@@ -107,10 +114,26 @@ const ShelfCategoryItem: React.FC<ShelfCategoryItemProps> = (props) => {
   const width = COVER_WIDTH * cardScale;
   const height = COVER_HEIGHT * cardScale;
 
+  const handleMoreClick = (event: React.MouseEvent<HTMLSpanElement>) => {
+    event.stopPropagation();
+    if (isMenuOpen) {
+      closeMenu();
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    openMenu(rect.right - MENU_WIDTH, rect.bottom + 4);
+  };
+
+  // 外层框架复用书卡的 class（book-list-item / book-item-cover / book-item-title /
+  // reading-progress-icon / book-more-action），保证尺寸、阴影、悬停效果与单本书完全一致；
+  // 差异只在封面内容（2x2 拼图）、标题前的文件夹图标和底部的数量文案
   return (
     <li
-      className="shelf-category-item"
-      style={{ width: `${150 * cardScale}px` }}
+      className={
+        "book-list-item shelf-category-item" +
+        (isMenuOpen ? " is-menu-open" : "") +
+        (isDropTarget ? " book-drop-target" : "")
+      }
       onContextMenu={(event) => {
         event.preventDefault();
         openMenu(event.clientX, event.clientY);
@@ -136,28 +159,27 @@ const ShelfCategoryItem: React.FC<ShelfCategoryItemProps> = (props) => {
       onDrop={handleDrop}
     >
       <div
-        className={
-          "shelf-category-cover" + (isDropTarget ? " is-drop-target" : "")
-        }
-        style={{ width: `${width}px`, height: `${height}px` }}
+        className="book-item-cover shelf-category-cover"
+        style={{ height: `${height}px` }}
         onClick={() => onOpen(name)}
       >
         {bookKeys.length > 0 ? (
           <CollectionCover
             bookKeys={bookKeys}
             refreshBookKey={refreshBookKey}
-            width={width - 12}
-            height={height - 12}
+            width={width - COVER_PADDING * 2}
+            height={height - COVER_PADDING * 2}
           />
         ) : (
           <span className="icon-folder shelf-category-empty-icon"></span>
         )}
+        {count > 0 && <span className="book-cover-badge">{count}</span>}
       </div>
       {isRenaming ? (
         <input
           className="shelf-category-rename-input"
-          style={{ width: `${width}px` }}
           autoFocus
+          onFocus={(event) => event.target.select()}
           value={draftName}
           onChange={(event) => setDraftName(event.target.value)}
           onBlur={handleRename}
@@ -171,66 +193,75 @@ const ShelfCategoryItem: React.FC<ShelfCategoryItemProps> = (props) => {
         />
       ) : (
         <p
-          className="shelf-category-title"
-          style={{ width: `${width}px` }}
+          className="book-item-title shelf-category-title"
+          title={name}
           onClick={() => onOpen(name)}
+          onDoubleClick={() => {
+            setDraftName(name);
+            setIsRenaming(true);
+          }}
         >
+          <span className="icon-folder book-item-title-icon"></span>
           {name}
         </p>
       )}
-      <div className="shelf-category-meta" style={{ width: `${width}px` }}>
-        <span>{t("{{count}} books", { count: bookKeys.length })}</span>
-        <div
-          className={"shelf-category-more" + (isMenuOpen ? " is-open" : "")}
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (isMenuOpen) {
-              closeMenu();
-              return;
-            }
-            const rect = event.currentTarget.getBoundingClientRect();
-            openMenu(rect.right - MENU_WIDTH + 8, rect.bottom + 6);
-          }}
-        >
-          <span className="icon-more"></span>
-        </div>
+      <div className="reading-progress-icon">
+        {t("{{count}} books", { count })}
+      </div>
+      <span
+        className="icon-more book-more-action"
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={handleMoreClick}
+      ></span>
         {menuPosition &&
           createPortal(
+            // 与书籍右键菜单共用样式（actionDialog.css），保持外观一致
             <div
               ref={menuRef}
-              className="shelf-category-menu"
+              className="action-dialog-container"
               style={{
                 left: menuPosition.left,
                 top: menuPosition.top,
                 width: MENU_WIDTH,
+                zIndex: 30,
               }}
             >
-              <div
-                className="shelf-category-menu-item"
-                onClick={() => {
-                  closeMenu();
-                  setDraftName(name);
-                  setIsRenaming(true);
-                }}
-              >
-                <span className="icon-edit-line"></span>
-                {t("Rename")}
-              </div>
-              <div
-                className="shelf-category-menu-item is-danger"
-                onClick={() => {
-                  closeMenu();
-                  setIsDeleting(true);
-                }}
-              >
-                <span className="icon-trash-line"></span>
-                {t("Delete category")}
+              <div className="action-dialog-actions-container">
+                <div
+                  className="action-dialog-edit"
+                  onClick={() => {
+                    closeMenu();
+                    onOpen(name);
+                  }}
+                >
+                  <span className="icon-folder action-menu-icon"></span>
+                  <p className="action-name">{t("Open")}</p>
+                </div>
+                <div
+                  className="action-dialog-edit"
+                  onClick={() => {
+                    closeMenu();
+                    setDraftName(name);
+                    setIsRenaming(true);
+                  }}
+                >
+                  <span className="icon-edit-line action-menu-icon"></span>
+                  <p className="action-name">{t("Rename")}</p>
+                </div>
+                <div
+                  className="action-dialog-delete is-danger action-menu-divider"
+                  onClick={() => {
+                    closeMenu();
+                    setIsDeleting(true);
+                  }}
+                >
+                  <span className="icon-trash-line action-menu-icon"></span>
+                  <p className="action-name">{t("Delete category")}</p>
+                </div>
               </div>
             </div>,
             document.body
           )}
-      </div>
       {isDeleting && (
         <>
           <DeleteDialog

@@ -95,3 +95,13 @@
   font-size: 13px;
   cursor: pointer;
 }
+@keyframes popup-dock-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}

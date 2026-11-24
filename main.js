@@ -90,23 +90,25 @@ const dirPath = path.join(configDir, "uploads");
 // 数据目录（即渲染进程的 getStorageLocation，见 "storage-location"）
 const dataPath = path.join(dirPath, "data");
 // 递归计算目录大小（字节），不存在或出错时返回 0
-const getDirSize = (targetPath) => {
-  if (!fs.existsSync(targetPath)) {
+// 异步实现：书库目录可能有上万个文件，同步遍历会长时间阻塞主进程
+const getDirSize = async (targetPath) => {
+  let stat;
+  try {
+    stat = await fs.promises.stat(targetPath);
+  } catch {
     return 0;
   }
+  if (stat.isFile()) {
+    return stat.size;
+  }
   try {
-    const stat = fs.statSync(targetPath);
-    if (stat.isFile()) {
-      return stat.size;
-    }
-    const entries = fs.readdirSync(targetPath, { withFileTypes: true });
-    return entries.reduce((total, entry) => {
-      const entryPath = path.join(targetPath, entry.name);
-      if (entry.isDirectory()) {
-        return total + getDirSize(entryPath);
-      }
-      return total + (fs.statSync(entryPath).size || 0);
-    }, 0);
+    const entries = await fs.promises.readdir(targetPath, {
+      withFileTypes: true,
+    });
+    const sizes = await Promise.all(
+      entries.map((entry) => getDirSize(path.join(targetPath, entry.name)))
+    );
+    return sizes.reduce((total, size) => total + size, 0);
   } catch (error) {
     console.error("Error calculating directory size:", error);
     return 0;
@@ -456,7 +458,8 @@ const getSyncUtil = async (config, isUseCache = true) => {
       // GitHub 不在 kookit 支持的网盘里，用自研实现，接口保持一致
       syncUtilCache[config.service] = new GitHubSyncUtil(config, net.fetch);
     } else {
-      const { SyncUtil } = await import("./src/assets/lib/kookit-extra.min.mjs");
+      const { SyncUtil } =
+        await import("./src/assets/lib/kookit-extra.min.mjs");
       syncUtilCache[config.service] = new SyncUtil(config.service, config);
     }
   }
@@ -699,7 +702,74 @@ const createMainWin = () => {
       };
     }
   });
-  ipcMain.handle("file-command", async (event, args) => runFileCommand(args));
+  // 异步通道使用 fs.promises，避免读写大文件（书籍、封面）时阻塞主进程事件循环，
+  // 进而卡住所有窗口的 IPC 与界面响应
+  const runFileCommandAsync = async (args) => {
+    if (!args || typeof args.operation !== "string") {
+      throw new TypeError("Invalid file operation");
+    }
+    const fsp = fs.promises;
+    const filePath = args.path;
+    switch (args.operation) {
+      case "exists":
+        return fsp.access(filePath).then(
+          () => true,
+          () => false
+        );
+      case "mkdir":
+        return fsp.mkdir(filePath, args.options || {});
+      case "read":
+        return fsp.readFile(filePath, args.options);
+      case "write":
+        return fsp.writeFile(
+          filePath,
+          normalizeFileData(args.data),
+          args.options
+        );
+      case "append":
+        return fsp.appendFile(
+          filePath,
+          normalizeFileData(args.data),
+          args.options
+        );
+      case "readdir": {
+        const entries = await fsp.readdir(filePath, args.options || {});
+        return args.options && args.options.withFileTypes
+          ? entries.map((entry) => ({
+              name: entry.name,
+              isFile: entry.isFile(),
+              isDirectory: entry.isDirectory(),
+            }))
+          : entries;
+      }
+      case "stat": {
+        const stat = await fsp.stat(filePath);
+        return {
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          isFile: stat.isFile(),
+          isDirectory: stat.isDirectory(),
+        };
+      }
+      case "unlink":
+        return fsp.unlink(filePath);
+      case "copyFile":
+        return fsp.copyFile(args.source, args.destination);
+      case "rename":
+        return fsp.rename(args.source, args.destination);
+      case "rm":
+        return fsp.rm(filePath, args.options || {});
+      case "emptyDir":
+        return fsExtra.emptyDir(filePath);
+      case "copy":
+        return fsExtra.copy(args.source, args.destination);
+      default:
+        throw new Error(`Unsupported file operation: ${args.operation}`);
+    }
+  };
+  ipcMain.handle("file-command", async (event, args) =>
+    runFileCommandAsync(args)
+  );
   ipcMain.on("node-command-sync", (event, args) => {
     try {
       if (!args || typeof args.operation !== "string") {
@@ -1277,16 +1347,18 @@ const createMainWin = () => {
     if (cacheType === "tts") {
       return getDirSize(getTTSCacheDirPath());
     } else if (cacheType === "temp") {
-      return getTempCacheDirPaths().reduce(
-        (total, cacheDir) => total + getDirSize(cacheDir),
-        0
-      );
+      const sizes = await Promise.all(getTempCacheDirPaths().map(getDirSize));
+      return sizes.reduce((total, size) => total + size, 0);
     } else if (cacheType === "all") {
       const storagePath =
         config && typeof config.storagePath === "string"
           ? config.storagePath
           : dataPath;
-      return getDirSize(storagePath) + getDirSize(getTTSCacheDirPath());
+      const [dataSize, ttsSize] = await Promise.all([
+        getDirSize(storagePath),
+        getDirSize(getTTSCacheDirPath()),
+      ]);
+      return dataSize + ttsSize;
     }
     throw new Error("Invalid cache size request");
   });
