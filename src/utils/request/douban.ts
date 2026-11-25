@@ -1,6 +1,13 @@
 // 豆瓣读书没有开放 API，书单与评分从公开网页解析。
 // 页面结构变化会导致解析失败，解析函数都尽量容错并在缺字段时返回空值。
-import { DETAIL_TTL, LIST_TTL, readCache, writeCache } from "./storeCache";
+import {
+  DETAIL_TTL,
+  LIST_TTL,
+  readCache,
+  readStaleCache,
+  writeCache,
+} from "./storeCache";
+import { fetchWithPolicy } from "./http";
 
 export const DOUBAN_BOOK_HOST = "https://book.douban.com";
 
@@ -213,7 +220,7 @@ export const parseDoubanSubject = (html: string): DoubanDetail => {
 };
 
 const fetchHtml = async (url: string): Promise<string> => {
-  const response = await fetch(url, {
+  const response = await fetchWithPolicy(url, {
     headers: { Accept: "text/html,application/xhtml+xml" },
   });
   if (!response.ok)
@@ -225,13 +232,19 @@ export const fetchDoubanList = async (url: string): Promise<DoubanList> => {
   const cacheKey = "douban-list:" + url;
   const cached = readCache<DoubanList>(cacheKey, LIST_TTL);
   if (cached) return cached;
-  const html = await fetchHtml(url);
-  const list = url.includes("search.douban.com")
-    ? parseDoubanSearch(html, url)
-    : parseDoubanList(html, url);
-  // 解析失败的空结果不缓存，避免下次打开还是空列表
-  if (list.books.length) writeCache(cacheKey, list);
-  return list;
+  try {
+    const html = await fetchHtml(url);
+    const list = url.includes("search.douban.com")
+      ? parseDoubanSearch(html, url)
+      : parseDoubanList(html, url);
+    // 解析失败的空结果不缓存，避免下次打开还是空列表
+    if (list.books.length) writeCache(cacheKey, list);
+    return list;
+  } catch (err) {
+    const stale = readStaleCache<DoubanList>(cacheKey);
+    if (stale) return stale;
+    throw err;
+  }
 };
 
 // 同一本书反复打开详情时不重复请求，降低触发豆瓣反爬的概率
@@ -239,7 +252,13 @@ export const fetchDoubanDetail = async (book: DoubanBook): Promise<DoubanDetail>
   const cacheKey = "douban-detail:" + book.id;
   const cached = readCache<DoubanDetail>(cacheKey, DETAIL_TTL);
   if (cached) return cached;
-  const detail = parseDoubanSubject(await fetchHtml(book.url));
-  writeCache(cacheKey, detail);
-  return detail;
+  try {
+    const detail = parseDoubanSubject(await fetchHtml(book.url));
+    writeCache(cacheKey, detail);
+    return detail;
+  } catch (err) {
+    const stale = readStaleCache<DoubanDetail>(cacheKey);
+    if (stale) return stale;
+    throw err;
+  }
 };

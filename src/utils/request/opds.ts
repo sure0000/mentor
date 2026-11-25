@@ -1,5 +1,7 @@
 import CryptoJS from "crypto-js";
 import { supportedFormats } from "../common";
+import { fetchWithPolicy } from "./http";
+import type { HttpOptions } from "./http";
 
 export interface OPDSCatalog {
   id: string;
@@ -194,17 +196,22 @@ function buildDigestAuthHeader(
 export async function fetchWithCatalogAuth(
   url: string,
   init: RequestInit = {},
-  catalog?: Pick<OPDSCatalog, "username" | "password"> | null
+  catalog?: Pick<OPDSCatalog, "username" | "password"> | null,
+  options: HttpOptions = {}
 ): Promise<Response> {
   const method = init.method || "GET";
   const baseHeaders = {
     ...getBaseRequestHeaders(init.headers as Record<string, string>),
   };
-  const firstResponse = await fetch(url, {
-    ...init,
-    method,
-    headers: baseHeaders,
-  });
+  const firstResponse = await fetchWithPolicy(
+    url,
+    {
+      ...init,
+      method,
+      headers: baseHeaders,
+    },
+    options
+  );
   if (
     firstResponse.status !== 401 ||
     !catalog ||
@@ -235,14 +242,18 @@ export async function fetchWithCatalogAuth(
     authorization = getBasicAuthHeader(catalog);
   }
 
-  return fetch(url, {
-    ...init,
-    method,
-    headers: {
-      ...baseHeaders,
-      Authorization: authorization,
+  return fetchWithPolicy(
+    url,
+    {
+      ...init,
+      method,
+      headers: {
+        ...baseHeaders,
+        Authorization: authorization,
+      },
     },
-  });
+    options
+  );
 }
 
 function resolveUrl(href: string, baseUrl: string): string {
@@ -408,7 +419,11 @@ export async function downloadOPDSFile(
   catalog?: Pick<OPDSCatalog, "username" | "password"> | null
 ): Promise<File> {
   const ext = DOWNLOAD_TYPES[link.type] || link.href.split(".").pop() || "";
-  const response = await fetchWithCatalogAuth(link.href, {}, catalog);
+  // 整本书可能有几十 MB，按大文件放宽超时且不重试
+  const response = await fetchWithCatalogAuth(link.href, {}, catalog, {
+    timeout: 10 * 60 * 1000,
+    retries: 0,
+  });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const arrayBuffer = await response.arrayBuffer();
   const fileName = title.replace(/[/\\?%*:|"<>]/g, "-") + "." + ext;

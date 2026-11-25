@@ -1,5 +1,6 @@
 import type { BookSource } from "../../constants/bookSourceList";
 import { supportedFormats } from "../common";
+import { fetchWithPolicy } from "./http";
 import { ACQUISITION_RELS, DOWNLOAD_TYPES, fetchOPDSFeed } from "./opds";
 import type { OPDSEntry, OPDSFeed, OPDSLink } from "./opds";
 
@@ -246,6 +247,214 @@ export const matchOpenStax = (
     .filter((b): b is StoreBook => b !== null)
     .slice(0, MAX_MATCHES_PER_SOURCE);
 
+const fetchJson = async (url: string): Promise<unknown> => {
+  const response = await fetchWithPolicy(url);
+  if (!response.ok)
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  return response.json();
+};
+
+/** 依次用候选书名搜索，凑够结果即停；全部失败才抛错，以区分「没找到」和「访问失败」 */
+const searchByQueries = async (
+  queries: string[],
+  search: (query: string) => Promise<StoreBook[]>
+): Promise<StoreBook[]> => {
+  const matches = new Map<string, StoreBook>();
+  let lastError: unknown = null;
+  let isAnySucceeded = false;
+  for (const query of queries) {
+    try {
+      for (const book of await search(query)) {
+        if (!matches.has(book.id)) matches.set(book.id, book);
+      }
+      isAnySucceeded = true;
+    } catch (err) {
+      lastError = err;
+    }
+    if (matches.size >= MAX_MATCHES_PER_SOURCE) break;
+  }
+  if (!isAnySucceeded && lastError) throw lastError;
+  return Array.from(matches.values()).slice(0, MAX_MATCHES_PER_SOURCE);
+};
+
+const SEARCH_LIMIT = 20;
+
+// 维基文库没有 OPDS，用 MediaWiki 接口找篇目，再由 ws-export 导出整本 EPUB
+interface WikisourcePage {
+  index?: number;
+  title?: string;
+  // 中文站标题多为繁体，这里有各变体写法，用于匹配简体书名
+  varianttitles?: Record<string, string>;
+  pageprops?: { disambiguation?: string };
+}
+
+// 繁体标题的简繁变体由 MediaWiki 的 varianttitles 提供；老版本不支持时不带该参数
+export const buildWikisourceSearchUrl = (
+  lang: string,
+  query: string,
+  withVariants = true
+): string => {
+  const params = new URLSearchParams({
+    action: "query",
+    generator: "search",
+    gsrsearch: query.trim(),
+    gsrnamespace: "0",
+    gsrlimit: String(SEARCH_LIMIT),
+    prop: withVariants ? "info|pageprops" : "info",
+    format: "json",
+    formatversion: "2",
+    origin: "*",
+  });
+  if (withVariants) {
+    params.set("inprop", "varianttitles");
+    params.set("ppprop", "disambiguation");
+  }
+  return `https://${lang}.wikisource.org/w/api.php?${params}`;
+};
+
+const isMediaWikiError = (data: unknown) =>
+  typeof (data as { error?: unknown })?.error === "object" &&
+  (data as { error?: unknown }).error !== null;
+
+/** 从 MediaWiki 响应里取出书名匹配的篇目；跳过章节子页面和消歧义页 */
+export const parseWikisourceSearch = (
+  data: unknown,
+  lang: string,
+  queries: string[]
+): StoreBook[] => {
+  const pages =
+    (data as { query?: { pages?: WikisourcePage[] } })?.query?.pages || [];
+  return [...pages]
+    .sort((a, b) => (a.index || 0) - (b.index || 0))
+    .flatMap((page) => {
+      const title = page.title || "";
+      if (!title || title.includes("/")) return [];
+      if (page.pageprops?.disambiguation !== undefined) return [];
+      const titles = [title, ...Object.values(page.varianttitles || {})];
+      if (!titles.some((item) => isTitleMatch(item, queries))) return [];
+      const params = new URLSearchParams({
+        lang,
+        page: title,
+        format: "epub-3",
+      });
+      const entry: OPDSEntry = {
+        id: `wikisource-${lang}-${title}`,
+        title,
+        authors: [],
+        summary: "",
+        coverUrl: "",
+        thumbnailUrl: "",
+        links: [
+          {
+            href: `https://ws-export.wmcloud.org/?${params}`,
+            type: "application/epub+zip",
+            rel: "http://opds-spec.org/acquisition/open-access",
+            title: "EPUB",
+          },
+        ],
+        updated: "",
+        isNavigation: false,
+        publisher: "Wikisource",
+        language: lang,
+        pubDate: "",
+        rights: "",
+        categories: [],
+      };
+      return [
+        { id: entry.id, title, author: "", coverUrl: "", detailUrl: "", entry },
+      ];
+    })
+    .slice(0, MAX_MATCHES_PER_SOURCE);
+};
+
+const ARCHIVE_METADATA = "https://archive.org/metadata/";
+
+// 只查图书馆扫描和 Gutenberg 馆藏，排除仅供借阅的在版书与用户自行上传的内容
+const ARCHIVE_FILTER =
+  "mediatype:texts AND collection:(gutenberg OR americana OR europeanlibraries OR toronto)" +
+  " AND NOT collection:(inlibrary OR printdisabled)";
+
+export const buildArchiveSearchUrl = (query: string): string => {
+  // 去掉会破坏检索语法的标点，只保留文字
+  const words = query.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  const params = new URLSearchParams({
+    q: `title:(${words}) AND ${ARCHIVE_FILTER}`,
+    rows: String(SEARCH_LIMIT),
+    output: "json",
+  });
+  for (const field of ["identifier", "title", "creator"])
+    params.append("fl[]", field);
+  params.append("sort[]", "downloads desc");
+  return `https://archive.org/advancedsearch.php?${params}`;
+};
+
+interface ArchiveDoc {
+  identifier?: string;
+  title?: string;
+  creator?: string | string[];
+}
+
+export const parseArchiveSearch = (
+  data: unknown,
+  queries: string[]
+): StoreBook[] => {
+  const docs =
+    (data as { response?: { docs?: ArchiveDoc[] } })?.response?.docs || [];
+  return docs
+    .flatMap((doc) => {
+      if (!doc.identifier || !doc.title || !isTitleMatch(doc.title, queries))
+        return [];
+      return [
+        {
+          id: `archive-${doc.identifier}`,
+          title: doc.title,
+          author: [doc.creator || []].flat().join(", "),
+          coverUrl: "",
+          detailUrl: ARCHIVE_METADATA + encodeURIComponent(doc.identifier),
+          entry: null,
+        },
+      ];
+    })
+    .slice(0, MAX_MATCHES_PER_SOURCE);
+};
+
+interface ArchiveFile {
+  name?: string;
+  private?: string;
+}
+
+/** 文件名不固定，需从元数据的文件清单里取；加密或受限文件不可下载 */
+export const parseArchiveFiles = (data: unknown): OPDSLink[] => {
+  const { metadata, files } = (data || {}) as {
+    metadata?: { identifier?: string; "access-restricted-item"?: string };
+    files?: ArchiveFile[];
+  };
+  const id = metadata?.identifier;
+  if (!id || metadata?.["access-restricted-item"] === "true") return [];
+  const pick = (ext: string, type: string): OPDSLink[] => {
+    const file = files?.find(
+      (f) =>
+        f.name?.toLowerCase().endsWith("." + ext) &&
+        f.private !== "true" &&
+        !/_(lcp|encrypted|text)\.\w+$/i.test(f.name)
+    );
+    if (!file?.name) return [];
+    const path = file.name.split("/").map(encodeURIComponent).join("/");
+    return [
+      {
+        href: `https://archive.org/download/${encodeURIComponent(id)}/${path}`,
+        type,
+        rel: "http://opds-spec.org/acquisition/open-access",
+        title: ext.toUpperCase(),
+      },
+    ];
+  };
+  return [
+    ...pick("epub", "application/epub+zip"),
+    ...pick("pdf", "application/pdf"),
+  ];
+};
+
 /**
  * 在单个书源里按候选书名搜索，返回书名匹配的条目。
  */
@@ -256,29 +465,27 @@ export const findInSource = async (
   if (source.type === "openstax") {
     return matchOpenStax(await getOpenStaxCatalog(), queries);
   }
-  const seen = new Set<string>();
-  const matches: StoreBook[] = [];
-  let lastError: unknown = null;
-  let isAnySucceeded = false;
-  for (const query of queries) {
-    try {
-      const feed = await fetchOPDSFeed(buildSearchUrl(source, query));
-      isAnySucceeded = true;
-      for (const entry of feed.entries) {
-        const book = toStoreBook(entry, source);
-        if (!book || seen.has(book.id) || !isTitleMatch(book.title, queries))
-          continue;
-        seen.add(book.id);
-        matches.push(book);
+  return searchByQueries(queries, async (query) => {
+    if (source.type === "wikisource") {
+      const lang = source.lang || "en";
+      let data = await fetchJson(buildWikisourceSearchUrl(lang, query));
+      // 接口不认识 varianttitles 时整次检索会失败，退回只用标题匹配
+      if (isMediaWikiError(data)) {
+        data = await fetchJson(buildWikisourceSearchUrl(lang, query, false));
       }
-    } catch (err) {
-      lastError = err;
+      return parseWikisourceSearch(data, lang, queries);
     }
-    if (matches.length >= MAX_MATCHES_PER_SOURCE) break;
-  }
-  // 所有查询都失败（如书源维护中）时向上抛出，让界面区分「没找到」和「访问失败」
-  if (!isAnySucceeded && lastError) throw lastError;
-  return matches.slice(0, MAX_MATCHES_PER_SOURCE);
+    if (source.type === "archive") {
+      const url = buildArchiveSearchUrl(query);
+      return parseArchiveSearch(await fetchJson(url), queries);
+    }
+    const feed = await fetchOPDSFeed(buildSearchUrl(source, query));
+    return feed.entries
+      .map((entry) => toStoreBook(entry, source))
+      .filter(
+        (b): b is StoreBook => b !== null && isTitleMatch(b.title, queries)
+      );
+  });
 };
 
 /**
@@ -289,6 +496,9 @@ export const resolveDownloadLinks = async (
 ): Promise<OPDSLink[]> => {
   if (book.entry) return toStoreBookDetail([book.entry], book).downloadLinks;
   if (!book.detailUrl) return [];
+  if (book.detailUrl.startsWith(ARCHIVE_METADATA)) {
+    return parseArchiveFiles(await fetchJson(book.detailUrl));
+  }
   const feed = await fetchOPDSFeed(book.detailUrl);
   return toStoreBookDetail(feed.entries, book).downloadLinks;
 };

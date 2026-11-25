@@ -1,7 +1,14 @@
 // Goodreads 已停止开放 API，榜单、搜索与详情都从公开网页解析。
 // 返回结构与豆瓣模块一致，书城视图可以共用同一套渲染逻辑。
 import type { DoubanBook, DoubanDetail, DoubanList } from "./douban";
-import { DETAIL_TTL, LIST_TTL, readCache, writeCache } from "./storeCache";
+import {
+  DETAIL_TTL,
+  LIST_TTL,
+  readCache,
+  readStaleCache,
+  writeCache,
+} from "./storeCache";
+import { fetchWithPolicy } from "./http";
 
 export const GOODREADS_HOST = "https://www.goodreads.com";
 
@@ -170,7 +177,7 @@ export const parseGoodreadsBook = (html: string): DoubanDetail => {
 };
 
 const fetchHtml = async (url: string): Promise<string> => {
-  const response = await fetch(url, {
+  const response = await fetchWithPolicy(url, {
     headers: { Accept: "text/html,application/xhtml+xml" },
   });
   if (!response.ok)
@@ -182,10 +189,16 @@ export const fetchGoodreadsList = async (url: string): Promise<DoubanList> => {
   const cacheKey = "goodreads-list:" + url;
   const cached = readCache<DoubanList>(cacheKey, LIST_TTL);
   if (cached) return cached;
-  const list = parseGoodreadsList(await fetchHtml(url), url);
-  // 解析失败的空结果不缓存，避免下次打开还是空列表
-  if (list.books.length) writeCache(cacheKey, list);
-  return list;
+  try {
+    const list = parseGoodreadsList(await fetchHtml(url), url);
+    // 解析失败的空结果不缓存，避免下次打开还是空列表
+    if (list.books.length) writeCache(cacheKey, list);
+    return list;
+  } catch (err) {
+    const stale = readStaleCache<DoubanList>(cacheKey);
+    if (stale) return stale;
+    throw err;
+  }
 };
 
 export const fetchGoodreadsDetail = async (
@@ -194,9 +207,15 @@ export const fetchGoodreadsDetail = async (
   const cacheKey = "goodreads-detail:" + book.id;
   const cached = readCache<DoubanDetail>(cacheKey, DETAIL_TTL);
   if (cached) return cached;
-  const detail = parseGoodreadsBook(await fetchHtml(book.url));
-  writeCache(cacheKey, detail);
-  return detail;
+  try {
+    const detail = parseGoodreadsBook(await fetchHtml(book.url));
+    writeCache(cacheKey, detail);
+    return detail;
+  } catch (err) {
+    const stale = readStaleCache<DoubanDetail>(cacheKey);
+    if (stale) return stale;
+    throw err;
+  }
 };
 
 /**

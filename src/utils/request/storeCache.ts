@@ -40,15 +40,17 @@ export const readCache = <T>(key: string, ttl: number): T | null => {
     if (!raw) return null;
     const entry = JSON.parse(raw) as Entry<T>;
     if (!entry || typeof entry.time !== "number") return null;
-    if (Date.now() - entry.time > ttl) {
-      localStorage.removeItem(PREFIX + key);
-      return null;
-    }
+    // 过期条目先留着，请求失败时由 readStaleCache 兜底，数量由 prune 控制
+    if (Date.now() - entry.time > ttl) return null;
     return entry.data;
   } catch {
     return null;
   }
 };
+
+/** 忽略有效期读取缓存，仅在请求失败时兜底使用 */
+export const readStaleCache = <T>(key: string): T | null =>
+  readCache<T>(key, Infinity);
 
 /** 写入缓存；存储满或被禁用时静默放弃，不影响正常请求 */
 export const writeCache = <T>(key: string, data: T) => {

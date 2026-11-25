@@ -1,5 +1,7 @@
 // 开源书城的书源配置。新增书源只需在 bookSourceList 中追加一项。
-// type 为 opds 的书源走 OPDS 搜索；openstax 一次拉取完整书目后在本地按书名匹配。
+// type 为 opds 的书源走 OPDS 搜索；openstax 一次拉取完整书目后在本地按书名匹配；
+// wikisource 通过 MediaWiki 搜索接口检索，再由 ws-export 导出 EPUB；
+// archive 走 Internet Archive 检索接口，只含公版馆藏。
 
 export interface BookSourceCategory {
   // i18n key
@@ -11,7 +13,7 @@ export interface BookSource {
   id: string;
   // 书源名称是专有名词，不做翻译
   name: string;
-  type: "opds" | "openstax";
+  type: "opds" | "openstax" | "wikisource" | "archive";
   homepage: string;
   categories: BookSourceCategory[];
   // 搜索 URL 模板，{searchTerms} 会被替换为关键词
@@ -22,6 +24,8 @@ export interface BookSource {
   bookFeedPattern?: RegExp;
   // 列表 feed 没有真实封面时，根据书籍详情 feed 地址推导封面
   coverFromBookFeed?: (bookFeedUrl: string) => string;
+  // wikisource 书源的语言代码
+  lang?: string;
 }
 
 const gutenbergCover = (bookFeedUrl: string) => {
@@ -156,5 +160,79 @@ export const bookSourceList: BookSource[] = [
     searchTemplate:
       "https://www.textos.info/busqueda.atom&query={searchTerms}",
     webSearchTemplate: "https://www.textos.info/buscar/{searchTerms}",
+  },
+  {
+    // 以排版质量见长的公版书目录；站点启用了人机验证，部分网络下可能访问失败
+    id: "feedbooks",
+    name: "Feedbooks",
+    type: "opds",
+    homepage: "https://www.feedbooks.com",
+    categories: [
+      {
+        title: "Popular",
+        url: "https://catalog.feedbooks.com/catalog/public_domain.atom",
+      },
+    ],
+    searchTemplate:
+      "https://catalog.feedbooks.com/search.atom?query={searchTerms}",
+    webSearchTemplate: "https://www.feedbooks.com/search?query={searchTerms}",
+  },
+  {
+    // ManyBooks OPDS 目录；站点对人机验证较严格，部分网络下可能访问失败
+    id: "manybooks",
+    name: "ManyBooks",
+    type: "opds",
+    homepage: "https://manybooks.net",
+    categories: [
+      {
+        title: "Popular",
+        url: "https://manybooks.net/opds",
+      },
+    ],
+    searchTemplate: "https://manybooks.net/opds/search?query={searchTerms}",
+    webSearchTemplate: "https://manybooks.net/search?search_api_fulltext={searchTerms}",
+  },
+  {
+    // 中文维基文库：典籍、史书、小说等，经 ws-export 导出 EPUB
+    id: "wikisource-zh",
+    name: "Wikisource (中文)",
+    type: "wikisource",
+    lang: "zh",
+    homepage: "https://zh.wikisource.org",
+    categories: [
+      { title: "Classics", url: "https://zh.wikisource.org" },
+    ],
+    searchTemplate:
+      "https://zh.wikisource.org/w/index.php?search={searchTerms}&fulltext=1",
+    webSearchTemplate:
+      "https://zh.wikisource.org/w/index.php?search={searchTerms}&fulltext=1",
+  },
+  {
+    // 英文维基文库
+    id: "wikisource-en",
+    name: "Wikisource (English)",
+    type: "wikisource",
+    lang: "en",
+    homepage: "https://en.wikisource.org",
+    categories: [
+      { title: "Classics", url: "https://en.wikisource.org" },
+    ],
+    searchTemplate:
+      "https://en.wikisource.org/w/index.php?search={searchTerms}&fulltext=1",
+    webSearchTemplate:
+      "https://en.wikisource.org/w/index.php?search={searchTerms}&fulltext=1",
+  },
+  {
+    // 图书馆扫描的公版书，收录了 Gutenberg 馆藏，主站维护时可作后备
+    id: "archive",
+    name: "Internet Archive",
+    type: "archive",
+    homepage: "https://archive.org",
+    categories: [
+      { title: "Popular", url: "https://archive.org/details/americana" },
+    ],
+    // 实际检索由 buildArchiveSearchUrl 构造，不使用 searchTemplate
+    searchTemplate: "https://archive.org/search?query={searchTerms}",
+    webSearchTemplate: "https://archive.org/search?query={searchTerms}",
   },
 ];

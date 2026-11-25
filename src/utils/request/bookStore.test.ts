@@ -4,9 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../common", () => ({ supportedFormats: [".epub", ".mobi"] }));
 import { bookSourceList } from "../../constants/bookSourceList";
 import {
+  buildArchiveSearchUrl,
   buildSearchUrl,
+  findInSource,
   isTitleMatch,
   matchOpenStax,
+  parseArchiveFiles,
+  parseArchiveSearch,
+  parseWikisourceSearch,
+  resolveDownloadLinks,
   toStoreBook,
   toStoreBookDetail,
 } from "./bookStore";
@@ -177,5 +183,72 @@ describe("bookStore", () => {
     expect(found.map((b) => b.id)).toEqual(["openstax-2", "openstax-1"]);
     expect(found[0].author).toBe("Gilbert Strang");
     expect(found[0].entry?.links[0]).toMatchObject({ href: "https://a/new.pdf", type: "application/pdf" });
+  });
+
+  it("维基文库用简体书名匹配繁体标题，跳过子页面和消歧义页", () => {
+    const variants = { "zh-hans": "红楼梦", "zh-hant": "紅樓夢" };
+    const data = {
+      query: {
+        pages: [
+          { index: 3, title: "紅樓夢/第001回", varianttitles: variants },
+          { index: 1, title: "紅樓夢 (消歧義)", varianttitles: variants, pageprops: { disambiguation: "" } },
+          { index: 2, title: "紅樓夢", varianttitles: variants },
+        ],
+      },
+    };
+    const found = parseWikisourceSearch(data, "zh", ["红楼梦"]);
+    expect(found.map((b) => b.title)).toEqual(["紅樓夢"]);
+    const href = new URL(found[0].entry!.links[0].href);
+    expect(href.searchParams.get("page")).toBe("紅樓夢");
+    expect(parseWikisourceSearch({}, "zh", ["红楼梦"])).toEqual([]);
+  });
+
+  it("Internet Archive 只查公版馆藏并从文件清单取下载链接", () => {
+    const q = new URL(buildArchiveSearchUrl('Dune: "Part" (1)')).searchParams.get("q");
+    expect(q).toContain("title:(Dune Part 1) AND");
+    expect(q).toContain("NOT collection:(inlibrary OR printdisabled)");
+    const found = parseArchiveSearch(
+      { response: { docs: [{ identifier: "a1", title: "Frankenstein", creator: ["Shelley"] }, { identifier: "b", title: "Other" }] } },
+      ["Frankenstein"]
+    );
+    expect(found).toMatchObject([{ author: "Shelley", detailUrl: "https://archive.org/metadata/a1" }]);
+    const files = [{ name: "a1_lcp.epub" }, { name: "x.pdf", private: "true" }, { name: "my book.epub" }];
+    expect(parseArchiveFiles({ metadata: { identifier: "a1" }, files }).map((l) => l.href)).toEqual([
+      "https://archive.org/download/a1/my%20book.epub",
+    ]);
+    expect(parseArchiveFiles({ metadata: { identifier: "a1", "access-restricted-item": "true" }, files })).toEqual([]);
+  });
+
+  it("维基文库接口不认识 varianttitles 时退回普通检索", async () => {
+    const source = bookSourceList.find((s) => s.id === "wikisource-zh")!;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(url);
+      return Response.json(
+        calls.length === 1
+          ? { error: { code: "unknown_inprop" } }
+          : { query: { pages: [{ index: 1, title: "紅樓夢" }] } }
+      );
+    }));
+    const found = await findInSource(source, ["紅樓夢"]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("inprop=varianttitles");
+    expect(calls[1]).not.toContain("inprop");
+    expect(found.map((b) => b.title)).toEqual(["紅樓夢"]);
+    vi.unstubAllGlobals();
+  });
+
+  it("按书源类型完成检索和下载链接解析", async () => {
+    const source = bookSourceList.find((s) => s.id === "archive")!;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      Response.json(
+        url.includes("/metadata/")
+          ? { metadata: { identifier: "a1" }, files: [{ name: "a1.epub" }] }
+          : { response: { docs: [{ identifier: "a1", title: "Frankenstein" }] } }
+      )
+    ));
+    const [book] = await findInSource(source, ["Frankenstein"]);
+    expect(await resolveDownloadLinks(book)).toHaveLength(1);
+    vi.unstubAllGlobals();
   });
 });
