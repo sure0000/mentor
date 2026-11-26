@@ -251,4 +251,38 @@ describe("bookStore", () => {
     expect(await resolveDownloadLinks(book)).toHaveLength(1);
     vi.unstubAllGlobals();
   });
+
+  it("书格匹配作品书页，不把相关作品、外站地址或书页当下载", async () => {
+    const source = bookSourceList.find((s) => s.id === "shuge")!;
+    const url = "https://www.shuge.org/view/hong_lou_meng/";
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([
+      { id: 1, title: "红楼梦图咏", url },
+      { id: 2, title: "红楼梦", url: "https://example.com/view/book/" },
+      { id: 3, title: "红楼梦", url },
+    ])));
+    try {
+      const books = await findInSource(source, ["红楼梦"]);
+      expect(books).toMatchObject([{ id: "shuge-3", websiteUrl: url }]);
+      expect(await resolveDownloadLinks(books[0])).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("Google 图书只返回开放全文的同名版本", async () => {
+    const source = bookSourceList.find((s) => s.id === "googlebooks")!;
+    const volumeInfo = { title: "Dune", authors: ["Frank Herbert"] };
+    const items = ["PARTIAL", "NO_PAGES", "ALL_PAGES"].map((viewability) => ({
+      id: viewability, volumeInfo, accessInfo: { viewability },
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ items })));
+    try {
+      expect(new URL(buildSearchUrl(source, "Dune")).searchParams.get("filter")).toBe("free-ebooks");
+      expect(await findInSource(source, ["Dune"])).toMatchObject([{
+        author: "Frank Herbert", websiteUrl: "https://books.google.com/books?id=ALL_PAGES&printsec=frontcover",
+      }]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

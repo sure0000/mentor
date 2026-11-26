@@ -2,6 +2,7 @@ import { useLatest } from "../../../utils/hooks/useLatest";
 import { useTranslation } from "react-i18next";
 import React, { useEffect, useRef, useState } from "react";
 import "./booklist.css";
+import { CollectionCoverGrid } from "../../../components/collectionCover/component";
 import BookCardItem from "../../../components/bookCardItem";
 import CollectionItem from "../../../components/collectionItem";
 import BookModel from "../../../models/Book";
@@ -9,7 +10,7 @@ import {
   ConfigService,
   CollectionUtil,
 } from "../../../assets/lib/kookit-extra-browser.min";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import SelectBook from "../../../components/selectBook";
 import Book from "../../../models/Book";
 import { isElectron } from "react-device-detect";
@@ -63,6 +64,8 @@ function getBookCountPerPage() {
 
 const BookList = () => {
   const books = useAppStore((s) => s.manager.books);
+  const wantedBooks = useAppStore((s) => s.manager.wantedBooks);
+  const wantedCount = wantedBooks.length;
   const mode = useAppStore((s) => s.sidebar.mode);
   const selectedBooks = useAppStore((s) => s.manager.selectedBooks);
   const shelfTitle = useAppStore((s) => s.sidebar.shelfTitle);
@@ -656,7 +659,7 @@ const BookList = () => {
       books.length === 0 &&
       !isSearch &&
       !shelfTitle &&
-      getCategoryList().length === 0
+      getCategoryList().length === 0 && wantedCount === 0
     ) {
       return <Navigate to="/manager/empty" replace />;
     }
@@ -709,7 +712,7 @@ const BookList = () => {
   if (!books) {
     return null;
   }
-  if (!books[0]) {
+  if (!books[0] && !wantedCount) {
     return <Navigate to="/manager/empty" replace />;
   }
   const { books: displayedBookList, bookMode } = handleBooks();
@@ -733,6 +736,28 @@ const BookList = () => {
               <ContinueReading />
             )}
             {renderShelfToolbar()}
+            {wantedCount > 0 && !isSearch && !shelfTitle && !state.readingStatusFilter && (
+              <li className="book-list-item shelf-category-item">
+                <Link className="wanted-category-link" to="/manager/want-to-read">
+                  <div className="book-item-cover shelf-category-cover">
+                    <CollectionCoverGrid
+                      width={110 * state.cardScale - 12}
+                      height={137 * state.cardScale - 12}
+                      cells={wantedBooks.slice(0, 4).map((book) => ({
+                        key: book.sourceId + ":" + book.id,
+                        item: { cover: book.coverUrl, title: book.title, format: "" },
+                      }))}
+                    />
+                    <span className="book-cover-badge">{wantedCount}</span>
+                  </div>
+                  <p className="book-item-title shelf-category-title">
+                    <span className="icon-heart book-heart-action" aria-hidden="true" />{" "}
+                    {t("Want to read")}
+                  </p>
+                  <div className="reading-progress-icon">{t("{{count}} books", { count: wantedCount })}</div>
+                </Link>
+              </li>
+            )}
             {renderCategoryFolders()}
             {renderBookList(displayedBookList, bookMode)}
             {bookMode === "shelf" && displayedBookList.length === 0 && (

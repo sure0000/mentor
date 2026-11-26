@@ -37,6 +37,36 @@ const migrateLegacyThemeColors = () => {
   }
 };
 
+// 微信读书风格的默认排版：滚动阅读 + 居中纸张栏、宋体、18px、较宽松的行距与段距。
+// 只执行一次，且只补齐用户从未设置过的项；PDF 等固定版式书使用 pdfReaderMode，不受影响
+const WEREAD_LAYOUT_DEFAULTS: Record<string, string> = {
+  readerMode: "scroll",
+  fontFamily: SERIF_FONT_STACK,
+  fontSize: "18",
+  lineHeight: "1.75",
+  paraSpacing: "12",
+  textAlign: "Justify",
+};
+const applyWereadLayoutDefaults = () => {
+  if (ConfigService.getItem("isWereadLayoutApplied") === "yes") return;
+  Object.entries(WEREAD_LAYOUT_DEFAULTS).forEach(([key, value]) => {
+    if (!ConfigService.getReaderConfig(key)) {
+      ConfigService.setReaderConfig(key, value);
+    }
+  });
+  ConfigService.setItem("isWereadLayoutApplied", "yes");
+};
+
+// 旧版本默认是「双页铺满」，与微信读书的居中正文栏不一致：
+// 老用户没主动改过模式时，一次性切到滚动阅读，切换后仍可在设置里改回
+const migrateToWereadReadingMode = () => {
+  if (ConfigService.getItem("isWereadColumnApplied") === "yes") return;
+  if ((ConfigService.getReaderConfig("readerMode") || "double") === "double") {
+    ConfigService.setReaderConfig("readerMode", "scroll");
+  }
+  ConfigService.setItem("isWereadColumnApplied", "yes");
+};
+
 export const initTheme = () => {
   const style = document.createElement("link");
   style.rel = "stylesheet";
@@ -66,6 +96,8 @@ export const initTheme = () => {
     }
   }
   migrateLegacyThemeColors();
+  applyWereadLayoutDefaults();
+  migrateToWereadReadingMode();
   // 仿真翻页已移除，旧配置回落到滑动翻页
   if (ConfigService.getReaderConfig("animation") === "mimical") {
     ConfigService.setReaderConfig("animation", "sliding");

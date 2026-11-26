@@ -31,6 +31,7 @@ import {
 } from "../../utils/reader/bookDrag";
 import Footer from "../../components/footer";
 import { useAppStore } from "../../store/useAppStore";
+import { WANTED_BOOKS_KEY } from "../../utils/storage/wantToRead";
 
 const collectionUtil = new CollectionUtil(ConfigService);
 
@@ -100,6 +101,16 @@ const Manager = () => {
   });
   const isDraggingFromAppRef = useRef(false);
   const prevBooksRef = useRef(books);
+
+  useEffect(() => {
+    const reload = useAppStore.getState().handleReloadWantedBooks;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === WANTED_BOOKS_KEY || event.key === null) reload();
+    };
+    window.addEventListener("storage", onStorage);
+    reload();
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const handleDrag = (isDrag: boolean) => {
     setState((prev) => ({ ...prev, isDrag }));

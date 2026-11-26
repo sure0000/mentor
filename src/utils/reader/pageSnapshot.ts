@@ -81,11 +81,7 @@ export const takePageAreaSnapshot = (): HTMLElement | null => {
 const getAreaBackground = (pageArea: HTMLElement) => {
   // 快照层必须不透明：否则新排版（宽度/位置已变）会从旧页图片的空隙里透出来，
   // 新旧两份文字叠在一起就是「残影」。取阅读区最近的非透明祖先背景色作底
-  for (
-    let el: HTMLElement | null = pageArea;
-    el;
-    el = el.parentElement
-  ) {
+  for (let el: HTMLElement | null = pageArea; el; el = el.parentElement) {
     const bg = getComputedStyle(el).backgroundColor;
     if (bg && bg !== "transparent" && !/rgba\(.*,\s*0\)$/.test(bg)) {
       return bg;
@@ -176,32 +172,42 @@ const samplePixel = (img: HTMLImageElement) => {
  * 改用主进程 capturePage 把阅读区当前画面整块截下来，作为一张图盖在阅读区上。
  * 截图异步完成（通常几十毫秒），调用方必须等它返回后再改页宽 / 清内容。
  */
-export const capturePageAreaSnapshot = async (): Promise<HTMLElement | null> => {
-  const pageArea = document.getElementById("page-area");
-  if (!pageArea || !window.electronAPI) return null;
-  const areaRect = pageArea.getBoundingClientRect();
-  const rect = {
-    left: Math.max(0, areaRect.left),
-    top: Math.max(0, areaRect.top),
-    width: Math.min(areaRect.width, window.innerWidth - Math.max(0, areaRect.left)),
-    height: Math.min(areaRect.height, window.innerHeight - Math.max(0, areaRect.top)),
+export const capturePageAreaSnapshot =
+  async (): Promise<HTMLElement | null> => {
+    const pageArea = document.getElementById("page-area");
+    if (!pageArea || !window.electronAPI) return null;
+    const areaRect = pageArea.getBoundingClientRect();
+    const rect = {
+      left: Math.max(0, areaRect.left),
+      top: Math.max(0, areaRect.top),
+      width: Math.min(
+        areaRect.width,
+        window.innerWidth - Math.max(0, areaRect.left)
+      ),
+      height: Math.min(
+        areaRect.height,
+        window.innerHeight - Math.max(0, areaRect.top)
+      ),
+    };
+    if (rect.width < 4 || rect.height < 4) return null;
+    let src = "";
+    try {
+      src = await window.electronAPI.invoke<string>(
+        "capture-reader-page",
+        rect
+      );
+    } catch (_) {
+      return null;
+    }
+    // 先解码再上屏，否则快照层第一帧是空的，反而多闪一下
+    const img = src ? await decodeImage(src) : null;
+    if (!img) return null;
+    const overlay = buildOverlay(pageArea, [{ rect, src }], rect);
+    const background = samplePixel(img);
+    if (background) overlay.style.background = background;
+    overlay.dataset.kind = "capture";
+    return overlay;
   };
-  if (rect.width < 4 || rect.height < 4) return null;
-  let src = "";
-  try {
-    src = await window.electronAPI.invoke<string>("capture-reader-page", rect);
-  } catch (_) {
-    return null;
-  }
-  // 先解码再上屏，否则快照层第一帧是空的，反而多闪一下
-  const img = src ? await decodeImage(src) : null;
-  if (!img) return null;
-  const overlay = buildOverlay(pageArea, [{ rect, src }], rect);
-  const background = samplePixel(img);
-  if (background) overlay.style.background = background;
-  overlay.dataset.kind = "capture";
-  return overlay;
-};
 
 /**
  * 可重排书籍的快照撤除：旧画面淡出、新正文淡入，两段有少量重叠，做成一次连贯的溶解。
@@ -240,55 +246,6 @@ export const dissolvePageAreaSnapshot = (
   fadeOld.onfinish = remove;
   // 兜底：动画被节流（窗口失焦等）时也保证移除
   setTimeout(remove, OLD_DURATION + 300);
-};
-
-/**
- * 侧边栏停靠/取消停靠时，让旧页快照与侧边栏同步滑到新版心位置（同一缓动曲线），
- * 真实重排在快照下面进行，完成后再无缝替换。纯 transform 动画，跑在合成线程上。
- * 缩放规则：原来按宽度铺满的页面按新旧宽度比例缩放；原来没铺满的只在放不下时缩小。
- * 最终位置可能与引擎实际排版有几像素出入，替换时由真实页面接管。
- */
-export const morphPageAreaSnapshot = (
-  overlay: HTMLElement | null,
-  target: { left: number; width: number },
-  duration = 300
-) => {
-  if (!overlay) return;
-  const content = overlay.firstElementChild as HTMLElement | null;
-  if (!content || typeof content.animate !== "function") return;
-  let box: { x: number; y: number; w: number };
-  try {
-    box = JSON.parse(content.dataset.box || "");
-  } catch (_) {
-    return;
-  }
-  const oldLeft = parseFloat(overlay.style.left);
-  const oldWidth = parseFloat(overlay.style.width);
-  if (!(box.w > 0) || !(oldWidth > 0) || !(target.width > 0)) return;
-
-  // 快照层扩到新旧区域的并集，保证滑动途中露出的部分也被底色盖住
-  const unionLeft = Math.min(oldLeft, target.left);
-  const unionRight = Math.max(oldLeft + oldWidth, target.left + target.width);
-  const shift = oldLeft - unionLeft;
-  overlay.style.left = `${unionLeft}px`;
-  overlay.style.width = `${unionRight - unionLeft}px`;
-  content.style.left = `${shift}px`;
-  content.style.width = `${oldWidth}px`;
-
-  const isFilled = box.w >= oldWidth - 24;
-  const scale = isFilled
-    ? target.width / oldWidth
-    : Math.min(1, target.width / box.w);
-  // 内容层坐标系下：新版心内水平居中，顶部对齐
-  const targetX =
-    target.left - unionLeft - shift + (target.width - box.w * scale) / 2;
-  const dx = targetX - box.x;
-  content.style.transformOrigin = `${box.x}px ${box.y}px`;
-  const finalTransform = `translate(${dx}px, 0) scale(${scale})`;
-  content.animate(
-    [{ transform: "translate(0, 0) scale(1)" }, { transform: finalTransform }],
-    { duration, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "forwards" }
-  );
 };
 
 export const releasePageAreaSnapshot = (

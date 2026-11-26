@@ -1,0 +1,51 @@
+/* 微信读书式「阅读模式」分段选择 */
+.reading-mode-section {
+  margin: 5px 25px 10px;
+}
+.reading-mode-title {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 30px;
+}
+.reading-mode-segmented {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 18px;
+  background-color: var(--shelf-input-bg);
+  margin-top: 8px;
+}
+.reading-mode-item {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  line-height: 32px;
+  text-align: center;
+  font-size: 14px;
+  border-radius: 16px;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+}
+.reading-mode-item:hover {
+  opacity: 1;
+}
+.reading-mode-item.active {
+  opacity: 1;
+  font-weight: 600;
+  color: var(--brand);
+  background-color: var(--panel-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.reading-mode-desc {
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 16px;
+  margin-top: 6px;
+}

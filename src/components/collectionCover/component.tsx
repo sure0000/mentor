@@ -71,40 +71,20 @@ const CollectionCover: React.FC<CollectionCoverProps> = (props) => {
     };
   }, [latestKeyStr, refreshBookKey]);
 
-  const count = latestKeys.length;
+  return <CollectionCoverGrid width={width} height={height}
+    cells={latestKeys.map((key) => ({ key, item: items[key] }))} />;
+};
+
+type CoverCell = { key: string; item?: CollectionCoverItem };
+
+export const CollectionCoverGrid = ({ cells, width, height }: {
+  cells: CoverCell[]; width: number; height: number;
+}) => {
+  const visible = cells.slice(0, MAX_COVER_COUNT);
+  const count = visible.length;
   const cellWidth = (width - CELL_GAP) / 2;
   const cellHeight = (height - CELL_GAP) / 2;
   const emptyCoverScale = Math.max(cellWidth / 105, cellHeight / 137);
-  const renderCell = (key: string) => {
-    const item = items[key];
-    return (
-      <div className="collection-cover-cell" key={key}>
-        {item && item.cover ? (
-          <img src={item.cover} alt="" draggable={false}></img>
-        ) : (
-          <div className="collection-cover-cell-empty">
-            {item ? (
-              <div
-                className="collection-cover-cell-empty-inner"
-                style={{
-                  width: `${105 * emptyCoverScale}px`,
-                  height: `${137 * emptyCoverScale}px`,
-                }}
-              >
-                <EmptyCover
-                  {...{
-                    format: item.format,
-                    title: item.title,
-                    scale: emptyCoverScale,
-                  }}
-                />
-              </div>
-            ) : null}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div
@@ -115,7 +95,9 @@ const CollectionCover: React.FC<CollectionCoverProps> = (props) => {
         <div className="collection-cover-placeholder"></div>
       ) : (
         <>
-          {latestKeys.map((key) => renderCell(key))}
+          {visible.map(({ key, item }) => (
+            <Thumbnail key={key} item={item} scale={emptyCoverScale} />
+          ))}
           {/* 不足 4 本时补齐空格子，避免 2x2 网格出现空洞 */}
           {Array.from({ length: MAX_COVER_COUNT - count }).map((_, index) => (
             <div
@@ -124,6 +106,27 @@ const CollectionCover: React.FC<CollectionCoverProps> = (props) => {
             ></div>
           ))}
         </>
+      )}
+    </div>
+  );
+};
+
+const Thumbnail = ({ item, scale }: { item?: CollectionCoverItem; scale: number }) => {
+  const [failedUrl, setFailedUrl] = useState("");
+  return (
+    <div className="collection-cover-cell">
+      {item?.cover && item.cover !== failedUrl ? (
+        <img src={item.cover} alt="" draggable={false} referrerPolicy="no-referrer"
+          onError={() => setFailedUrl(item.cover)} />
+      ) : (
+        <div className="collection-cover-cell-empty">
+          {item && (
+            <div className="collection-cover-cell-empty-inner"
+              style={{ width: 105 * scale, height: 137 * scale }}>
+              <EmptyCover format={item.format} title={item.title} scale={scale} />
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

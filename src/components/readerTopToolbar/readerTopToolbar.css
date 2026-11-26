@@ -104,3 +104,53 @@
   right: -14px;
   width: 14px;
 }
+
+/* WeRead-like centered "书名 · 章节" title in the top bar */
+.reader-top-title {
+  position: absolute;
+  top: 0;
+  height: 56px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 200px;
+  box-sizing: border-box;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.3s ease,
+    left 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    right 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reader-top-title.visible {
+  opacity: 0.75;
+}
+.reader-top-title-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
+@media screen and (max-width: 760px) {
+  .reader-top-title {
+    display: none;
+  }
+}
+
+/* WeRead-like round floating buttons */
+.reader-side-rail {
+  gap: 4px;
+  padding: 8px 6px;
+}
+.reader-side-rail .reader-setting-icon-container {
+  width: 44px;
+  height: 44px;
+}
+.reader-side-rail.is-active {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.05),
+    0 6px 24px rgba(0, 0, 0, 0.12);
+}

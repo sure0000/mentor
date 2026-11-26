@@ -556,7 +556,7 @@ const Header = (props: HeaderProps) => {
         </span>
       </nav>
       {/* 书城有自己的搜索框，书库搜索只在书架页显示 */}
-      {!isStore && (
+      {!isStore && location.pathname !== "/manager/want-to-read" && (
         <div className="header-search-container">
           <SearchBox />
         </div>

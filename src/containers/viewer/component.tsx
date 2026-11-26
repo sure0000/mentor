@@ -19,7 +19,6 @@ import {
 import {
   capturePageAreaSnapshot,
   dissolvePageAreaSnapshot,
-  morphPageAreaSnapshot,
   releasePageAreaSnapshot,
   takePageAreaSnapshot,
 } from "../../utils/reader/pageSnapshot";
@@ -205,7 +204,6 @@ const Viewer = (props: ViewerProps) => {
   // 重排前留存旧页面的静态快照，等新排版绘制完成再淡出，消除中间的空窗
   const pageSnapshotRef = useRef<HTMLElement | null>(null);
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const morphEndRef = useRef(0);
   const settlePageSnapshot = () => {
     if (snapshotTimerRef.current) {
       clearTimeout(snapshotTimerRef.current);
@@ -214,20 +212,16 @@ const Viewer = (props: ViewerProps) => {
     const overlay = pageSnapshotRef.current;
     pageSnapshotRef.current = null;
     if (!overlay) return;
-    // 不做交叉淡出：新旧排版宽度/位置不同，半透明叠加会露出旧 PDF 文字的残影。
-    // 重排与滑动动画并行进行，新页可能先画好；等动画走完再替换，避免中途跳位。
-    // 再等两帧让新页 canvas 绘制上屏后直接撤掉快照
-    const wait = Math.max(0, morphEndRef.current - performance.now());
+    // 固定版式不做任何缩放/位移，也不与新版交叉淡出：新旧排版宽高不同，
+    // 旧页文字一挪动就会被看成残影。只等两帧让新页 canvas 真正上屏后整块撤掉
     const isCapture = overlay.dataset.kind === "capture";
-    setTimeout(() => {
+    requestAnimationFrame(() =>
       requestAnimationFrame(() =>
-        requestAnimationFrame(() =>
-          isCapture
-            ? dissolvePageAreaSnapshot(overlay, pageAreaRef.current)
-            : releasePageAreaSnapshot(overlay, false)
-        )
-      );
-    }, wait);
+        isCapture
+          ? dissolvePageAreaSnapshot(overlay, pageAreaRef.current)
+          : releasePageAreaSnapshot(overlay, false)
+      )
+    );
   };
   /**
    * 可重排书籍的快照要等正文彻底定型再撤：renderTo 之后还有 handleRest 里的
@@ -250,9 +244,7 @@ const Viewer = (props: ViewerProps) => {
         clearTimeout(quietTimer);
         clearTimeout(maxTimer);
         observers.forEach((observer) => observer.disconnect());
-        docs.forEach((doc) =>
-          doc.removeEventListener("scroll", bump, true)
-        );
+        docs.forEach((doc) => doc.removeEventListener("scroll", bump, true));
         resolve();
       };
       const bump = () => {
@@ -275,18 +267,10 @@ const Viewer = (props: ViewerProps) => {
     });
   };
   /**
-   * 固定版式书籍在停靠变化的同一帧拍快照，并让快照与侧边栏同步滑到新版心位置；
-   * 真实重排（popupBox 在侧边栏动画结束后触发）在快照下面完成，再无缝替换
+   * 固定版式书籍在停靠变化的同一帧拍快照，原地盖住阅读区；
+   * 真实重排在快照下面完成，新页绘制好后再整块替换（不做缩放滑动，避免旧页文字拖影）
    */
-  const startDockMorph = (next: {
-    margin: string;
-    scale: string;
-    readerMode: string;
-    isNavLocked: boolean;
-    isSettingLocked: boolean;
-    isFitPage: boolean;
-    isDockedRight: boolean;
-  }) => {
+  const takeDockSnapshot = () => {
     const pageArea = pageAreaRef.current;
     if (!pageArea || !isPaginatedBook(propsRef.current.currentBook)) return;
     if (snapshotTimerRef.current) {
@@ -296,25 +280,6 @@ const Viewer = (props: ViewerProps) => {
     releasePageAreaSnapshot(pageSnapshotRef.current, false);
     pageSnapshotRef.current = takePageAreaSnapshot();
     if (!pageSnapshotRef.current) return;
-    const { pageOffset, pageWidth } = getPageWidth(
-      next.readerMode,
-      next.scale,
-      parseInt(next.margin),
-      next.isNavLocked,
-      getRightPanelInset(next.isSettingLocked, next.isDockedRight),
-      next.isFitPage
-    );
-    // pageOffset 可能是 calc() 表达式，用同一包含块里的探针元素量出新版心的屏幕位置
-    const probe = document.createElement("div");
-    probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;top:0;height:1px;left:${pageOffset};width:${pageWidth}`;
-    (pageArea.parentElement || document.body).appendChild(probe);
-    const target = probe.getBoundingClientRect();
-    probe.remove();
-    morphPageAreaSnapshot(pageSnapshotRef.current, {
-      left: target.left,
-      width: target.width,
-    });
-    morphEndRef.current = performance.now() + 300;
     // 兜底：若之后没有触发重排（如拖出侧边栏后迟迟不松手），到点收掉快照
     snapshotTimerRef.current = setTimeout(settlePageSnapshot, 3000);
   };
@@ -410,6 +375,7 @@ const Viewer = (props: ViewerProps) => {
     propsRef.current.handleMenuMode("note");
     propsRef.current.handleOpenMenu(true);
   };
+  const startedBookRef = useRef("");
   const handleRenderBook = async () => {
     // 刚渲染完的 1 秒内处于锁定期，此时的重排请求（如 AI 侧边栏停靠 / 取消停靠）
     // 不能直接丢弃，否则 PDF 等固定版式不会按新的可用宽度重新排版；解锁后补一次
@@ -418,7 +384,7 @@ const Viewer = (props: ViewerProps) => {
       return;
     }
     teardownOverlayTurn();
-    let { key, path, format, name } = propsRef.current.currentBook;
+    let { key, path, format, name, md5, isbn } = propsRef.current.currentBook;
     if (ConfigService.getAllListConfig("seperateStyleBooks").includes(key)) {
       window.currentBookKey = key;
       propsRef.current.handleBackgroundColor(
@@ -765,6 +731,13 @@ const Viewer = (props: ViewerProps) => {
       rendition.autoScrollPDF?.("yes");
     }
     propsRef.current.handleReadingState(true);
+    if (
+      propsRef.current.currentBook.key === key &&
+      startedBookRef.current !== key
+    ) {
+      startedBookRef.current = key;
+      useAppStore.getState().handleStartedWantedBook(md5, isbn);
+    }
 
     ConfigService.setListConfig(
       collectionUtil.getRecentBookKey(propsRef.current.currentBook.key),
@@ -1136,7 +1109,7 @@ const Viewer = (props: ViewerProps) => {
       // AI 侧边栏停靠/取消停靠、目录 / 设置面板固定：页宽等重排真正开始时再改（见 handleRenderBook），
       // 否则旧正文会先被挤进新宽度、再被新排版替换，看起来就是闪一下
       relayoutFadeRef.current = true;
-      startDockMorph(nextProps);
+      takeDockSnapshot();
       // 不再等侧边栏动画结束才重排：快照盖着阅读区，重排与滑动动画并行，
       // 新页通常在动画结束前后就已画好
       handleRenderBook();
@@ -1254,7 +1227,10 @@ const Viewer = (props: ViewerProps) => {
             style={{
               left: isNavLocked ? 300 : 0,
               right: getRightPanelInset(isSettingLocked, isDockedRight),
-              backgroundColor: `color-mix(in srgb, ${backgroundColor} 90%, #000)`,
+              // 微信读书：日间为浅灰桌面衬白纸，夜间桌面比纸张更深
+              backgroundColor: isNightReaderBg(backgroundColor)
+                ? `color-mix(in srgb, ${backgroundColor} 55%, #000)`
+                : `color-mix(in srgb, ${backgroundColor} 90%, #000)`,
             }}
           ></div>
           <div

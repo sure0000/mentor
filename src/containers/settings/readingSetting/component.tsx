@@ -6,6 +6,9 @@ import toast from "react-hot-toast";
 import { ConfigService } from "../../../assets/lib/kookit-extra-browser.min";
 import { readingSettingList } from "../../../constants/settingList";
 import SwitchRow from "../../../components/readerSettings/switchRow";
+import { isPaginatedBook } from "../../../utils/common";
+import { useAppStore } from "../../../store/useAppStore";
+import "./readingSetting.css";
 
 export interface SettingInfoState {
   isOpenBook: boolean;
@@ -23,6 +26,13 @@ export interface SettingInfoState {
 }
 
 declare var window: any;
+
+// 微信读书式三种翻页方式；PDF 等固定版式书使用自己的 pdfReaderMode，不受这里影响
+const readingModeOptions = [
+  { mode: "scroll", title: "Scroll" },
+  { mode: "single", title: "Single page" },
+  { mode: "double", title: "Double page" },
+];
 
 const ReadingSetting = () => {
   const { t } = useTranslation();
@@ -43,6 +53,23 @@ const ReadingSetting = () => {
     isOverwriteBackground:
       ConfigService.getReaderConfig("isOverwriteBackground") === "yes",
   });
+
+  const currentBook = useAppStore((s) => s.book.currentBook);
+  const [readerMode, setReaderMode] = useState(
+    ConfigService.getReaderConfig("readerMode") || "scroll"
+  );
+
+  const handleChangeReadingMode = (mode: string) => {
+    if (mode === readerMode) return;
+    ConfigService.setReaderConfig("readerMode", mode);
+    setReaderMode(mode);
+    // 阅读器里正打开着可重排书籍时立刻换版式，不必重开书
+    if (currentBook?.key && !isPaginatedBook(currentBook)) {
+      useAppStore.getState().handleReaderMode(mode);
+      useAppStore.getState().book.renderBookFunc();
+    }
+    toast.success(t("Change successful"));
+  };
 
   const handleRest = (_bool: boolean) => {
     toast.success(t("Change successful"));
@@ -75,7 +102,35 @@ const ReadingSetting = () => {
     });
   };
 
-  return <>{renderSwitchOption(readingSettingList)}</>;
+  return (
+    <>
+      <div className="reading-mode-section">
+        <div className="reading-mode-title">
+          <Trans>Reading mode</Trans>
+        </div>
+        <div className="reading-mode-segmented">
+          {readingModeOptions.map((item) => (
+            <div
+              key={item.mode}
+              className={
+                "reading-mode-item" +
+                (readerMode === item.mode ? " active" : "")
+              }
+              onClick={() => handleChangeReadingMode(item.mode)}
+            >
+              <Trans>{item.title}</Trans>
+            </div>
+          ))}
+        </div>
+        <div className="reading-mode-desc">
+          <Trans>
+            Applies to all reflowable books; PDF keeps its own page mode
+          </Trans>
+        </div>
+      </div>
+      {renderSwitchOption(readingSettingList)}
+    </>
+  );
 };
 
 export default ReadingSetting;

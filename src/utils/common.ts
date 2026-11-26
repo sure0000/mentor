@@ -9,6 +9,7 @@ import {
   CollectionUtil,
 } from "../assets/lib/kookit-extra-browser.min";
 import Book from "../models/Book";
+import { getColumnWidth } from "./reader/columnLayout";
 import BookUtil from "./file/bookUtil";
 import * as Kookit from "../assets/lib/kookit.min";
 import DatabaseService from "./storage/databaseService";
@@ -636,15 +637,15 @@ export const getPageWidth = (
   let pageOffset = "";
   let pageWidth = 0;
   if (readerMode === "scroll" || readerMode === "single") {
-    //页面宽度以 scale=1 的默认宽度（视口宽度 * 0.6）为基准等比例缩放，
-    //使预设百分比与实际显示宽度成正比，避免低百分比时出现过窄页面。
-    //固定侧边栏时不再从页宽中扣除侧边栏宽度，只在剩余区域放不下时收窄，
-    //避免打开 AI 侧边栏后页面两侧留白过多
+    //微信读书式居中正文栏：以 scale=1 的默认宽度（视口宽度 * 0.6）为基准等比例缩放，
+    //宽屏下正文栏有最大宽度、两侧留白变宽；窗口收窄时正文栏先变窄、留白减少，
+    //并始终保留最小留白不贴边。固定侧边栏时按剩余可用宽度收窄
     const availableWidth =
       document.body.clientWidth - (isNavLocked ? 300 : 0) - rightInset - 106;
-    let preWidth = Math.min(
-      document.body.clientWidth * 0.6 * Math.abs(parseFloat(scale)),
-      availableWidth
+    let preWidth = getColumnWidth(
+      document.body.clientWidth,
+      availableWidth,
+      scale
     );
     let width = findValidMultiple(preWidth);
     pageOffset = `calc(50vw + ${isNavLocked ? 150 : 0}px - ${

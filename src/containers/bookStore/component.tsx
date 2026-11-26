@@ -1,4 +1,5 @@
 import { useTranslation, Trans } from "react-i18next";
+import { Link } from "react-router-dom";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Parser from "html-react-parser";
@@ -45,7 +46,7 @@ import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 import { isAiAvailable } from "../../utils/aiReading/aiGateway";
 import { useBatchTranslation } from "../../utils/hooks/useBatchTranslation";
 
-type StoreSourceId = "douban" | "goodreads";
+import { linkStoreEdition, sameStoreBook, type StoreSourceId } from "../../utils/storage/wantToRead";
 
 // 书单来源：豆瓣与 Goodreads 解析出的数据结构一致，只是地址和评分制不同
 interface StoreSource {
@@ -113,6 +114,7 @@ interface SourceMatch {
 }
 
 interface DetailState {
+  sourceId: StoreSourceId;
   book: DoubanBook;
   detail: DoubanDetail | null;
   isLoading: boolean;
@@ -181,17 +183,20 @@ const RatingLine = ({
 
 // 豆瓣书名常带中文副标题，书源多为外文原版；用原作名、主标题等多个候选去搜
 const getSearchQueries = (book: DoubanBook, detail: DoubanDetail) => {
-  const candidates = [detail.originalTitle, detail.title || book.title];
+  const candidates = [detail.originalTitle, detail.title, book.title];
   return Array.from(
     new Set(candidates.map((c) => c.trim()).filter(Boolean))
   );
 };
 
 interface BookViewProps {
-  modeSwitch: ReactNode;
+  modeSwitch?: ReactNode;
+  wishlistOnly?: boolean;
 }
 
-const BookView = ({ modeSwitch }: BookViewProps) => {
+const BookView = ({ modeSwitch, wishlistOnly = false }: BookViewProps) => {
+  const wantedBooks = useAppStore((s) => s.manager.wantedBooks);
+  const toggleWantedBook = useAppStore((s) => s.handleToggleWantedBook);
   const importBookFunc = useAppStore((s) => s.book.importBookFunc);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleRefreshBookCover = useAppStore((s) => s.handleRefreshBookCover);
@@ -316,7 +321,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     patch: (prev: DetailState) => Partial<DetailState>
   ) =>
     setDetailState((prev) =>
-      prev && prev.book.id === bookId ? { ...prev, ...patch(prev) } : prev
+      prev && prev.book.url === bookId ? { ...prev, ...patch(prev) } : prev
     );
 
   const patchMatch = (
@@ -343,12 +348,13 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
       }
       const editions: SourceEdition[] = found.map((book) => ({
         book,
-        links: null,
+        links: book.websiteUrl ? [] : null,
       }));
       patchMatch(bookId, source.id, { status: "found", editions });
       // 列表条目可能只有详情 feed 地址，逐个补齐下载链接
       await Promise.all(
         found.map(async (book, index) => {
+          if (book.websiteUrl) return;
           let links: OPDSLink[] = [];
           try {
             links = await resolveDownloadLinks(book);
@@ -365,8 +371,9 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     }
   };
 
-  const openDetail = async (book: DoubanBook) => {
+  const openDetail = async (book: DoubanBook, catalogId: StoreSourceId) => {
     setDetailState({
+      sourceId: catalogId,
       book,
       detail: null,
       isLoading: true,
@@ -380,7 +387,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     });
     let detail: DoubanDetail;
     try {
-      detail = await sourceRef.current.fetchDetail(book);
+      detail = await STORE_SOURCES[catalogId].fetchDetail(book);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // 详情加载失败时仍用列表里的书名去书源查找
@@ -396,20 +403,18 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
         rating: book.rating,
         votes: book.votes,
       };
-      patchDetail(book.id, () => ({ error: msg }));
+      patchDetail(book.url, () => ({ error: msg }));
     }
-    patchDetail(book.id, () => ({ detail, isLoading: false }));
+    patchDetail(book.url, () => ({ detail, isLoading: false }));
     const queries = getSearchQueries(book, detail);
-    bookSourceList.forEach((source) => searchSource(book.id, source, queries));
+    bookSourceList.forEach((source) => searchSource(book.url, source, queries));
   };
 
   // 引擎没能从文件里解析出封面时（部分 EPUB 只用 <meta name="cover"> 声明），
   // 用书城展示的封面补上，逻辑与编辑对话框更换封面一致
-  const applyStoreCover = async (file: File, coverUrl: string) => {
-    if (!coverUrl) return;
+  const applyStoreCover = async (md5: string, coverUrl: string) => {
+    if (!coverUrl || !md5) return;
     try {
-      const md5 = await calculateFileMD5(file);
-      if (!md5) return;
       const found: BookModel | null = await BookUtil.getBookByMd5(md5);
       if (!found?.key) return;
       // 用标准查询拿到完整记录再更新，避免直接回写原始 SQL 行
@@ -435,7 +440,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
 
   const handleDownload = async (edition: StoreBook, link: OPDSLink) => {
     if (!detailState || detailState.downloadingHref) return;
-    const bookId = detailState.book.id;
+    const bookId = detailState.book.url;
     const title = edition.title;
     patchDetail(bookId, () => ({ downloadingHref: link.href }));
     toast.loading(t("Downloading") + ": " + title, {
@@ -444,10 +449,18 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     try {
       const file = await downloadOPDSFile(title, link);
       toast.dismiss("book-store-download");
+      let md5 = "";
+      try {
+        md5 = await calculateFileMD5(file);
+        linkStoreEdition(md5, { id: detailState.book.id, sourceId: detailState.sourceId });
+      } catch {
+        // 书目关联失败不应阻止文件导入。
+        toast.error(t("Save failed"));
+      }
       await importBookFunc(file);
       // 书源封面与文件内容对应；没有时再用书单封面
       await applyStoreCover(
-        file,
+        md5,
         edition.coverUrl ||
           detailState.detail?.coverUrl ||
           detailState.book.coverUrl
@@ -465,12 +478,12 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
   // 首次进入和切换书单来源时加载第一个分类
   useEffect(() => {
     setDetailState(null);
-    loadCategory(0);
+    if (!wishlistOnly) loadCategory(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceId]);
+  }, [sourceId, wishlistOnly]);
 
   // 外文书单默认双语：翻译卡片书名，以及打开的详情里的书名和简介段落
-  const isTranslating = source.isForeign && isBilingual;
+  const isTranslating = !wishlistOnly && source.isForeign && isBilingual;
   const summaryParagraphs = useMemo(
     () =>
       detailState?.detail?.summary
@@ -493,8 +506,9 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     hasError: transError,
     isPending: isTransPending,
   } = useBatchTranslation(transTexts, isTranslating);
-  const renderEdition = (edition: SourceEdition) => {
+  const renderEdition = (edition: SourceEdition, source: BookSource) => {
     const { book, links } = edition;
+    const { websiteUrl } = book;
     const downloadingHref = detailState?.downloadingHref;
     return (
       <div key={book.id} className="book-store-edition">
@@ -521,7 +535,13 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
               {(DOWNLOAD_TYPES[link.type] || "").toUpperCase() || link.title}
             </span>
           ))}
-          {links?.length === 0 && (
+          {websiteUrl && (
+            <button type="button" className="book-store-link-button"
+              onClick={() => openInBrowser(websiteUrl)}>
+              {source.type === "zlibrary" ? t("Open book page") : t("Open free edition")}
+            </button>
+          )}
+          {!websiteUrl && links?.length === 0 && (
             <span className="book-store-match-hint">
               <Trans>No downloadable format</Trans>
             </span>
@@ -533,7 +553,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
 
   const renderMatch = (match: SourceMatch, queries: string[]) => {
     const { source, status, editions } = match;
-    const hasDownload = editions.some((e) => e.links && e.links.length > 0);
+    const hasEdition = editions.some((e) => e.book.websiteUrl || e.links?.length);
     const webUrl = buildWebSearchUrl(source, queries[0] || "");
     return (
       <div key={source.id} className="book-store-match">
@@ -556,7 +576,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
             </span>
           )}
           {/* 没有可直接下载的版本时，引导用户去书源网站自行查找 */}
-          {status !== "searching" && !hasDownload && (
+          {(source.type === "zlibrary" || status !== "searching") && !hasEdition && (
             <span
               className="book-store-link-button"
               onClick={() => openInBrowser(webUrl)}
@@ -565,7 +585,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
             </span>
           )}
         </div>
-        {editions.map(renderEdition)}
+        {editions.map((edition) => renderEdition(edition, source))}
       </div>
     );
   };
@@ -573,6 +593,9 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
   const renderDetail = () => {
     if (!detailState) return null;
     const { book, detail, isLoading, error, matches } = detailState;
+    const catalog = STORE_SOURCES[detailState.sourceId];
+    const wantedBook = { ...book, sourceId: detailState.sourceId, isbn: detail?.isbn };
+    const isWanted = wantedBooks.some((item) => sameStoreBook(item, wantedBook));
     const queries = detail ? getSearchQueries(book, detail) : [book.title];
     const rating = detail?.rating ?? book.rating;
     const votes = detail?.votes || book.votes;
@@ -581,9 +604,9 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
       const score = (m: SourceMatch) =>
         m.editions.some((e) => e.links && e.links.length > 0)
           ? 0
-          : m.status === "searching"
+          : m.editions.some((e) => e.book.websiteUrl)
             ? 1
-            : 2;
+            : m.status === "searching" ? 2 : 3;
       return score(a) - score(b);
     });
     return (
@@ -633,15 +656,19 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
               <RatingLine
                 rating={rating}
                 votes={votes}
-                max={source.ratingMax}
+                max={catalog.ratingMax}
               />
+              <button type="button" className="book-store-link-button"
+                aria-pressed={isWanted} onClick={() => toggleWantedBook(wantedBook)}>
+                {isWanted ? t("Remove from want to read") : t("Want to read")}
+              </button>
               <span
                 className="book-store-link-button is-plain"
                 onClick={() => openInBrowser(book.url)}
               >
-                {sourceId === "douban"
+                {detailState.sourceId === "douban"
                   ? t("View on Douban")
-                  : t("View on {{name}}", { name: source.name })}
+                  : t("View on {{name}}", { name: catalog.name })}
               </span>
             </div>
           </div>
@@ -693,12 +720,18 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
     );
   };
 
-  const { books, isLoading, isLoadingMore, error, categoryIndex, searchQuery } =
+  const { isLoading, isLoadingMore, error, categoryIndex, searchQuery } =
     state;
+  const books = wishlistOnly ? wantedBooks : state.books.map((book) => ({ ...book, sourceId }));
 
   return (
     <div className="book-store-container">
       <div className="book-store-toolbar">
+        {wishlistOnly ? <>
+          <Link className="book-store-back" to="/manager/home">{t("Shelf")}</Link>
+          <span>/</span>
+          <span className="book-store-title">{t("Want to read")} ({books.length})</span>
+        </> : <>
         {modeSwitch}
         <select
           className="book-store-source-select"
@@ -765,6 +798,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
             onClick={handleSearch}
           ></span>
         </div>
+        </>}
       </div>
 
       <div
@@ -796,9 +830,9 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
           <div className="book-store-grid">
             {books.map((book) => (
               <div
-                key={book.id}
+                key={book.sourceId + ":" + book.id}
                 className="book-store-card"
-                onClick={() => openDetail(book)}
+                onClick={() => openDetail(book, book.sourceId)}
               >
                 <div className="book-store-cover">
                   <StoreCover src={book.coverUrl} title={book.title} />
@@ -822,7 +856,7 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
                     <>
                       <RatingStars
                         rating={book.rating}
-                        max={source.ratingMax}
+                        max={STORE_SOURCES[book.sourceId].ratingMax}
                       />
                       <span className="book-store-rating-value">
                         {book.rating.toFixed(1)}
@@ -846,6 +880,8 @@ const BookView = ({ modeSwitch }: BookViewProps) => {
 };
 
 type StoreMode = "books" | "papers";
+
+export const WantToReadShelf = () => <BookView wishlistOnly />;
 
 const BookStore = () => {
   const [mode, setMode] = useState<StoreMode>("books");

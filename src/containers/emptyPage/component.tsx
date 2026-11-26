@@ -1,6 +1,7 @@
 import "./emptyPage.css";
 import { emptyList } from "../../constants/emptyList";
 import { Trans } from "react-i18next";
+import { Navigate } from "react-router-dom";
 import emptyDark from "../../assets/images/empty-dark.svg";
 import emptyLight from "../../assets/images/empty-light.svg";
 import { useAppStore } from "../../store/useAppStore";
@@ -9,6 +10,8 @@ import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
 
 const EmptyPage = () => {
   const mode = useAppStore((s) => s.sidebar.mode);
+  const hasWantedBooks = useAppStore((s) => s.manager.wantedBooks.length > 0);
+  if (hasWantedBooks) return <Navigate to="/manager/home" replace />;
   const renderEmptyList = () => {
     return emptyList.map((item) => {
       return (

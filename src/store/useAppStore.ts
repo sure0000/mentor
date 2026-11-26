@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { loadWantedBooks, removeStartedBook, toggleWantedBook, type WantedBook } from "../utils/storage/wantToRead";
 import { DAY_BG, NIGHT_BG } from "../constants/themeList";
 import BookModel from "../models/Book";
 import PluginModel from "../models/Plugin";
@@ -61,6 +62,7 @@ const fetchDynamicVoiceList = async (
 };
 
 const initialManager = {
+  wantedBooks: loadWantedBooks(),
   books: null as unknown as BookModel[],
   plugins: null as unknown as PluginModel[],
   deletedBooks: [] as BookModel[],
@@ -125,7 +127,7 @@ const initialReader = {
   isFitPage: ConfigService.getReaderConfig("isFitPage") === "yes",
   margin: ConfigService.getReaderConfig("margin") || "0",
   section: null as any,
-  readerMode: "double",
+  readerMode: "scroll",
   isScaleOpen: false,
   isStudyLangOpen: false,
   isAssistReadOpen: false,
@@ -295,6 +297,10 @@ export type AppActionName =
   | "handleViewMode";
 
 export type AppState = stateType & {
+  handleToggleWantedBook: (book: WantedBook) => void;
+  handleReloadWantedBooks: () => void;
+  handleStartedWantedBook: (md5: string, isbn?: string) => void;
+} & {
   [K in AppActionName]: (...args: any[]) => any;
 };
 
@@ -327,6 +333,22 @@ export const useAppStore = create<AppState>()((set, get) => {
     collection: initialCollection,
 
     // manager
+    handleToggleWantedBook: (book) => {
+      try {
+        setManager({ wantedBooks: toggleWantedBook(loadWantedBooks(), book) });
+      } catch {
+        toast.error(i18n.t("Save failed"));
+      }
+    },
+    handleReloadWantedBooks: () => setManager({ wantedBooks: loadWantedBooks() }),
+    handleStartedWantedBook: (md5, isbn) => {
+      try {
+        const wantedBooks = removeStartedBook(md5, isbn);
+        if (wantedBooks) setManager({ wantedBooks });
+      } catch {
+        toast.error(i18n.t("Save failed"));
+      }
+    },
     handleBooks: (books: BookModel[]) => setManager({ books }),
     handlePlugins: (plugins: PluginModel[]) => setManager({ plugins }),
     handleDeletedBooks: (deletedBooks: BookModel[]) =>

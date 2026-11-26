@@ -502,7 +502,7 @@ const Reader = () => {
         propsRef.current.handleFetchPercentage(book);
         let readerMode = isPaginatedBook(book)
           ? ConfigService.getReaderConfig("pdfReaderMode") || "scroll"
-          : ConfigService.getReaderConfig("readerMode") || "double";
+          : ConfigService.getReaderConfig("readerMode") || "scroll";
         propsRef.current.handleReaderMode(readerMode);
         propsRef.current.handleFitPage(getIsFitPage(book));
         propsRef.current.handleReadingBook(book);

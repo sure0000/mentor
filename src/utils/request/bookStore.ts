@@ -13,6 +13,8 @@ export interface StoreBook {
   detailUrl: string;
   // 列表条目本身就带下载链接时直接使用
   entry: OPDSEntry | null;
+  // 已匹配的版本书页，不是可导入的文件。
+  websiteUrl?: string;
 }
 
 export interface StoreBookDetail {
@@ -279,6 +281,51 @@ const searchByQueries = async (
 
 const SEARCH_LIMIT = 20;
 
+// 两个网站的搜索都可能包含评论、图咏等相关书；只接受同名书（允许副标题不同）。
+const matchesWebsiteTitle = (title: string, queries: string[]) => {
+  const key = (s: string) => normalizeTitle(s.split(/[:：;；]/)[0]);
+  const result = key(title);
+  return !!result && queries.some((query) => result === key(query));
+};
+
+interface ShugeResult {
+  id: number;
+  title: string;
+  url: string;
+}
+
+interface GoogleVolume {
+  id: string;
+  volumeInfo?: { title?: string; authors?: string[] };
+  accessInfo?: { viewability?: string };
+}
+
+const searchWebsiteEditions = async (
+  source: BookSource, query: string, queries: string[]
+): Promise<StoreBook[]> => {
+  const data = await fetchJson(buildSearchUrl(source, query));
+  if (source.type === "shuge") {
+    if (!Array.isArray(data)) throw new Error("Invalid Shuge search response");
+    return (data as ShugeResult[]).flatMap(({ id, title, url }) =>
+      title && matchesWebsiteTitle(title, queries) &&
+      /^https:\/\/www\.shuge\.org\/view\/[\w%-]+\/?$/.test(url)
+        ? [{ id: `shuge-${id}`, title, author: "", websiteUrl: url, coverUrl: "", detailUrl: "", entry: null }]
+        : []
+    );
+  }
+  const { items = [] } = data as { items?: GoogleVolume[] };
+  return items.flatMap(({ id, volumeInfo, accessInfo }) => {
+    const title = volumeInfo?.title;
+    if (!id || !title || accessInfo?.viewability !== "ALL_PAGES" ||
+        !matchesWebsiteTitle(title, queries)) return [];
+    return [{
+      id: `googlebooks-${id}`, title, author: volumeInfo?.authors?.join(", ") || "",
+      websiteUrl: `https://books.google.com/books?id=${encodeURIComponent(id)}&printsec=frontcover`,
+      coverUrl: "", detailUrl: "", entry: null,
+    }];
+  });
+};
+
 // 维基文库没有 OPDS，用 MediaWiki 接口找篇目，再由 ws-export 导出整本 EPUB
 interface WikisourcePage {
   index?: number;
@@ -466,6 +513,31 @@ export const findInSource = async (
     return matchOpenStax(await getOpenStaxCatalog(), queries);
   }
   return searchByQueries(queries, async (query) => {
+    if (source.type === "zlibrary") {
+      const response = await fetchWithPolicy(buildSearchUrl(source, query));
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+      const cards = doc.querySelectorAll("z-bookcard");
+      if (!cards.length && !doc.querySelector(".notFound, #searchResultBox")) {
+        throw new Error("Unrecognized Z-Library search page");
+      }
+      return Array.from(cards).flatMap((card) => {
+        const title = card.querySelector('[slot="title"]')?.textContent?.trim();
+        const href = card.getAttribute("href");
+        if (!title || !href || !matchesWebsiteTitle(title, queries)) return [];
+        const url = URL.canParse(href, source.homepage) ? new URL(href, source.homepage) : null;
+        const id = url?.pathname.match(/^\/book\/(\d+)\/[\w-]+(?:\/|$)/)?.[1];
+        if (!id || !url || url.origin !== source.homepage || url.username || url.password) return [];
+        return [{
+          id: `zlibrary-${id}`, title, websiteUrl: url.origin + url.pathname,
+          author: card.querySelector('[slot="author"]')?.textContent?.trim() || "",
+          coverUrl: "", detailUrl: "", entry: null,
+        }];
+      });
+    }
+    if (source.type === "shuge" || source.type === "googlebooks") {
+      return searchWebsiteEditions(source, query, queries);
+    }
     if (source.type === "wikisource") {
       const lang = source.lang || "en";
       let data = await fetchJson(buildWikisourceSearchUrl(lang, query));

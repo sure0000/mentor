@@ -13,7 +13,7 @@ export interface BookSource {
   id: string;
   // 书源名称是专有名词，不做翻译
   name: string;
-  type: "opds" | "openstax" | "wikisource" | "archive";
+  type: "opds" | "openstax" | "wikisource" | "archive" | "shuge" | "googlebooks" | "zlibrary";
   homepage: string;
   categories: BookSourceCategory[];
   // 搜索 URL 模板，{searchTerms} 会被替换为关键词
@@ -36,6 +36,33 @@ const gutenbergCover = (bookFeedUrl: string) => {
 };
 
 export const bookSourceList: BookSource[] = [
+  {
+    id: "zlibrary",
+    name: "Z-Library",
+    type: "zlibrary",
+    homepage: "https://z-lib.fm",
+    categories: [{ title: "Popular", url: "https://z-lib.fm" }],
+    searchTemplate: "https://z-lib.fm/s/{searchTerms}",
+    webSearchTemplate: "https://z-lib.fm/s/{searchTerms}",
+  },
+  {
+    id: "shuge",
+    name: "书格",
+    type: "shuge",
+    homepage: "https://www.shuge.org",
+    categories: [{ title: "Classics", url: "https://www.shuge.org" }],
+    searchTemplate: "https://www.shuge.org/wp-json/wp/v2/search?subtype=portfolio&per_page=20&_fields=id,title,url&search={searchTerms}",
+    webSearchTemplate: "https://www.shuge.org/?s={searchTerms}",
+  },
+  {
+    id: "googlebooks",
+    name: "Google Books",
+    type: "googlebooks",
+    homepage: "https://books.google.com",
+    categories: [{ title: "Popular", url: "https://books.google.com" }],
+    searchTemplate: "https://www.googleapis.com/books/v1/volumes?filter=free-ebooks&maxResults=20&q=intitle%3A%22{searchTerms}%22",
+    webSearchTemplate: "https://books.google.com/books?as_brr=1&q={searchTerms}",
+  },
   {
     // 莱斯大学的开放教材（CC BY），数学、计算机、统计等，提供完整 PDF
     id: "openstax",

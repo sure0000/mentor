@@ -15,6 +15,14 @@ import {
   isPaperLayout,
 } from "../../utils/common";
 import { useAppStore } from "../../store/useAppStore";
+import {
+  DAY_BG,
+  DAY_TEXT,
+  NIGHT_BG,
+  NIGHT_TEXT,
+  isNightReaderBg,
+} from "../../constants/themeList";
+import { toggleNavTab } from "../../utils/reader/mouseEvent";
 import WindowControls from "../windowControls";
 import "./readerTopToolbar.css";
 
@@ -52,8 +60,12 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
   const readerMode = useAppStore((s) => s.reader.readerMode);
   const isFitPage = useAppStore((s) => s.reader.isFitPage);
   const readerBackgroundColor = useAppStore((s) => s.reader.backgroundColor);
+  const currentChapter = useAppStore((s) => s.reader.currentChapter);
+  const renderBookFunc = useAppStore((s) => s.book.renderBookFunc);
+  const handleBackgroundColor = useAppStore((s) => s.handleBackgroundColor);
   const isSettingLocked = useAppStore((s) => s.reader.isSettingLocked);
   const isDockedRight = useAppStore((s) => s.reader.isDockedRight);
+  const isNavLocked = useAppStore((s) => s.reader.isNavLocked);
   const isAnnotationOpen = useAppStore((s) => s.reader.isAnnotationOpen);
   const handleStudyLangDialog = useAppStore((s) => s.handleStudyLangDialog);
   const handleAssistReadDialog = useAppStore((s) => s.handleAssistReadDialog);
@@ -304,6 +316,18 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
   ];
 
   const isPaper = isPaperLayout(readerMode, currentBook, isFitPage);
+  const isNightTheme = isNightReaderBg(readerBackgroundColor);
+  // 微信读书式日间 / 夜间一键切换
+  const handleToggleNightTheme = () => {
+    const backgroundColor = isNightTheme ? DAY_BG : NIGHT_BG;
+    ConfigService.setReaderConfig("backgroundColor", backgroundColor);
+    ConfigService.setReaderConfig("textColor", isNightTheme ? DAY_TEXT : NIGHT_TEXT);
+    handleBackgroundColor(backgroundColor);
+    renderBookFunc();
+  };
+  const bookTitle = [currentBook?.name, currentChapter]
+    .filter(Boolean)
+    .join(" · ");
   const showCustomWindowControls =
     props.isSeparateElectronWindow && !props.isMacOS;
   const showMacWindowControls =
@@ -422,6 +446,21 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
         </div>
       )}
 
+      {htmlBook && isTextBook && bookTitle && (
+        <div
+          className={
+            "reader-top-title" + (props.isNearEdge ? " visible" : "")
+          }
+          style={{
+            ...DRAG_REGION_STYLE,
+            left: isNavLocked ? 300 : 0,
+            right: getRightPanelInset(isSettingLocked, isDockedRight),
+            color: ConfigService.getReaderConfig("textColor") || "",
+          }}
+        >
+          <span className="reader-top-title-text">{bookTitle}</span>
+        </div>
+      )}
       <div
         className={
           "reader-quick-buttons reader-side-rail" +
@@ -452,6 +491,21 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
             style={{ fontSize: 18 }}
           ></span>
         </div>
+        {isTextBook && (
+          <div
+            className="reader-setting-icon-container"
+            aria-label={t("Notes")}
+            data-tooltip-id="my-tooltip"
+            data-tooltip-content={t("Notes")}
+            data-tooltip-place="left"
+            onClick={() => toggleNavTab("notes")}
+          >
+            <span
+              className="icon-note reader-setting-icon"
+              style={{ fontSize: 18 }}
+            ></span>
+          </div>
+        )}
         <div
           className="reader-setting-icon-container"
           aria-label={t("Setting")}
@@ -465,6 +519,24 @@ const ReaderTopToolbar = (props: ReaderTopToolbarProps) => {
             style={{ fontSize: 18 }}
           ></span>
         </div>
+        {isTextBook && (
+          <div
+            className="reader-setting-icon-container"
+            aria-label={t(isNightTheme ? "Light mode" : "Night mode")}
+            data-tooltip-id="my-tooltip"
+            data-tooltip-content={t(isNightTheme ? "Light mode" : "Night mode")}
+            data-tooltip-place="left"
+            onClick={handleToggleNightTheme}
+          >
+            <span
+              className={
+                (isNightTheme ? "icon-day" : "icon-night") +
+                " reader-setting-icon"
+              }
+              style={{ fontSize: 18 }}
+            ></span>
+          </div>
+        )}
         <div
           className="reader-setting-icon-container"
           {...props.handleDialogButtonHover(
