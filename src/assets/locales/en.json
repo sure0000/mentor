@@ -994,6 +994,7 @@
   "Suitable for novels with number chapter titles, eg. 1, 2, 3": "Suitable for novels with number chapter titles, eg. 1, 2, 3",
   "You are using the latest version": "You are using the latest version",
   "Checking for update": "Checking for update",
+  "Failed to check for update": "Failed to check for update",
   "A new version is available": "A new version is available",
   "Auto sync notes and highlights to SiYuan": "Auto sync notes and highlights to SiYuan",
   "Please enable network serving in SiYuan - Settings - About, and make sure SiYuan is running when syncing": "Please enable network serving in SiYuan - Settings - About, and make sure SiYuan is running when syncing",
