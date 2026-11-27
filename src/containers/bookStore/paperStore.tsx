@@ -4,7 +4,9 @@ import toast from "react-hot-toast";
 import { useAppStore } from "../../store/useAppStore";
 import { useLatest } from "../../utils/hooks/useLatest";
 import { ConfigService } from "../../assets/lib/kookit-extra-browser.min";
-import { openInBrowser, throttle } from "../../utils/common";
+import { calculateFileMD5, openInBrowser, throttle } from "../../utils/common";
+import BookUtil from "../../utils/file/bookUtil";
+import BookModel from "../../models/Book";
 import { isAiAvailable } from "../../utils/aiReading/aiGateway";
 import { useBatchTranslation } from "../../utils/hooks/useBatchTranslation";
 import {
@@ -60,7 +62,12 @@ const isPdf = (buffer: ArrayBuffer) =>
 
 const PaperStore = ({ modeSwitch }: Props) => {
   const importBookFunc = useAppStore((s) => s.book.importBookFunc);
+  const handleReadingBook = useAppStore((s) => s.handleReadingBook);
   const { t } = useTranslation();
+  // 论文 id -> 已导入的书，下载完成后显示“打开”按钮
+  const [importedBooks, setImportedBooks] = useState<
+    Record<string, BookModel>
+  >({});
   const [state, setState] = useState<PaperStoreState>({
     categoryIndex: 0,
     searchSource: "arxiv",
@@ -237,11 +244,17 @@ const PaperStore = ({ modeSwitch }: Props) => {
       const buffer = await response.arrayBuffer();
       if (!isPdf(buffer)) throw new Error("not-pdf");
       toast.dismiss("paper-download");
-      await importBookFunc(
-        new File([buffer], paperFileName(paper) + ".pdf", {
-          type: "application/pdf",
-        })
-      );
+      const file = new File([buffer], paperFileName(paper) + ".pdf", {
+        type: "application/pdf",
+      });
+      await importBookFunc(file, { stayOnPage: true });
+      const md5 = await calculateFileMD5(file);
+      const imported: BookModel | null = md5
+        ? await BookUtil.getBookByMd5(md5)
+        : null;
+      if (imported?.key) {
+        setImportedBooks((prev) => ({ ...prev, [paper.id]: imported }));
+      }
     } catch (err) {
       console.error("download paper failed", err);
       toast.error(t("Unable to download directly, opening the paper page"), {
@@ -321,9 +334,19 @@ const PaperStore = ({ modeSwitch }: Props) => {
               "book-store-download-button" +
               (downloadingId === paper.id ? " is-loading" : "")
             }
-            onClick={() => handleDownload(paper)}
+            onClick={() => {
+              const imported = importedBooks[paper.id];
+              if (imported) {
+                handleReadingBook(imported);
+                BookUtil.redirectBook(imported);
+                return;
+              }
+              handleDownload(paper);
+            }}
           >
-            {paper.pdfUrl ? (
+            {importedBooks[paper.id] ? (
+              <Trans>Open</Trans>
+            ) : paper.pdfUrl ? (
               <Trans>Add PDF to bookshelf</Trans>
             ) : (
               <Trans>Find on website</Trans>

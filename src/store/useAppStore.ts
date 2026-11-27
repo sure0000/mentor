@@ -99,7 +99,7 @@ const initialBook = {
   isReading: false,
   currentBook: {} as BookModel,
   renderBookFunc: (() => {}) as () => void,
-  importBookFunc: (() => {}) as unknown as (file: any) => Promise<void>,
+  importBookFunc: (async () => {}) as ImportBookFunc,
   cloudSyncFunc: (() => {}) as unknown as () => Promise<void>,
 };
 
@@ -184,6 +184,15 @@ const initialCollection = {
   isOpenAddCollectionDialog: false,
   currentCollectionKey: "",
 };
+
+export interface ImportBookOptions {
+  // 导入完成后留在当前页面，不跳转到书库首页
+  stayOnPage?: boolean;
+}
+export type ImportBookFunc = (
+  file: File,
+  options?: ImportBookOptions
+) => Promise<void>;
 
 export type stateType = {
   manager: typeof initialManager;
@@ -774,8 +783,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     handleAddDialog: (mode: boolean) => setBook({ isOpenAddDialog: mode }),
     handleRenderBookFunc: (renderBookFunc: () => void) =>
       setBook({ renderBookFunc }),
-    handleImportBookFunc: (importBookFunc: () => void) =>
-      setBook({ importBookFunc: importBookFunc as any }),
+    handleImportBookFunc: (importBookFunc: ImportBookFunc) =>
+      setBook({ importBookFunc }),
     handleCloudSyncFunc: (cloudSyncFunc: () => Promise<void>) =>
       setBook({ cloudSyncFunc }),
     handleActionDialog: (mode: boolean) =>

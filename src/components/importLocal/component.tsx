@@ -29,6 +29,7 @@ import { convertCajToPdf, isCajFormat } from "../../utils/file/cajUtil";
 import { buildImportRecords, importNoteRecords } from "../../utils/file/import";
 import { moveBooksToCategory } from "../../utils/reader/shelfUtil";
 import { useAppStore } from "../../store/useAppStore";
+import type { ImportBookOptions } from "../../store/useAppStore";
 
 export interface ImportLocalProps {
   handleDrag: (isDrag: boolean) => void;
@@ -123,6 +124,8 @@ const ImportLocal = (props: ImportLocalProps) => {
   const getMd5WithBrowserRef = useRef<((file: File) => Promise<void>) | null>(
     null
   );
+  // 书城等页面导入时留在当前页，不跳转到首页
+  const stayOnPageRef = useRef(false);
   const handleFilePathRef = useRef<
     ((filePath: string) => Promise<void>) | null
   >(null);
@@ -179,9 +182,14 @@ const ImportLocal = (props: ImportLocalProps) => {
     });
     const resizeHandler = resizeHandlerRef.current;
     window.addEventListener("resize", resizeHandler);
-    handleImportBookFunc((file: File) =>
-      getMd5WithBrowserRef.current!(file)
-    );
+    handleImportBookFunc(async (file: File, options?: ImportBookOptions) => {
+      stayOnPageRef.current = !!options?.stayOnPage;
+      try {
+        await getMd5WithBrowserRef.current!(file);
+      } finally {
+        stayOnPageRef.current = false;
+      }
+    });
 
     return () => {
       if (focusHandler) {
@@ -242,6 +250,8 @@ const ImportLocal = (props: ImportLocalProps) => {
     buffer: ArrayBuffer,
     sourcePath?: string
   ) => {
+    // 跳转在 resolve 之后的定时器里执行，需在入口处记下本次导入的选项
+    const stayOnPage = stayOnPageRef.current;
     return new Promise<void>(async (resolve) => {
       toast.loading(
         t("Importing") + ": " + book.name.substring(0, 50),
@@ -282,7 +292,7 @@ const ImportLocal = (props: ImportLocalProps) => {
               return;
             }
             setState({ isOpenFile: false });
-            navigate("/manager/home");
+            if (!stayOnPage) navigate("/manager/home");
           }, 100);
           return resolve();
         })

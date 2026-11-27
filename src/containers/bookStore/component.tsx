@@ -200,7 +200,12 @@ const BookView = ({ modeSwitch, wishlistOnly = false }: BookViewProps) => {
   const importBookFunc = useAppStore((s) => s.book.importBookFunc);
   const handleFetchBooks = useAppStore((s) => s.handleFetchBooks);
   const handleRefreshBookCover = useAppStore((s) => s.handleRefreshBookCover);
+  const handleReadingBook = useAppStore((s) => s.handleReadingBook);
   const { t } = useTranslation();
+  // 下载链接 href -> 已导入的书，下载完成后在原位置显示“打开”按钮
+  const [importedBooks, setImportedBooks] = useState<
+    Record<string, BookModel>
+  >({});
   const [state, setState] = useState<BookStoreState>({
     categoryIndex: 0,
     searchQuery: "",
@@ -457,7 +462,13 @@ const BookView = ({ modeSwitch, wishlistOnly = false }: BookViewProps) => {
         // 书目关联失败不应阻止文件导入。
         toast.error(t("Save failed"));
       }
-      await importBookFunc(file);
+      await importBookFunc(file, { stayOnPage: true });
+      if (md5) {
+        const imported: BookModel | null = await BookUtil.getBookByMd5(md5);
+        if (imported?.key) {
+          setImportedBooks((prev) => ({ ...prev, [link.href]: imported }));
+        }
+      }
       // 书源封面与文件内容对应；没有时再用书单封面
       await applyStoreCover(
         md5,
@@ -473,6 +484,11 @@ const BookView = ({ modeSwitch, wishlistOnly = false }: BookViewProps) => {
     } finally {
       patchDetail(bookId, () => ({ downloadingHref: "" }));
     }
+  };
+
+  const openImportedBook = (book: BookModel) => {
+    handleReadingBook(book);
+    BookUtil.redirectBook(book);
   };
 
   // 首次进入和切换书单来源时加载第一个分类
@@ -520,21 +536,28 @@ const BookView = ({ modeSwitch, wishlistOnly = false }: BookViewProps) => {
         </div>
         <div className="book-store-edition-actions">
           {links === null && <span className="book-store-spinner is-inline" />}
-          {links?.map((link) => (
-            <span
-              key={link.href}
-              className={
-                "book-store-download-button" +
-                (downloadingHref === link.href ? " is-loading" : "")
-              }
-              title={link.title || ""}
-              onClick={() => handleDownload(book, link)}
-            >
-              <Trans>Add to bookshelf</Trans>
-              {" · "}
-              {(DOWNLOAD_TYPES[link.type] || "").toUpperCase() || link.title}
-            </span>
-          ))}
+          {links?.map((link) => {
+            const imported = importedBooks[link.href];
+            return (
+              <span
+                key={link.href}
+                className={
+                  "book-store-download-button" +
+                  (downloadingHref === link.href ? " is-loading" : "")
+                }
+                title={imported ? imported.name : link.title || ""}
+                onClick={() =>
+                  imported
+                    ? openImportedBook(imported)
+                    : handleDownload(book, link)
+                }
+              >
+                {imported ? <Trans>Open</Trans> : <Trans>Add to bookshelf</Trans>}
+                {" · "}
+                {(DOWNLOAD_TYPES[link.type] || "").toUpperCase() || link.title}
+              </span>
+            );
+          })}
           {websiteUrl && (
             <button type="button" className="book-store-link-button"
               onClick={() => openInBrowser(websiteUrl)}>
