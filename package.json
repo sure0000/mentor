@@ -241,10 +241,10 @@
       "darkModeSupport": true,
       "entitlements": "assets/macos/entitlements.mac.plist",
       "entitlementsInherit": "assets/macos/entitlements.mac.plist",
-      "identity": "Liang Guo",
+      "identity": "-",
       "gatekeeperAssess": false,
-      "hardenedRuntime": true,
-      "notarize": true,
+      "hardenedRuntime": false,
+      "notarize": false,
       "target": [
         {
           "target": "dmg",
