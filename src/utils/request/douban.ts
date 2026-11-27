@@ -71,7 +71,7 @@ export const buildDoubanSearchUrl = (query: string, start = 0) =>
     query.trim()
   )}&cat=1001&start=${start}`;
 
-// 列表里是小图，卡片用中图、详情用大图
+// 列表里是小图（约 270px 宽），中图在高分屏卡片上仍发虚，统一换成大图
 export const resizeDoubanCover = (url: string, size: "m" | "l") =>
   url.replace(/\/view\/subject\/[sml]\/public\//, `/view/subject/${size}/public/`);
 
@@ -121,7 +121,7 @@ export const parseDoubanList = (html: string, pageUrl: string): DoubanList => {
       abstract: clean(item.querySelector("p.pl, .pub")?.textContent),
       coverUrl: resizeDoubanCover(
         item.querySelector("img")?.getAttribute("src") || "",
-        "m"
+        "l"
       ),
       rating: parseRating(item.querySelector(".rating_nums")?.textContent),
       votes: parseVotes(item.querySelector(".star .pl")?.textContent),
@@ -165,7 +165,7 @@ export const parseDoubanSearch = (html: string, pageUrl: string): DoubanList => 
       id: String(it.id),
       title: clean(it.title),
       abstract: clean(it.abstract),
-      coverUrl: it.cover_url || "",
+      coverUrl: resizeDoubanCover(it.cover_url || "", "l"),
       rating: it.rating?.value ? it.rating.value : null,
       votes: it.rating?.count || 0,
       url: it.url || "",

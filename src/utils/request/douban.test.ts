@@ -70,7 +70,7 @@ describe("douban", () => {
         id: "1007305",
         title: "红楼梦",
         abstract: "(清)曹雪芹 / 人民文学出版社 / 1982-3 / 59.70元",
-        coverUrl: "https://img3.doubanio.com/view/subject/m/public/s1070959.jpg",
+        coverUrl: "https://img3.doubanio.com/view/subject/l/public/s1070959.jpg",
         rating: 9.7,
         votes: 471606,
         url: "https://book.douban.com/subject/1007305/",
